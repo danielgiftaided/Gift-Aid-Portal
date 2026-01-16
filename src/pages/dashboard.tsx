@@ -24,14 +24,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    checkUser(const { data: submissionsData } = await supabase
-  .from('submissions')
-  .select('*')
-  .eq('charity_id', userData.charity_id)
-  .order('submission_date', { ascending: false })
-
-setSubmissions(submissionsData || [])
-)
+    checkUser()
   }, [])
 
   const checkUser = async () => {
@@ -59,13 +52,25 @@ setSubmissions(submissionsData || [])
       
       setCharity(charityData)
 
-      const { data: submissionsData } = await supabase
-        .from('submissions')
-        .select('*')
-        .eq('charity_id', userData.charity_id)
-        .order('submission_date', { ascending: false })
+      const { data: sessionData } = await supabase.auth.getSession();
+const token = sessionData.session?.access_token;
 
-      setSubmissions(submissionsData || [])
+if (!token) {
+  throw new Error("No session token found");
+}
+
+const resp = await fetch("/api/submissions/list?limit=100&offset=0", {
+  headers: { Authorization: `Bearer ${token}` }
+});
+
+const json = await resp.json();
+
+if (!resp.ok || !json.ok) {
+  throw new Error(json?.error || "Failed to load submissions");
+}
+
+setSubmissions(json.submissions || []);
+
     }
 
     setLoading(false)
