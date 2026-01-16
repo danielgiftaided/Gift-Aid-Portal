@@ -1,16 +1,11 @@
-import { requireUser } from "./_utils/authGuard.js";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
 
-export default async function handler(req: Request) {
-  try {
-    const user = await requireUser(req);
-    return new Response(
-      JSON.stringify({ ok: true, userId: user.id }),
-      { status: 200, headers: { "Content-Type": "application/json" } }
-    );
-  } catch (err: any) {
-    return new Response(
-      JSON.stringify({ ok: false, error: err.message }),
-      { status: 401, headers: { "Content-Type": "application/json" } }
-    );
-  }
+export default function handler(req: VercelRequest, res: VercelResponse) {
+  // This should NEVER hang. It does not call Supabase.
+  return res.status(200).json({
+    ok: true,
+    message: "health endpoint is running",
+    hasAuthHeader: Boolean(req.headers.authorization),
+    time: new Date().toISOString(),
+  });
 }
