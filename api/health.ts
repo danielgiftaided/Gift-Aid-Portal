@@ -1,4 +1,4 @@
-import { requireUser } from "./_utils/authGuard";
+import { requireUser } from "./_utils/authGuard.js";
 
 export default async function handler(req: Request) {
   try {
