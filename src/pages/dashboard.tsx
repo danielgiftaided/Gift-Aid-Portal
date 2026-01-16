@@ -24,7 +24,14 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    checkUser()
+    checkUser(const { data: submissionsData } = await supabase
+  .from('submissions')
+  .select('*')
+  .eq('charity_id', userData.charity_id)
+  .order('submission_date', { ascending: false })
+
+setSubmissions(submissionsData || [])
+)
   }, [])
 
   const checkUser = async () => {
