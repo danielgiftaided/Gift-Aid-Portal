@@ -4,6 +4,7 @@ import Dashboard from "./pages/dashboard";
 import Admin from "./pages/admin";
 import AdminClaims from "./pages/adminClaims";
 import AdminClaimDetail from "./pages/adminClaimDetail";
+import RequireOperator from "./components/RequireOperator";
 
 export default function App() {
   return (
@@ -14,10 +15,33 @@ export default function App() {
       {/* Charity portal */}
       <Route path="/dashboard" element={<Dashboard />} />
 
-      {/* Operator/Admin portal */}
-      <Route path="/admin" element={<Admin />} />
-      <Route path="/admin/claims" element={<AdminClaims />} />
-      <Route path="/admin/claims/:id" element={<AdminClaimDetail />} />
+      {/* Operator/Admin portal (guarded) */}
+      <Route
+        path="/admin"
+        element={
+          <RequireOperator>
+            <Admin />
+          </RequireOperator>
+        }
+      />
+
+      <Route
+        path="/admin/claims"
+        element={
+          <RequireOperator>
+            <AdminClaims />
+          </RequireOperator>
+        }
+      />
+
+      <Route
+        path="/admin/claims/:id"
+        element={
+          <RequireOperator>
+            <AdminClaimDetail />
+          </RequireOperator>
+        }
+      />
 
       {/* Default */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
