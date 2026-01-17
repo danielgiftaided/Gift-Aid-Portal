@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/login";
 import Dashboard from "./pages/dashboard";
 import Admin from "./pages/admin";
+import AdminClaims from "./pages/adminClaims";
+import AdminClaimDetail from "./pages/adminClaimDetail";
 
 export default function App() {
   return (
@@ -9,11 +11,13 @@ export default function App() {
       {/* Public */}
       <Route path="/login" element={<Login />} />
 
-      {/* Main app */}
+      {/* Charity portal */}
       <Route path="/dashboard" element={<Dashboard />} />
 
-      {/* Admin (operator) portal */}
+      {/* Operator/Admin portal */}
       <Route path="/admin" element={<Admin />} />
+      <Route path="/admin/claims" element={<AdminClaims />} />
+      <Route path="/admin/claims/:id" element={<AdminClaimDetail />} />
 
       {/* Default */}
       <Route path="/" element={<Navigate to="/dashboard" replace />} />
