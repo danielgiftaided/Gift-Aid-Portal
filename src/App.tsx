@@ -1,18 +1,25 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
-import Login from './pages/login'
-import Dashboard from './pages/dashboard'
+import { Routes, Route, Navigate } from "react-router-dom";
+import Login from "./pages/login";
+import Dashboard from "./pages/dashboard";
+import Admin from "./pages/admin";
 
-function App() {
+export default function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/" element={<Navigate to="/login" />} />
-        <Route path="*" element={<Navigate to="/login" />} />
-      </Routes>
-    </Router>
-  )
-}
+    <Routes>
+      {/* Public */}
+      <Route path="/login" element={<Login />} />
 
-export default App
+      {/* Main app */}
+      <Route path="/dashboard" element={<Dashboard />} />
+
+      {/* Admin (operator) portal */}
+      <Route path="/admin" element={<Admin />} />
+
+      {/* Default */}
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  );
+}
