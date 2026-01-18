@@ -25,11 +25,14 @@ type Claim = {
 
 type ClaimItem = {
   id: string;
-  donor_name: string;
+  claim_id?: string;
+  donor_title: string | null;
+  donor_first_name: string;
+  donor_last_name: string;
+  donor_address: string;
   donor_postcode: string;
   donation_date: string;
   donation_amount: number;
-  gift_aid_declaration_date: string | null;
   created_at: string;
 };
 
@@ -49,6 +52,84 @@ async function safeReadJson(res: Response) {
   }
 }
 
+/**
+ * Minimal CSV parser:
+ * - supports commas
+ * - supports quoted values with commas: "10 Downing St, London"
+ * - supports escaped quotes: ""
+ * Returns array of objects keyed by header columns.
+ */
+function parseCsvToObjects(csv: string): Array<Record<string, string>> {
+  const rows: string[][] = [];
+  let cur = "";
+  let inQuotes = false;
+  let row: string[] = [];
+
+  const pushCell = () => {
+    row.push(cur);
+    cur = "";
+  };
+
+  const pushRow = () => {
+    // ignore completely empty lines
+    if (row.length === 1 && row[0].trim() === "") {
+      row = [];
+      return;
+    }
+    rows.push(row);
+    row = [];
+  };
+
+  for (let i = 0; i < csv.length; i++) {
+    const ch = csv[i];
+
+    if (ch === '"') {
+      const next = csv[i + 1];
+      if (inQuotes && next === '"') {
+        cur += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (!inQuotes && ch === ",") {
+      pushCell();
+      continue;
+    }
+
+    if (!inQuotes && (ch === "\n" || ch === "\r")) {
+      if (ch === "\r" && csv[i + 1] === "\n") i++;
+      pushCell();
+      pushRow();
+      continue;
+    }
+
+    cur += ch;
+  }
+
+  pushCell();
+  pushRow();
+
+  if (rows.length === 0) return [];
+
+  const headers = rows[0].map((h) => h.trim());
+  const dataRows = rows.slice(1);
+
+  const out: Array<Record<string, string>> = [];
+  for (const r of dataRows) {
+    const obj: Record<string, string> = {};
+    for (let i = 0; i < headers.length; i++) {
+      obj[headers[i]] = (r[i] ?? "").trim();
+    }
+    // skip blank lines (all fields empty)
+    const anyValue = Object.values(obj).some((v) => v.trim() !== "");
+    if (anyValue) out.push(obj);
+  }
+  return out;
+}
+
 export default function AdminClaimDetail() {
   const { id } = useParams();
   const claimId = id ?? "";
@@ -60,24 +141,46 @@ export default function AdminClaimDetail() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Add form fields
-  const [donorName, setDonorName] = useState("");
-  const [donorPostcode, setDonorPostcode] = useState("");
+  // Add single item form fields (HMRC-aligned)
+  const [title, setTitle] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [address, setAddress] = useState("");
+  const [postcode, setPostcode] = useState("");
   const [donationDate, setDonationDate] = useState("");
   const [donationAmount, setDonationAmount] = useState("");
-  const [declarationDate, setDeclarationDate] = useState("");
 
-  // Edit state per row
+  // Edit row state
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [editDonorName, setEditDonorName] = useState("");
-  const [editDonorPostcode, setEditDonorPostcode] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editFirstName, setEditFirstName] = useState("");
+  const [editLastName, setEditLastName] = useState("");
+  const [editAddress, setEditAddress] = useState("");
+  const [editPostcode, setEditPostcode] = useState("");
   const [editDonationDate, setEditDonationDate] = useState("");
   const [editDonationAmount, setEditDonationAmount] = useState("");
-  const [editDeclarationDate, setEditDeclarationDate] = useState("");
+
+  // CSV import state
+  const [csvFilename, setCsvFilename] = useState<string | null>(null);
+  const [csvRows, setCsvRows] = useState<
+    Array<{
+      title: string;
+      first_name: string;
+      last_name: string;
+      address: string;
+      postcode: string;
+      donation_amount: string;
+      donation_date: string;
+    }>
+  >([]);
+  const [csvErrors, setCsvErrors] = useState<Array<{ row: number; error: string }>>([]);
+  const [csvPreviewOpen, setCsvPreviewOpen] = useState(false);
 
   const computedTotal = useMemo(() => {
     return items.reduce((s, it) => s + Number(it.donation_amount || 0), 0);
   }, [items]);
+
+  const canEditItems = claim?.status === "draft";
 
   const load = async () => {
     try {
@@ -85,14 +188,12 @@ export default function AdminClaimDetail() {
       setError(null);
 
       if (!claimId) throw new Error("Missing claim id in URL");
-
       const token = await getToken();
 
-      // 1) Load claim + charity
-      const claimRes = await fetch(
-        `/api/admin/claims/get?claimId=${encodeURIComponent(claimId)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // 1) claim + charity
+      const claimRes = await fetch(`/api/admin/claims/get?claimId=${encodeURIComponent(claimId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       const { json: claimJson, text: claimText } = await safeReadJson(claimRes);
 
@@ -106,11 +207,10 @@ export default function AdminClaimDetail() {
       setClaim(claimJson.claim as Claim);
       setCharity(claimJson.charity as Charity);
 
-      // 2) Load claim items
-      const itemsRes = await fetch(
-        `/api/admin/claims/items?claimId=${encodeURIComponent(claimId)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      // 2) claim items
+      const itemsRes = await fetch(`/api/admin/claims/items?claimId=${encodeURIComponent(claimId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       const { json: itemsJson, text: itemsText } = await safeReadJson(itemsRes);
 
@@ -137,38 +237,39 @@ export default function AdminClaimDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claimId]);
 
-  const canEditItems = claim?.status === "draft";
-
   const addItem = async () => {
     try {
       setBusy("addItem");
       setError(null);
 
-      if (!donorName.trim()) throw new Error("Donor name is required");
-      if (!donorPostcode.trim()) throw new Error("Donor postcode is required");
-      if (!donationDate) throw new Error("Donation date is required");
-      if (!donationAmount) throw new Error("Donation amount is required");
+      if (!canEditItems) throw new Error("Items can only be added while claim is draft");
+
+      if (!firstName.trim()) throw new Error("First Name is required");
+      if (!lastName.trim()) throw new Error("Last Name is required");
+      if (!address.trim()) throw new Error("Address is required");
+      if (!postcode.trim()) throw new Error("Postcode is required");
+      if (!donationDate) throw new Error("Donation Date is required");
+      if (!donationAmount) throw new Error("Donation Amount is required");
 
       const amount = Number(donationAmount);
       if (!Number.isFinite(amount) || amount <= 0) {
-        throw new Error("Donation amount must be a positive number");
+        throw new Error("Donation Amount must be a positive number");
       }
 
       const token = await getToken();
 
       const res = await fetch("/api/admin/claims/add-item", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           claimId,
-          donorName: donorName.trim(),
-          donorPostcode: donorPostcode.trim(),
+          title: title.trim() || null,
+          firstName: firstName.trim(),
+          lastName: lastName.trim(),
+          address: address.trim(),
+          postcode: postcode.trim(),
           donationDate,
           donationAmount: amount,
-          declarationDate: declarationDate || null,
         }),
       });
 
@@ -179,11 +280,13 @@ export default function AdminClaimDetail() {
       }
       if (!json?.ok) throw new Error(json?.error || "Failed to add item");
 
-      setDonorName("");
-      setDonorPostcode("");
+      setTitle("");
+      setFirstName("");
+      setLastName("");
+      setAddress("");
+      setPostcode("");
       setDonationDate("");
       setDonationAmount("");
-      setDeclarationDate("");
       await load();
     } catch (e: any) {
       setError(e.message || "Error");
@@ -194,20 +297,24 @@ export default function AdminClaimDetail() {
 
   const startEdit = (it: ClaimItem) => {
     setEditingId(it.id);
-    setEditDonorName(it.donor_name ?? "");
-    setEditDonorPostcode(it.donor_postcode ?? "");
+    setEditTitle(it.donor_title ?? "");
+    setEditFirstName(it.donor_first_name ?? "");
+    setEditLastName(it.donor_last_name ?? "");
+    setEditAddress(it.donor_address ?? "");
+    setEditPostcode(it.donor_postcode ?? "");
     setEditDonationDate(it.donation_date ?? "");
     setEditDonationAmount(String(it.donation_amount ?? ""));
-    setEditDeclarationDate(it.gift_aid_declaration_date ?? "");
   };
 
   const cancelEdit = () => {
     setEditingId(null);
-    setEditDonorName("");
-    setEditDonorPostcode("");
+    setEditTitle("");
+    setEditFirstName("");
+    setEditLastName("");
+    setEditAddress("");
+    setEditPostcode("");
     setEditDonationDate("");
     setEditDonationAmount("");
-    setEditDeclarationDate("");
   };
 
   const saveEdit = async () => {
@@ -218,29 +325,30 @@ export default function AdminClaimDetail() {
 
       if (!canEditItems) throw new Error("Items can only be edited while claim is draft");
 
-      if (!editDonorName.trim()) throw new Error("Donor name is required");
-      if (!editDonorPostcode.trim()) throw new Error("Donor postcode is required");
-      if (!editDonationDate) throw new Error("Donation date is required");
-      if (!editDonationAmount) throw new Error("Donation amount is required");
+      if (!editFirstName.trim()) throw new Error("First Name is required");
+      if (!editLastName.trim()) throw new Error("Last Name is required");
+      if (!editAddress.trim()) throw new Error("Address is required");
+      if (!editPostcode.trim()) throw new Error("Postcode is required");
+      if (!editDonationDate) throw new Error("Donation Date is required");
+      if (!editDonationAmount) throw new Error("Donation Amount is required");
 
       const amt = Number(editDonationAmount);
-      if (!Number.isFinite(amt) || amt <= 0) throw new Error("Donation amount must be a positive number");
+      if (!Number.isFinite(amt) || amt <= 0) throw new Error("Donation Amount must be a positive number");
 
       const token = await getToken();
 
       const res = await fetch("/api/admin/claims/update-item", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           itemId: editingId,
-          donorName: editDonorName.trim(),
-          donorPostcode: editDonorPostcode.trim(),
+          title: editTitle.trim() || null,
+          firstName: editFirstName.trim(),
+          lastName: editLastName.trim(),
+          address: editAddress.trim(),
+          postcode: editPostcode.trim(),
           donationDate: editDonationDate,
           donationAmount: amt,
-          declarationDate: editDeclarationDate || null,
         }),
       });
 
@@ -274,10 +382,7 @@ export default function AdminClaimDetail() {
 
       const res = await fetch("/api/admin/claims/delete-item", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ itemId }),
       });
 
@@ -288,12 +393,149 @@ export default function AdminClaimDetail() {
       }
       if (!json?.ok) throw new Error(json?.error || "Failed to delete item");
 
-      // If we deleted the item being edited, exit edit mode
       if (editingId === itemId) cancelEdit();
-
       await load();
     } catch (e: any) {
       setError(e.message || "Error");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  // ===== CSV import =====
+  const onPickCsvFile = async (file: File | null) => {
+    try {
+      setCsvErrors([]);
+      setError(null);
+
+      if (!file) {
+        setCsvFilename(null);
+        setCsvRows([]);
+        setCsvPreviewOpen(false);
+        return;
+      }
+
+      const text = await file.text();
+      const parsed = parseCsvToObjects(text);
+
+      if (parsed.length === 0) throw new Error("CSV contains no rows (check header row and data).");
+
+      // Accept a few header variations; normalize into required keys.
+      const normKey = (k: string) =>
+        k.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+
+      const normalizeRow = (r: Record<string, string>) => {
+        const map: Record<string, string> = {};
+        for (const [k, v] of Object.entries(r)) map[normKey(k)] = (v ?? "").trim();
+
+        return {
+          title: map["title"] || "",
+          first_name: map["first_name"] || map["firstname"] || "",
+          last_name: map["last_name"] || map["lastname"] || "",
+          address: map["address"] || "",
+          postcode: map["postcode"] || map["post_code"] || "",
+          donation_amount: map["donation_amount"] || map["amount"] || "",
+          donation_date: map["donation_date"] || map["date"] || "",
+        };
+      };
+
+      const normalized = parsed.map(normalizeRow);
+
+      setCsvFilename(file.name);
+      setCsvRows(normalized);
+      setCsvPreviewOpen(true);
+    } catch (e: any) {
+      setCsvFilename(null);
+      setCsvRows([]);
+      setCsvPreviewOpen(false);
+      setError(e?.message ?? "Failed to parse CSV");
+    }
+  };
+
+  const importCsv = async () => {
+    try {
+      setBusy("importCsv");
+      setError(null);
+      setCsvErrors([]);
+
+      if (!canEditItems) throw new Error("Can only import into a draft claim");
+      if (csvRows.length === 0) throw new Error("No CSV rows to import");
+
+      const token = await getToken();
+
+      const res = await fetch("/api/admin/claims/import-csv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ claimId, rows: csvRows }),
+      });
+
+      const { json, text } = await safeReadJson(res);
+
+      if (!res.ok) {
+        throw new Error(`import-csv failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
+      }
+      if (!json?.ok) throw new Error(json?.error || "Failed to import CSV");
+
+      setCsvErrors(json.errors || []);
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Import failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const markReady = async () => {
+    try {
+      setBusy("ready");
+      setError(null);
+
+      const token = await getToken();
+
+      const res = await fetch("/api/admin/claims/mark-ready", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ claimId }),
+      });
+
+      const { json, text } = await safeReadJson(res);
+
+      if (!res.ok) {
+        throw new Error(`mark-ready failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
+      }
+      if (!json?.ok) throw new Error(json?.error || "Failed to mark ready");
+
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Mark ready failed");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const submitClaim = async () => {
+    try {
+      setBusy("submit");
+      setError(null);
+
+      const token = await getToken();
+
+      const res = await fetch("/api/admin/claims/submit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ claimId }),
+      });
+
+      const { json, text } = await safeReadJson(res);
+
+      if (!res.ok) {
+        throw new Error(`submit failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
+      }
+      if (!json?.ok) throw new Error(json?.error || "Failed to submit claim");
+
+      await load();
+    } catch (e: any) {
+      setError(e?.message ?? "Submit failed");
     } finally {
       setBusy(null);
     }
@@ -356,35 +598,183 @@ export default function AdminClaimDetail() {
           <div className="text-xs text-gray-500 mt-2">
             HMRC Ref: <span className="font-medium">{claim?.hmrc_reference ?? "-"}</span>
           </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              disabled={busy !== null || (claim?.status !== "draft" && claim?.status !== "ready")}
+              onClick={markReady}
+              className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-50"
+              title="Recalculate totals and move claim to 'ready'"
+            >
+              {busy === "ready" ? "Marking…" : "Mark Ready"}
+            </button>
+
+            <button
+              disabled={busy !== null || claim?.status !== "ready"}
+              onClick={submitClaim}
+              className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              title="Submit this claim to HMRC (stub for now)"
+            >
+              {busy === "submit" ? "Submitting…" : "Submit to HMRC"}
+            </button>
+          </div>
         </div>
       </div>
 
+      {/* Donation Items */}
       <div className="bg-white rounded-lg shadow p-4 mb-6">
-        <h2 className="font-semibold mb-2">Donation Items</h2>
-        <div className="text-sm text-gray-600 mb-3">
-          Count: <span className="font-medium">{items.length}</span> • Total:{" "}
-          <span className="font-medium">£{computedTotal.toLocaleString()}</span>
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold">Donation Items</h2>
+          <div className="text-sm text-gray-600">
+            Count: <span className="font-medium">{items.length}</span> • Total:{" "}
+            <span className="font-medium">£{computedTotal.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* CSV Import */}
+        <div className="mt-4 border border-gray-200 rounded p-3">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <div className="font-medium">Import donations from CSV (Admin only)</div>
+              <div className="text-xs text-gray-500 mt-1">
+                Required columns: title, first_name, last_name, address, postcode, donation_amount, donation_date
+              </div>
+            </div>
+            <div className="text-xs text-gray-500">
+              {canEditItems ? "Claim is draft ✅" : "Import disabled (claim not draft) ❗"}
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <input
+              type="file"
+              accept=".csv,text/csv"
+              disabled={!canEditItems || busy !== null}
+              onChange={(e) => onPickCsvFile(e.target.files?.[0] ?? null)}
+            />
+
+            {csvFilename && (
+              <div className="text-sm text-gray-700">
+                Selected: <span className="font-medium">{csvFilename}</span> • Rows:{" "}
+                <span className="font-medium">{csvRows.length}</span>
+              </div>
+            )}
+
+            <button
+              onClick={importCsv}
+              disabled={!canEditItems || busy !== null || csvRows.length === 0}
+              className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {busy === "importCsv" ? "Importing…" : "Import CSV"}
+            </button>
+
+            <button
+              onClick={() => setCsvPreviewOpen((v) => !v)}
+              disabled={csvRows.length === 0}
+              className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-50"
+            >
+              {csvPreviewOpen ? "Hide Preview" : "Preview"}
+            </button>
+          </div>
+
+          {csvPreviewOpen && csvRows.length > 0 && (
+            <div className="mt-3 overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 text-sm">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-2 py-2 text-left">title</th>
+                    <th className="px-2 py-2 text-left">first_name</th>
+                    <th className="px-2 py-2 text-left">last_name</th>
+                    <th className="px-2 py-2 text-left">address</th>
+                    <th className="px-2 py-2 text-left">postcode</th>
+                    <th className="px-2 py-2 text-left">donation_amount</th>
+                    <th className="px-2 py-2 text-left">donation_date</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {csvRows.slice(0, 5).map((r, idx) => (
+                    <tr key={idx}>
+                      <td className="px-2 py-2">{r.title || "-"}</td>
+                      <td className="px-2 py-2">{r.first_name}</td>
+                      <td className="px-2 py-2">{r.last_name}</td>
+                      <td className="px-2 py-2">{r.address}</td>
+                      <td className="px-2 py-2">{r.postcode}</td>
+                      <td className="px-2 py-2">{r.donation_amount}</td>
+                      <td className="px-2 py-2">{r.donation_date}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {csvRows.length > 5 && (
+                <div className="text-xs text-gray-500 mt-2">Showing first 5 rows only.</div>
+              )}
+            </div>
+          )}
+
+          {csvErrors.length > 0 && (
+            <div className="mt-3 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded p-3">
+              <div className="font-medium">Some rows were skipped:</div>
+              <ul className="list-disc ml-5 mt-2 text-sm">
+                {csvErrors.slice(0, 15).map((e, idx) => (
+                  <li key={idx}>
+                    Row {e.row}: {e.error}
+                  </li>
+                ))}
+              </ul>
+              {csvErrors.length > 15 && <div className="text-xs mt-2">Showing first 15 errors.</div>}
+            </div>
+          )}
         </div>
 
         {/* Add item form */}
-        <div className="mt-2 grid grid-cols-1 md:grid-cols-6 gap-3">
+        <div className="mt-4 grid grid-cols-1 md:grid-cols-8 gap-3">
           <input
-            id="donor-name"
-            name="donorName"
-            className="border rounded px-2 py-2 text-sm md:col-span-2"
-            placeholder="Donor name"
-            value={donorName}
-            onChange={(e) => setDonorName(e.target.value)}
+            id="title"
+            name="title"
+            className="border rounded px-2 py-2 text-sm"
+            placeholder="Title (e.g. Mr)"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
             disabled={busy !== null || !canEditItems}
-            autoComplete="name"
+            autoComplete="honorific-prefix"
           />
           <input
-            id="donor-postcode"
-            name="donorPostcode"
+            id="first-name"
+            name="firstName"
+            className="border rounded px-2 py-2 text-sm"
+            placeholder="First Name"
+            value={firstName}
+            onChange={(e) => setFirstName(e.target.value)}
+            disabled={busy !== null || !canEditItems}
+            autoComplete="given-name"
+          />
+          <input
+            id="last-name"
+            name="lastName"
+            className="border rounded px-2 py-2 text-sm"
+            placeholder="Last Name"
+            value={lastName}
+            onChange={(e) => setLastName(e.target.value)}
+            disabled={busy !== null || !canEditItems}
+            autoComplete="family-name"
+          />
+          <input
+            id="address"
+            name="address"
+            className="border rounded px-2 py-2 text-sm md:col-span-2"
+            placeholder="Address"
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            disabled={busy !== null || !canEditItems}
+            autoComplete="street-address"
+          />
+          <input
+            id="postcode"
+            name="postcode"
             className="border rounded px-2 py-2 text-sm"
             placeholder="Postcode"
-            value={donorPostcode}
-            onChange={(e) => setDonorPostcode(e.target.value)}
+            value={postcode}
+            onChange={(e) => setPostcode(e.target.value)}
             disabled={busy !== null || !canEditItems}
             autoComplete="postal-code"
           />
@@ -406,16 +796,6 @@ export default function AdminClaimDetail() {
             onChange={(e) => setDonationAmount(e.target.value)}
             disabled={busy !== null || !canEditItems}
           />
-          <input
-            id="declaration-date"
-            name="declarationDate"
-            type="date"
-            className="border rounded px-2 py-2 text-sm"
-            value={declarationDate}
-            onChange={(e) => setDeclarationDate(e.target.value)}
-            disabled={busy !== null || !canEditItems}
-            title="Optional: Gift Aid declaration date"
-          />
         </div>
 
         <div className="mt-3">
@@ -429,7 +809,7 @@ export default function AdminClaimDetail() {
 
           {!canEditItems && (
             <div className="text-xs text-gray-500 mt-2">
-              Items can only be added/edited/deleted while the claim is in{" "}
+              Items can only be added/edited/deleted/imported while the claim is in{" "}
               <span className="font-medium">draft</span>.
             </div>
           )}
@@ -443,11 +823,13 @@ export default function AdminClaimDetail() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Donor</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Title</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">First</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Last</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Address</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Postcode</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Donation Date</th>
                   <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Declaration Date</th>
                   <th className="px-3 py-2"></th>
                 </tr>
               </thead>
@@ -462,22 +844,61 @@ export default function AdminClaimDetail() {
                       <td className="px-3 py-2 text-sm">
                         {isEditing ? (
                           <input
-                            className="border rounded px-2 py-1 text-sm w-full"
-                            value={editDonorName}
-                            onChange={(e) => setEditDonorName(e.target.value)}
+                            className="border rounded px-2 py-1 text-sm w-24"
+                            value={editTitle}
+                            onChange={(e) => setEditTitle(e.target.value)}
                             disabled={rowBusy || !canEditItems}
                           />
                         ) : (
-                          it.donor_name
+                          it.donor_title || "-"
                         )}
                       </td>
 
                       <td className="px-3 py-2 text-sm">
                         {isEditing ? (
                           <input
-                            className="border rounded px-2 py-1 text-sm w-full"
-                            value={editDonorPostcode}
-                            onChange={(e) => setEditDonorPostcode(e.target.value)}
+                            className="border rounded px-2 py-1 text-sm w-40"
+                            value={editFirstName}
+                            onChange={(e) => setEditFirstName(e.target.value)}
+                            disabled={rowBusy || !canEditItems}
+                          />
+                        ) : (
+                          it.donor_first_name
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 text-sm">
+                        {isEditing ? (
+                          <input
+                            className="border rounded px-2 py-1 text-sm w-40"
+                            value={editLastName}
+                            onChange={(e) => setEditLastName(e.target.value)}
+                            disabled={rowBusy || !canEditItems}
+                          />
+                        ) : (
+                          it.donor_last_name
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 text-sm">
+                        {isEditing ? (
+                          <input
+                            className="border rounded px-2 py-1 text-sm w-full min-w-[260px]"
+                            value={editAddress}
+                            onChange={(e) => setEditAddress(e.target.value)}
+                            disabled={rowBusy || !canEditItems}
+                          />
+                        ) : (
+                          it.donor_address
+                        )}
+                      </td>
+
+                      <td className="px-3 py-2 text-sm">
+                        {isEditing ? (
+                          <input
+                            className="border rounded px-2 py-1 text-sm w-32"
+                            value={editPostcode}
+                            onChange={(e) => setEditPostcode(e.target.value)}
                             disabled={rowBusy || !canEditItems}
                           />
                         ) : (
@@ -489,7 +910,7 @@ export default function AdminClaimDetail() {
                         {isEditing ? (
                           <input
                             type="date"
-                            className="border rounded px-2 py-1 text-sm w-full"
+                            className="border rounded px-2 py-1 text-sm w-40"
                             value={editDonationDate}
                             onChange={(e) => setEditDonationDate(e.target.value)}
                             disabled={rowBusy || !canEditItems}
@@ -502,29 +923,13 @@ export default function AdminClaimDetail() {
                       <td className="px-3 py-2 text-sm font-medium">
                         {isEditing ? (
                           <input
-                            className="border rounded px-2 py-1 text-sm w-full"
+                            className="border rounded px-2 py-1 text-sm w-28"
                             value={editDonationAmount}
                             onChange={(e) => setEditDonationAmount(e.target.value)}
                             disabled={rowBusy || !canEditItems}
                           />
                         ) : (
                           `£${Number(it.donation_amount || 0).toLocaleString()}`
-                        )}
-                      </td>
-
-                      <td className="px-3 py-2 text-sm">
-                        {isEditing ? (
-                          <input
-                            type="date"
-                            className="border rounded px-2 py-1 text-sm w-full"
-                            value={editDeclarationDate}
-                            onChange={(e) => setEditDeclarationDate(e.target.value)}
-                            disabled={rowBusy || !canEditItems}
-                          />
-                        ) : it.gift_aid_declaration_date ? (
-                          new Date(it.gift_aid_declaration_date).toLocaleDateString()
-                        ) : (
-                          "-"
                         )}
                       </td>
 
@@ -572,6 +977,14 @@ export default function AdminClaimDetail() {
             </table>
           )}
         </div>
+      </div>
+
+      {/* Helpful CSV template */}
+      <div className="text-xs text-gray-500 mt-6">
+        CSV template header:{" "}
+        <span className="font-mono">
+          title,first_name,last_name,address,postcode,donation_amount,donation_date
+        </span>
       </div>
     </div>
   );
