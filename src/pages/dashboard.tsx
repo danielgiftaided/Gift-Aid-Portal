@@ -52,7 +52,7 @@ export default function Dashboard() {
         throw new Error("No session token found. Please log in again.");
       }
 
-      // 1) Ask backend which charity I'm linked to
+      // 1) Load charity info (or redirect to setup if missing)
       const charityResp = await fetch("/api/charity/me", {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
@@ -60,19 +60,13 @@ export default function Dashboard() {
 
       const charityJson = await charityResp.json();
 
-      // If user exists but has no charity set up yet, send them to setup screen
-      // (Assumes your /api/charity/me returns ok:false with a clear message)
+      // ✅ If the user is logged in but not linked to a charity yet -> send to setup
       if (!charityResp.ok || !charityJson?.ok) {
-        const msg = String(charityJson?.error || "");
+        const isNoCharity =
+          charityResp.status === 403 &&
+          charityJson?.error === "User is not linked to a charity";
 
-        // Any of these conditions -> we treat it as "not setup yet"
-        const looksLikeNoCharity =
-          msg.toLowerCase().includes("no charity") ||
-          msg.toLowerCase().includes("charity_id") ||
-          msg.toLowerCase().includes("not linked") ||
-          msg.toLowerCase().includes("not set");
-
-        if (looksLikeNoCharity) {
+        if (isNoCharity) {
           window.location.href = "/charity-setup";
           return;
         }
@@ -82,7 +76,7 @@ export default function Dashboard() {
 
       setCharity(charityJson.charity as Charity);
 
-      // 2) Load submissions for my charity (backend-scoped)
+      // 2) Load submissions
       const subsResp = await fetch("/api/submissions/list?limit=100&offset=0", {
         method: "GET",
         headers: { Authorization: `Bearer ${token}` },
@@ -165,7 +159,9 @@ export default function Dashboard() {
           <h2 className="text-xl font-semibold mb-2">
             Welcome, {charity?.name || "Charity"}
           </h2>
-          <p className="text-gray-600">View and track your Gift Aid submissions</p>
+          <p className="text-gray-600">
+            View and track your Gift Aid submissions
+          </p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -232,7 +228,10 @@ export default function Dashboard() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-6 py-4 text-center text-gray-500">
+                    <td
+                      colSpan={6}
+                      className="px-6 py-4 text-center text-gray-500"
+                    >
                       No submissions yet
                     </td>
                   </tr>
@@ -240,13 +239,16 @@ export default function Dashboard() {
                   submissions.map((submission) => (
                     <tr key={submission.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {new Date(submission.submission_date).toLocaleDateString()}
+                        {new Date(
+                          submission.submission_date
+                        ).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {submission.tax_year}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        £{Number(submission.amount_claimed || 0).toLocaleString()}
+                        £
+                        {Number(submission.amount_claimed || 0).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {submission.number_of_donations}
@@ -272,7 +274,9 @@ export default function Dashboard() {
         </div>
 
         {user?.id && (
-          <div className="text-xs text-gray-400 mt-6">Logged in user: {user.id}</div>
+          <div className="text-xs text-gray-400 mt-6">
+            Logged in user: {user.id}
+          </div>
         )}
       </div>
     </div>
