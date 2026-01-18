@@ -1,10 +1,11 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/login";
 import Dashboard from "./pages/dashboard";
+import CharitySetup from "./pages/charitySetup"; // ✅ NEW
 import Admin from "./pages/admin";
 import AdminClaims from "./pages/adminClaims";
 import AdminClaimDetail from "./pages/adminClaimDetail";
-import AdminCharityDetail from "./pages/adminCharityDetail"; // ✅ NEW
+import AdminCharityDetail from "./pages/adminCharityDetail";
 import RequireOperator from "./components/RequireOperator";
 
 export default function App() {
@@ -12,6 +13,9 @@ export default function App() {
     <Routes>
       {/* Public */}
       <Route path="/login" element={<Login />} />
+
+      {/* ✅ NEW: Self-signup charity setup */}
+      <Route path="/charity-setup" element={<CharitySetup />} />
 
       {/* Charity portal */}
       <Route path="/dashboard" element={<Dashboard />} />
@@ -26,7 +30,6 @@ export default function App() {
         }
       />
 
-      {/* ✅ NEW: Charity detail page */}
       <Route
         path="/admin/charities/:id"
         element={
