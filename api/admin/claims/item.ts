@@ -2,13 +2,18 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { supabaseAdmin } from "../../_utils/supabase.js";
 import { requireOperator } from "../../_utils/requireOperator.js";
 
+function safeJson(res: VercelResponse, status: number, payload: any) {
+  return res.status(status).setHeader("Content-Type", "application/json").send(JSON.stringify(payload));
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== "GET") return res.status(405).json({ ok: false, error: "Method not allowed" });
+    if (req.method !== "GET") return safeJson(res, 405, { ok: false, error: "Method not allowed" });
+
     await requireOperator(req);
 
     const claimId = typeof req.query.claimId === "string" ? req.query.claimId : "";
-    if (!claimId) return res.status(400).json({ ok: false, error: "claimId is required" });
+    if (!claimId) return safeJson(res, 400, { ok: false, error: "claimId is required" });
 
     const { data: items, error } = await supabaseAdmin
       .from("claim_items")
@@ -16,10 +21,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .eq("claim_id", claimId)
       .order("created_at", { ascending: false });
 
-    if (error) return res.status(500).json({ ok: false, error: error.message });
+    if (error) return safeJson(res, 500, { ok: false, error: error.message });
 
-    return res.status(200).json({ ok: true, items: items ?? [] });
+    return safeJson(res, 200, { ok: true, items: items ?? [] });
   } catch (err: any) {
-    return res.status(403).json({ ok: false, error: err.message });
+    return safeJson(res, 500, { ok: false, error: err?.message ?? "Server error" });
   }
 }
