@@ -4,6 +4,7 @@ import Dashboard from "./pages/dashboard";
 import Admin from "./pages/admin";
 import AdminClaims from "./pages/adminClaims";
 import AdminClaimDetail from "./pages/adminClaimDetail";
+import AdminCharityDetail from "./pages/adminCharityDetail"; // ✅ NEW
 import RequireOperator from "./components/RequireOperator";
 
 export default function App() {
@@ -21,6 +22,16 @@ export default function App() {
         element={
           <RequireOperator>
             <Admin />
+          </RequireOperator>
+        }
+      />
+
+      {/* ✅ NEW: Charity detail page */}
+      <Route
+        path="/admin/charities/:id"
+        element={
+          <RequireOperator>
+            <AdminCharityDetail />
           </RequireOperator>
         }
       />
