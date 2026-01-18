@@ -2,7 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Link, useParams } from "react-router-dom";
 
-type Charity = { id: string; name: string; contact_email: string; self_submit_enabled: boolean };
+type Charity = {
+  id: string;
+  name: string;
+  contact_email: string;
+  self_submit_enabled?: boolean;
+};
+
 type Claim = {
   id: string;
   charity_id: string;
@@ -34,6 +40,15 @@ async function getToken(): Promise<string> {
   return token;
 }
 
+async function safeReadJson(res: Response) {
+  const text = await res.text();
+  try {
+    return { json: JSON.parse(text), text };
+  } catch {
+    return { json: null, text };
+  }
+}
+
 export default function AdminClaimDetail() {
   const { id } = useParams();
   const claimId = id ?? "";
@@ -45,7 +60,7 @@ export default function AdminClaimDetail() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Form fields for adding an item
+  // Form fields
   const [donorName, setDonorName] = useState("");
   const [donorPostcode, setDonorPostcode] = useState("");
   const [donationDate, setDonationDate] = useState("");
@@ -65,21 +80,44 @@ export default function AdminClaimDetail() {
 
       const token = await getToken();
 
-      const claimRes = await fetch(`/api/admin/claims/get?claimId=${encodeURIComponent(claimId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const claimJson = await claimRes.json();
-      if (!claimRes.ok || !claimJson.ok) throw new Error(claimJson?.error || "Failed to load claim");
+      // 1) Load claim + charity
+      const claimRes = await fetch(
+        `/api/admin/claims/get?claimId=${encodeURIComponent(claimId)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
-      setClaim(claimJson.claim);
-      setCharity(claimJson.charity);
+      const { json: claimJson, text: claimText } = await safeReadJson(claimRes);
 
-      const itemsRes = await fetch(`/api/admin/claims/items?claimId=${encodeURIComponent(claimId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const itemsJson = await itemsRes.json();
-      if (!itemsRes.ok || !itemsJson.ok) throw new Error(itemsJson?.error || "Failed to load claim items");
-      setItems(itemsJson.items || []);
+      if (!claimRes.ok) {
+        throw new Error(
+          `claims/get failed (${claimRes.status}): ${claimText.slice(0, 160)}`
+        );
+      }
+      if (!claimJson?.ok) {
+        throw new Error(claimJson?.error || "Failed to load claim");
+      }
+
+      setClaim(claimJson.claim as Claim);
+      setCharity(claimJson.charity as Charity);
+
+      // 2) Load claim items
+      const itemsRes = await fetch(
+        `/api/admin/claims/items?claimId=${encodeURIComponent(claimId)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      const { json: itemsJson, text: itemsText } = await safeReadJson(itemsRes);
+
+      if (!itemsRes.ok) {
+        throw new Error(
+          `claims/items failed (${itemsRes.status}): ${itemsText.slice(0, 160)}`
+        );
+      }
+      if (!itemsJson?.ok) {
+        throw new Error(itemsJson?.error || "Failed to load claim items");
+      }
+
+      setItems((itemsJson.items || []) as ClaimItem[]);
     } catch (e: any) {
       setError(e.message || "Error");
       setClaim(null);
@@ -106,7 +144,9 @@ export default function AdminClaimDetail() {
       if (!donationAmount) throw new Error("Donation amount is required");
 
       const amount = Number(donationAmount);
-      if (!Number.isFinite(amount) || amount <= 0) throw new Error("Donation amount must be a positive number");
+      if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error("Donation amount must be a positive number");
+      }
 
       const token = await getToken();
 
@@ -126,10 +166,16 @@ export default function AdminClaimDetail() {
         }),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to add item");
+      const { json, text } = await safeReadJson(res);
 
-      // reset form and reload items
+      if (!res.ok) {
+        throw new Error(
+          `add-item failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`
+        );
+      }
+      if (!json?.ok) throw new Error(json?.error || "Failed to add item");
+
+      // reset form and reload
       setDonorName("");
       setDonorPostcode("");
       setDonationDate("");
@@ -147,16 +193,27 @@ export default function AdminClaimDetail() {
     try {
       setBusy("ready");
       setError(null);
+
       const token = await getToken();
 
       const res = await fetch("/api/admin/claims/mark-ready", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ claimId }),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to mark ready");
+      const { json, text } = await safeReadJson(res);
+
+      if (!res.ok) {
+        throw new Error(
+          `mark-ready failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`
+        );
+      }
+      if (!json?.ok) throw new Error(json?.error || "Failed to mark ready");
+
       await load();
     } catch (e: any) {
       setError(e.message || "Error");
@@ -169,16 +226,27 @@ export default function AdminClaimDetail() {
     try {
       setBusy("submit");
       setError(null);
+
       const token = await getToken();
 
       const res = await fetch("/api/admin/claims/submit", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
         body: JSON.stringify({ claimId }),
       });
 
-      const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to submit claim");
+      const { json, text } = await safeReadJson(res);
+
+      if (!res.ok) {
+        throw new Error(
+          `submit failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`
+        );
+      }
+      if (!json?.ok) throw new Error(json?.error || "Failed to submit claim");
+
       await load();
     } catch (e: any) {
       setError(e.message || "Error");
@@ -188,7 +256,11 @@ export default function AdminClaimDetail() {
   };
 
   if (loading) {
-    return <div className="max-w-5xl mx-auto p-6 text-gray-500">Loading claim…</div>;
+    return (
+      <div className="max-w-5xl mx-auto p-6 text-gray-500">
+        Loading claim…
+      </div>
+    );
   }
 
   return (
@@ -204,6 +276,7 @@ export default function AdminClaimDetail() {
           <h1 className="text-2xl font-bold mt-1">Claim</h1>
           <div className="text-xs text-gray-500 break-all">{claimId}</div>
         </div>
+
         <button
           onClick={load}
           className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50"
@@ -223,7 +296,9 @@ export default function AdminClaimDetail() {
           <h2 className="font-semibold mb-2">Charity</h2>
           <div className="text-lg font-medium">{charity?.name ?? "Unknown Charity"}</div>
           <div className="text-sm text-gray-600">{charity?.contact_email ?? "-"}</div>
-          <div className="text-xs text-gray-400 mt-1 break-all">Charity ID: {claim?.charity_id}</div>
+          <div className="text-xs text-gray-400 mt-1 break-all">
+            Charity ID: {claim?.charity_id}
+          </div>
         </div>
 
         <div className="bg-white rounded-lg shadow p-4">
@@ -233,11 +308,14 @@ export default function AdminClaimDetail() {
               {claim?.status ?? "-"}
             </span>
           </div>
+
           {claim?.hmrc_last_message && (
             <div className="text-xs text-gray-500 mt-2">{claim.hmrc_last_message}</div>
           )}
+
           <div className="text-xs text-gray-500 mt-2">
-            HMRC Ref: <span className="font-medium">{claim?.hmrc_reference ?? "-"}</span>
+            HMRC Ref:{" "}
+            <span className="font-medium">{claim?.hmrc_reference ?? "-"}</span>
           </div>
         </div>
       </div>
@@ -249,7 +327,9 @@ export default function AdminClaimDetail() {
             <>
               {new Date(claim.period_start).toLocaleDateString()} –{" "}
               {new Date(claim.period_end).toLocaleDateString()}
-              {claim.tax_year ? <span className="ml-2 text-gray-500">(Tax year: {claim.tax_year})</span> : null}
+              {claim.tax_year ? (
+                <span className="ml-2 text-gray-500">(Tax year: {claim.tax_year})</span>
+              ) : null}
             </>
           ) : (
             "-"
@@ -334,9 +414,11 @@ export default function AdminClaimDetail() {
           >
             {busy === "addItem" ? "Adding…" : "Add Donation Item"}
           </button>
+
           {claim?.status !== "draft" && (
             <div className="text-xs text-gray-500 mt-2">
-              Items can only be added while the claim is in <span className="font-medium">draft</span>.
+              Items can only be added while the claim is in{" "}
+              <span className="font-medium">draft</span>.
             </div>
           )}
         </div>
@@ -349,11 +431,21 @@ export default function AdminClaimDetail() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Donor</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Postcode</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Donation Date</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Declaration Date</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    Donor
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    Postcode
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    Donation Date
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    Amount
+                  </th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">
+                    Declaration Date
+                  </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
