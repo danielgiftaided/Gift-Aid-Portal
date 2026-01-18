@@ -34,7 +34,6 @@ export default function Dashboard() {
       setLoading(true);
       setError(null);
 
-      // 1️⃣ Get Supabase auth user
       const {
         data: { user },
       } = await supabase.auth.getUser();
@@ -46,7 +45,6 @@ export default function Dashboard() {
 
       setUser(user);
 
-      // 2️⃣ Get session token
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
@@ -54,43 +52,39 @@ export default function Dashboard() {
         throw new Error("No session token found. Please log in again.");
       }
 
-      // 3️⃣ Ask backend who this user is (role + charity)
-      const meResp = await fetch("/api/user/me", {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      const meJson = await meResp.json();
-
-      if (!meResp.ok || !meJson.ok) {
-        throw new Error(meJson?.error || "Failed to identify user");
-      }
-
-      // 🔀 OPERATOR REDIRECT
-      if (meJson.role === "operator") {
-        window.location.href = "/admin";
-        return;
-      }
-
-      // 4️⃣ Charity user must have a charity_id
-      if (!meJson.charityId) {
-        throw new Error("User is not linked to a charity");
-      }
-
-      // 5️⃣ Load charity info
+      // 1) Ask backend which charity I'm linked to
       const charityResp = await fetch("/api/charity/me", {
+        method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
 
       const charityJson = await charityResp.json();
 
-      if (!charityResp.ok || !charityJson.ok) {
+      // If user exists but has no charity set up yet, send them to setup screen
+      // (Assumes your /api/charity/me returns ok:false with a clear message)
+      if (!charityResp.ok || !charityJson?.ok) {
+        const msg = String(charityJson?.error || "");
+
+        // Any of these conditions -> we treat it as "not setup yet"
+        const looksLikeNoCharity =
+          msg.toLowerCase().includes("no charity") ||
+          msg.toLowerCase().includes("charity_id") ||
+          msg.toLowerCase().includes("not linked") ||
+          msg.toLowerCase().includes("not set");
+
+        if (looksLikeNoCharity) {
+          window.location.href = "/charity-setup";
+          return;
+        }
+
         throw new Error(charityJson?.error || "Failed to load charity");
       }
 
       setCharity(charityJson.charity as Charity);
 
-      // 6️⃣ Load submissions for this charity
+      // 2) Load submissions for my charity (backend-scoped)
       const subsResp = await fetch("/api/submissions/list?limit=100&offset=0", {
+        method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -171,9 +165,7 @@ export default function Dashboard() {
           <h2 className="text-xl font-semibold mb-2">
             Welcome, {charity?.name || "Charity"}
           </h2>
-          <p className="text-gray-600">
-            View and track your Gift Aid submissions
-          </p>
+          <p className="text-gray-600">View and track your Gift Aid submissions</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
@@ -202,9 +194,11 @@ export default function Dashboard() {
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h3 className="text-lg font-semibold">Recent Submissions</h3>
+
             <button
               onClick={checkUser}
               className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50"
+              title="Refresh data"
             >
               Refresh
             </button>
@@ -243,31 +237,31 @@ export default function Dashboard() {
                     </td>
                   </tr>
                 ) : (
-                  submissions.map((s) => (
-                    <tr key={s.id}>
+                  submissions.map((submission) => (
+                    <tr key={submission.id}>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {new Date(s.submission_date).toLocaleDateString()}
+                        {new Date(submission.submission_date).toLocaleDateString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {s.tax_year}
+                        {submission.tax_year}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        £{Number(s.amount_claimed || 0).toLocaleString()}
+                        £{Number(submission.amount_claimed || 0).toLocaleString()}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm">
-                        {s.number_of_donations}
+                        {submission.number_of_donations}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
                         <span
                           className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(
-                            s.status
+                            submission.status
                           )}`}
                         >
-                          {s.status}
+                          {submission.status}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {s.hmrc_reference || "-"}
+                        {submission.hmrc_reference || "-"}
                       </td>
                     </tr>
                   ))
@@ -278,9 +272,7 @@ export default function Dashboard() {
         </div>
 
         {user?.id && (
-          <div className="text-xs text-gray-400 mt-6">
-            Logged in user: {user.id}
-          </div>
+          <div className="text-xs text-gray-400 mt-6">Logged in user: {user.id}</div>
         )}
       </div>
     </div>
