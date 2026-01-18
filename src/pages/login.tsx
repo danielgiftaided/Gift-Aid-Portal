@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
+import { Link } from "react-router-dom";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -15,13 +16,15 @@ export default function Login() {
     try {
       // 1️⃣ Sign in with Supabase
       const { error: authError } = await supabase.auth.signInWithPassword({
-        email,
+        email: email.trim(),
         password,
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        throw authError;
+      }
 
-      // 2️⃣ Get access token
+      // 2️⃣ Get session token
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
@@ -31,7 +34,9 @@ export default function Login() {
 
       // 3️⃣ Ask backend who this user is
       const meResp = await fetch("/api/user/me", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
       });
 
       const meJson = await meResp.json();
@@ -40,14 +45,14 @@ export default function Login() {
         throw new Error(meJson?.error || "Failed to identify user");
       }
 
-      // 4️⃣ Redirect based on role
+      // 4️⃣ Redirect based on role + charity setup
       if (meJson.role === "operator") {
         window.location.href = "/admin";
         return;
       }
 
       if (meJson.role === "charity_user") {
-        // ✅ NEW: if no charity yet -> go to charity setup
+        // ✅ NEW: redirect to charity setup if not linked yet
         if (!meJson.charityId) {
           window.location.href = "/charity-setup";
           return;
@@ -57,7 +62,7 @@ export default function Login() {
         return;
       }
 
-      // Fallback
+      // Fallback (should never happen)
       window.location.href = "/dashboard";
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
@@ -68,7 +73,9 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold mb-2 text-center">Gift Aid Portal</h1>
+        <h1 className="text-2xl font-bold mb-2 text-center">
+          Gift Aid Portal
+        </h1>
         <p className="text-sm text-gray-600 text-center mb-6">
           Sign in to continue
         </p>
@@ -118,6 +125,14 @@ export default function Login() {
             {loading ? "Signing in…" : "Sign In"}
           </button>
         </form>
+
+        {/* ✅ Signup link */}
+        <div className="text-sm text-gray-600 mt-4 text-center">
+          New here?{" "}
+          <Link to="/signup" className="text-blue-600 hover:underline">
+            Create an account
+          </Link>
+        </div>
       </div>
     </div>
   );
