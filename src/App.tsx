@@ -1,7 +1,8 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import Login from "./pages/login";
+import Signup from "./pages/signup"; // ✅ NEW
 import Dashboard from "./pages/dashboard";
-import CharitySetup from "./pages/charitySetup"; // ✅ NEW
+import CharitySetup from "./pages/charitySetup";
 import Admin from "./pages/admin";
 import AdminClaims from "./pages/adminClaims";
 import AdminClaimDetail from "./pages/adminClaimDetail";
@@ -13,8 +14,9 @@ export default function App() {
     <Routes>
       {/* Public */}
       <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
 
-      {/* ✅ NEW: Self-signup charity setup */}
+      {/* Self-signup charity setup */}
       <Route path="/charity-setup" element={<CharitySetup />} />
 
       {/* Charity portal */}
