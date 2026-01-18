@@ -3,10 +3,7 @@ import { supabaseAdmin } from "../../_utils/supabase.js";
 import { requireOperator } from "../../_utils/requireOperator.js";
 
 function json(res: VercelResponse, status: number, payload: any) {
-  return res
-    .status(status)
-    .setHeader("Content-Type", "application/json")
-    .send(JSON.stringify(payload));
+  return res.status(status).setHeader("Content-Type", "application/json").send(JSON.stringify(payload));
 }
 
 function parseBody(req: VercelRequest): any {
@@ -14,13 +11,13 @@ function parseBody(req: VercelRequest): any {
   if (!b) return {};
   if (typeof b === "object") return b;
   if (typeof b === "string") {
-    try {
-      return JSON.parse(b);
-    } catch {
-      return {};
-    }
+    try { return JSON.parse(b); } catch { return {}; }
   }
   return {};
+}
+
+function isIsoDate(d: any) {
+  return typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -30,37 +27,38 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await requireOperator(req);
 
     const body = parseBody(req);
-    const {
-      itemId,
-      donorName,
-      donorPostcode,
-      donationDate,
-      donationAmount,
-      declarationDate,
-    } = body;
+
+    const itemId = String(body.itemId || "");
+    const donor_title = String(body.title || "").trim();
+    const donor_first_name = String(body.firstName || "").trim();
+    const donor_last_name = String(body.lastName || "").trim();
+    const donor_address = String(body.address || "").trim();
+    const donor_postcode = String(body.postcode || "").trim();
+
+    const donation_date = String(body.donationDate || "").trim();
+    const donation_amount = Number(body.donationAmount);
 
     if (!itemId) return json(res, 400, { ok: false, error: "itemId is required" });
-
-    // Validate fields (simple, keep it safe)
-    if (!donorName || !donorPostcode || !donationDate) {
-      return json(res, 400, { ok: false, error: "donorName, donorPostcode, donationDate are required" });
+    if (!donor_first_name) return json(res, 400, { ok: false, error: "First Name is required" });
+    if (!donor_last_name) return json(res, 400, { ok: false, error: "Last Name is required" });
+    if (!donor_address) return json(res, 400, { ok: false, error: "Address is required" });
+    if (!donor_postcode) return json(res, 400, { ok: false, error: "Postcode is required" });
+    if (!isIsoDate(donation_date)) return json(res, 400, { ok: false, error: "Donation Date must be YYYY-MM-DD" });
+    if (!Number.isFinite(donation_amount) || donation_amount <= 0) {
+      return json(res, 400, { ok: false, error: "Donation Amount must be a positive number" });
     }
 
-    const amt = Number(donationAmount);
-    if (!Number.isFinite(amt) || amt <= 0) {
-      return json(res, 400, { ok: false, error: "donationAmount must be a positive number" });
-    }
-
-    // Update item.
-    // NOTE: Your DB trigger will block updates unless the claim is still in 'draft'.
+    // DB trigger can enforce claim draft; if not, you can check claim_id here too.
     const { data, error } = await supabaseAdmin
       .from("claim_items")
       .update({
-        donor_name: String(donorName).trim(),
-        donor_postcode: String(donorPostcode).trim(),
-        donation_date: donationDate,
-        donation_amount: amt,
-        gift_aid_declaration_date: declarationDate || null,
+        donor_title: donor_title || null,
+        donor_first_name,
+        donor_last_name,
+        donor_address,
+        donor_postcode,
+        donation_date,
+        donation_amount,
       })
       .eq("id", itemId)
       .select("*")
@@ -69,7 +67,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (error) return json(res, 500, { ok: false, error: error.message });
 
     return json(res, 200, { ok: true, item: data });
-  } catch (err: any) {
-    return json(res, 500, { ok: false, error: err?.message ?? "Server error" });
+  } catch (e: any) {
+    return json(res, 500, { ok: false, error: e?.message ?? "Server error" });
   }
 }
