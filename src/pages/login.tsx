@@ -19,9 +19,7 @@ export default function Login() {
         password,
       });
 
-      if (authError) {
-        throw authError;
-      }
+      if (authError) throw authError;
 
       // 2️⃣ Get access token
       const { data: sessionData } = await supabase.auth.getSession();
@@ -33,9 +31,7 @@ export default function Login() {
 
       // 3️⃣ Ask backend who this user is
       const meResp = await fetch("/api/user/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       const meJson = await meResp.json();
@@ -51,17 +47,17 @@ export default function Login() {
       }
 
       if (meJson.role === "charity_user") {
+        // ✅ NEW: if no charity yet -> go to charity setup
         if (!meJson.charityId) {
-          throw new Error(
-            "Your account is not linked to a charity yet. Please contact support."
-          );
+          window.location.href = "/charity-setup";
+          return;
         }
 
         window.location.href = "/dashboard";
         return;
       }
 
-      // Fallback (should never happen)
+      // Fallback
       window.location.href = "/dashboard";
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
@@ -72,9 +68,7 @@ export default function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
       <div className="max-w-md w-full bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold mb-2 text-center">
-          Gift Aid Portal
-        </h1>
+        <h1 className="text-2xl font-bold mb-2 text-center">Gift Aid Portal</h1>
         <p className="text-sm text-gray-600 text-center mb-6">
           Sign in to continue
         </p>
@@ -97,6 +91,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               disabled={loading}
+              autoComplete="email"
             />
           </div>
 
@@ -111,6 +106,7 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               disabled={loading}
+              autoComplete="current-password"
             />
           </div>
 
