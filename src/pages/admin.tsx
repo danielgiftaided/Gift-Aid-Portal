@@ -55,7 +55,6 @@ export default function Admin() {
           <p className="text-gray-600">Operator tools for managing charities and claims.</p>
         </div>
 
-        {/* ✅ NEW: link to the claims workflow */}
         <Link
           to="/admin/claims"
           className="inline-block px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700"
@@ -86,17 +85,36 @@ export default function Admin() {
           <ul className="divide-y">
             {charities.map((c) => (
               <li key={c.id} className="py-3">
-                <div className="font-medium">{c.name}</div>
-                <div className="text-sm text-gray-600">{c.contact_email}</div>
-                <div className="text-xs text-gray-400 mt-1">
-                  ID: <span className="break-all">{c.id}</span>
-                </div>
-                <div className="text-xs text-gray-400">
-                  Self submit enabled:{" "}
-                  <span className="font-medium">
-                    {c.self_submit_enabled ? "Yes" : "No"}
-                  </span>
-                </div>
+                {/* Entire row clickable */}
+                <Link
+                  to={`/admin/charities/${c.id}`}
+                  className="block rounded p-2 -m-2 hover:bg-gray-50"
+                  title="Open charity details"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <div className="font-medium">{c.name}</div>
+                      <div className="text-sm text-gray-600">{c.contact_email}</div>
+
+                      <div className="text-xs text-gray-400 mt-1">
+                        ID: <span className="break-all">{c.id}</span>
+                      </div>
+
+                      <div className="text-xs text-gray-400">
+                        Self submit enabled:{" "}
+                        <span className="font-medium">
+                          {c.self_submit_enabled ? "Yes" : "No"}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="shrink-0">
+                      <span className="text-sm text-blue-600 hover:underline">
+                        View →
+                      </span>
+                    </div>
+                  </div>
+                </Link>
               </li>
             ))}
           </ul>
