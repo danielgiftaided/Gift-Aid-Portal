@@ -9,41 +9,49 @@ export default function Signup() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
 
   const handleSignup = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    setInfo(null);
     setLoading(true);
 
     try {
-      if (!email.trim()) throw new Error("Email is required");
+      const cleanEmail = email.trim();
+
+      if (!cleanEmail) throw new Error("Email is required");
       if (!password) throw new Error("Password is required");
       if (password.length < 8) throw new Error("Password must be at least 8 characters");
       if (password !== password2) throw new Error("Passwords do not match");
 
       // 1) Create account
+      // ✅ emailRedirectTo ensures the verification link returns to your portal
       const { error: signUpError } = await supabase.auth.signUp({
-        email: email.trim(),
+        email: cleanEmail,
         password,
+        options: {
+          emailRedirectTo: `${window.location.origin}/login`,
+        },
       });
 
       if (signUpError) throw signUpError;
 
-      // 2) Get session token (some configs require email confirmation; handle both cases)
+      // 2) If confirmation is OFF, user may already be logged in.
+      // If confirmation is ON, there will be no session until they verify.
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
-      // If email confirmation is ON, user may not be logged in yet.
+      // Email confirmation ON → no token yet → show instructions
       if (!token) {
-        // Friendly message for confirmation-enabled setups
-        setLoading(false);
-        setError(
-          "Account created. Please check your email to confirm your account, then return to login."
+        setInfo(
+          "Account created. Please check your email and click the verification link, then return here to log in."
         );
+        setLoading(false);
         return;
       }
 
-      // 3) Ask backend who this user is (role + charityId)
+      // 3) Identify role/charity with backend
       const meResp = await fetch("/api/user/me", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -87,11 +95,15 @@ export default function Signup() {
           </div>
         )}
 
+        {info && (
+          <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-4">
+            {info}
+          </div>
+        )}
+
         <form onSubmit={handleSignup} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
               type="email"
               required
@@ -104,9 +116,7 @@ export default function Signup() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
               type="password"
               required
