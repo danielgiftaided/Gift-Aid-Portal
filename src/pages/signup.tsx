@@ -25,8 +25,6 @@ export default function Signup() {
       if (password.length < 8) throw new Error("Password must be at least 8 characters");
       if (password !== password2) throw new Error("Passwords do not match");
 
-      // 1) Create account
-      // ✅ emailRedirectTo ensures the verification link returns to your portal
       const { error: signUpError } = await supabase.auth.signUp({
         email: cleanEmail,
         password,
@@ -37,12 +35,9 @@ export default function Signup() {
 
       if (signUpError) throw signUpError;
 
-      // 2) If confirmation is OFF, user may already be logged in.
-      // If confirmation is ON, there will be no session until they verify.
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
-      // Email confirmation ON → no token yet → show instructions
       if (!token) {
         setInfo(
           "Account created. Please check your email and click the verification link, then return here to log in."
@@ -51,7 +46,6 @@ export default function Signup() {
         return;
       }
 
-      // 3) Identify role/charity with backend
       const meResp = await fetch("/api/user/me", {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -62,13 +56,11 @@ export default function Signup() {
         throw new Error(meJson?.error || "Failed to identify user after signup");
       }
 
-      // 4) Redirect based on role and charity setup
       if (meJson.role === "operator") {
         window.location.href = "/admin";
         return;
       }
 
-      // Default to charity user flow
       if (!meJson.charityId) {
         window.location.href = "/charity-setup";
         return;
@@ -82,9 +74,11 @@ export default function Signup() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold mb-2 text-center">Gift Aid Portal</h1>
+    <div className="min-h-screen flex items-center justify-center bg-brand-surface px-4">
+      <div className="max-w-md w-full bg-white/80 rounded-lg shadow p-6">
+        <h1 className="text-2xl font-bold mb-2 text-center text-brand-primary">
+          Gift Aid Portal
+        </h1>
         <p className="text-sm text-gray-600 text-center mb-6">
           Create an account to get started
         </p>
@@ -96,7 +90,7 @@ export default function Signup() {
         )}
 
         {info && (
-          <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-4">
+          <div className="bg-brand-primary/10 border border-brand-primary/20 text-brand-primary px-4 py-3 rounded mb-4">
             {info}
           </div>
         )}
@@ -147,7 +141,7 @@ export default function Signup() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            className="w-full bg-brand-primary text-white rounded px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
           >
             {loading ? "Creating account…" : "Create account"}
           </button>
@@ -155,7 +149,7 @@ export default function Signup() {
 
         <div className="text-sm text-gray-600 mt-4 text-center">
           Already have an account?{" "}
-          <Link to="/login" className="text-blue-600 hover:underline">
+          <Link to="/login" className="text-brand-primary hover:underline hover:opacity-90">
             Sign in
           </Link>
         </div>
