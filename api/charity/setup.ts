@@ -23,9 +23,6 @@ function parseBody(req: VercelRequest) {
   return {};
 }
 
-/**
- * Normalize optional string values so that "undefined"/"null"/"" become null.
- */
 function normalizeOptionalString(v: any): string | null {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
@@ -41,8 +38,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 405, { ok: false, error: "Method not allowed" });
     }
 
-    // validates Bearer token + gives userId
-    const { userId } = await requireUser(req);
+    // ✅ requireUser returns a user object (as per your charity/me.ts)
+    const user = await requireUser(req);
+    const userId = user.id;
+
+    if (!userId) {
+      return send(res, 401, { ok: false, error: "Invalid session user" });
+    }
 
     const body = parseBody(req);
 
@@ -55,7 +57,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 400, { ok: false, error: "Contact email is required" });
     }
 
-    // Check if user already has a charity
+    // 1) Check if user already has a charity
     const { data: existingUser, error: uErr } = await supabaseAdmin
       .from("users")
       .select("id, charity_id")
@@ -72,7 +74,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Optional duplicate protection: if charity number exists, reuse charity
+    // 2) Optional duplicate protection: if charity_number exists, reuse charity
     let charityIdToUse: string | null = null;
 
     if (charity_number) {
@@ -84,12 +86,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (exErr) return send(res, 500, { ok: false, error: exErr.message });
 
-      if (existingCharity?.id) {
-        charityIdToUse = existingCharity.id;
-      }
+      if (existingCharity?.id) charityIdToUse = existingCharity.id;
     }
 
-    // Otherwise create charity
+    // 3) Otherwise create charity
     if (!charityIdToUse) {
       const { data: created, error: cErr } = await supabaseAdmin
         .from("charities")
@@ -97,7 +97,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           name,
           contact_email,
           charity_number,
-          created_by: userId,
+          created_by: userId, // ✅ real UUID now
           self_submit_enabled: false,
         })
         .select("id")
@@ -115,7 +115,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       charityIdToUse = created.id;
     }
 
-    // FINAL GUARD: never write undefined/null/non-string to UUID column
     if (!charityIdToUse || typeof charityIdToUse !== "string") {
       return send(res, 500, {
         ok: false,
@@ -123,7 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Link user -> charity
+    // 4) Link user -> charity
     const { error: linkErr } = await supabaseAdmin
       .from("users")
       .update({ charity_id: charityIdToUse })
