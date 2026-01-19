@@ -23,6 +23,9 @@ function parseBody(req: VercelRequest) {
   return {};
 }
 
+/**
+ * Normalize optional string values so that "undefined"/"null"/"" become null.
+ */
 function normalizeOptionalString(v: any): string | null {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
@@ -38,9 +41,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 405, { ok: false, error: "Method not allowed" });
     }
 
-    // ✅ requireUser returns a user object (as per your charity/me.ts)
+    // ✅ requireUser returns a user object with .id (matches your charity/me.ts usage)
     const user = await requireUser(req);
-    const userId = user.id;
+    const userId = user?.id;
 
     if (!userId) {
       return send(res, 401, { ok: false, error: "Invalid session user" });
@@ -57,16 +60,62 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 400, { ok: false, error: "Contact email is required" });
     }
 
-    // 1) Check if user already has a charity
-    const { data: existingUser, error: uErr } = await supabaseAdmin
+    /**
+     * 1) Check if user already has a charity.
+     *
+     * Using maybeSingle() prevents the "Cannot coerce..." crash if duplicates exist.
+     * If duplicates exist, we fall back to fetching all rows and selecting one.
+     */
+    let existingUser: { id: string; charity_id: string | null } | null = null;
+
+    const { data: userRow, error: uErr } = await supabaseAdmin
       .from("users")
       .select("id, charity_id")
       .eq("id", userId)
-      .single();
+      .maybeSingle();
 
-    if (uErr) return send(res, 500, { ok: false, error: uErr.message });
+    if (uErr) {
+      // Fallback if Supabase can't coerce to single object due to duplicates
+      const errMsg = String(uErr.message || "");
+      const looksLikeMultiple =
+        errMsg.toLowerCase().includes("cannot coerce") ||
+        errMsg.toLowerCase().includes("single json object");
 
-    if (existingUser?.charity_id) {
+      if (!looksLikeMultiple) {
+        return send(res, 500, { ok: false, error: uErr.message });
+      }
+
+      // Fetch all rows and pick the first one with a charity_id if present
+      const { data: userRows, error: uErr2 } = await supabaseAdmin
+        .from("users")
+        .select("id, charity_id, created_at")
+        .eq("id", userId)
+        .order("created_at", { ascending: false });
+
+      if (uErr2) return send(res, 500, { ok: false, error: uErr2.message });
+
+      if (!userRows || userRows.length === 0) {
+        return send(res, 500, {
+          ok: false,
+          error: "User row not found in public.users. Trigger may not have created it.",
+        });
+      }
+
+      // Prefer a row that already has charity_id, otherwise newest row
+      const withCharity = userRows.find((r: any) => !!r.charity_id);
+      existingUser = (withCharity || userRows[0]) as any;
+    } else {
+      existingUser = userRow as any;
+    }
+
+    if (!existingUser) {
+      return send(res, 500, {
+        ok: false,
+        error: "User row not found in public.users. Trigger may not have created it.",
+      });
+    }
+
+    if (existingUser.charity_id) {
       return send(res, 200, {
         ok: true,
         charity_id: existingUser.charity_id,
@@ -74,7 +123,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 2) Optional duplicate protection: if charity_number exists, reuse charity
+    /**
+     * 2) Optional duplicate protection: if charity_number exists, reuse charity
+     */
     let charityIdToUse: string | null = null;
 
     if (charity_number) {
@@ -89,7 +140,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (existingCharity?.id) charityIdToUse = existingCharity.id;
     }
 
-    // 3) Otherwise create charity
+    /**
+     * 3) Otherwise create charity
+     */
     if (!charityIdToUse) {
       const { data: created, error: cErr } = await supabaseAdmin
         .from("charities")
@@ -97,7 +150,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           name,
           contact_email,
           charity_number,
-          created_by: userId, // ✅ real UUID now
+          created_by: userId,
           self_submit_enabled: false,
         })
         .select("id")
@@ -122,7 +175,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // 4) Link user -> charity
+    /**
+     * 4) Link user -> charity
+     */
     const { error: linkErr } = await supabaseAdmin
       .from("users")
       .update({ charity_id: charityIdToUse })
