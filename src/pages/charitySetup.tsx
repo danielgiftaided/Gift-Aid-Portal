@@ -53,51 +53,54 @@ export default function CharitySetup() {
   };
 
   return (
-    <div className="max-w-md mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-2">Set up your charity</h1>
-      <p className="text-gray-600 mb-4">
-        Enter your charity details to create your portal workspace.
-      </p>
+    <div className="min-h-screen bg-brand-surface flex items-center justify-center px-4">
+      <div className="max-w-md w-full bg-white/80 rounded-lg shadow p-6">
+        <h1 className="text-2xl font-bold mb-2 text-brand-primary">Set up your charity</h1>
+        <p className="text-gray-600 mb-4">
+          Enter your charity details to create your portal workspace.
+        </p>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
-        </div>
-      )}
+        {error && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+            {error}
+          </div>
+        )}
 
-      <label className="block text-sm font-medium mb-1">Charity name</label>
-      <input
-        className="w-full border rounded px-3 py-2 mb-3"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="e.g. Helping Hands"
-      />
+        <label className="block text-sm font-medium mb-1">Charity name</label>
+        <input
+          className="w-full border rounded px-3 py-2 mb-3"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Helping Hands"
+          autoComplete="organization"
+        />
 
-      <label className="block text-sm font-medium mb-1">Contact email</label>
-      <input
-        className="w-full border rounded px-3 py-2 mb-3"
-        value={contactEmail}
-        onChange={(e) => setContactEmail(e.target.value)}
-        placeholder="contact@charity.org"
-      />
+        <label className="block text-sm font-medium mb-1">Contact email</label>
+        <input
+          className="w-full border rounded px-3 py-2 mb-3"
+          value={contactEmail}
+          onChange={(e) => setContactEmail(e.target.value)}
+          placeholder="contact@charity.org"
+          autoComplete="email"
+        />
 
-      <label className="block text-sm font-medium mb-1">
-        Charity number (optional)
-      </label>
-      <input
-        className="w-full border rounded px-3 py-2 mb-4"
-        value={charityNumber}
-        onChange={(e) => setCharityNumber(e.target.value)}
-        placeholder="e.g. 123456"
-      />
+        <label className="block text-sm font-medium mb-1">Charity number (optional)</label>
+        <input
+          className="w-full border rounded px-3 py-2 mb-4"
+          value={charityNumber}
+          onChange={(e) => setCharityNumber(e.target.value)}
+          placeholder="e.g. 123456"
+          autoComplete="off"
+        />
 
-      <button
-        onClick={submit}
-        disabled={loading}
-        className="w-full px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-      >
-        {loading ? "Creating…" : "Create charity"}
-      </button>
+        <button
+          onClick={submit}
+          disabled={loading}
+          className="w-full bg-brand-accent text-white rounded px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
+        >
+          {loading ? "Creating…" : "Create charity"}
+        </button>
+      </div>
     </div>
   );
 }
