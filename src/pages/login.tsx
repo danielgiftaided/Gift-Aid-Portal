@@ -14,29 +14,20 @@ export default function Login() {
     setLoading(true);
 
     try {
-      // 1️⃣ Sign in with Supabase
       const { error: authError } = await supabase.auth.signInWithPassword({
         email: email.trim(),
         password,
       });
 
-      if (authError) {
-        throw authError;
-      }
+      if (authError) throw authError;
 
-      // 2️⃣ Get session token
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
 
-      if (!token) {
-        throw new Error("Login succeeded but no session token found.");
-      }
+      if (!token) throw new Error("Login succeeded but no session token found.");
 
-      // 3️⃣ Ask backend who this user is
       const meResp = await fetch("/api/user/me", {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
       });
 
       const meJson = await meResp.json();
@@ -45,24 +36,20 @@ export default function Login() {
         throw new Error(meJson?.error || "Failed to identify user");
       }
 
-      // 4️⃣ Redirect based on role + charity setup
       if (meJson.role === "operator") {
         window.location.href = "/admin";
         return;
       }
 
       if (meJson.role === "charity_user") {
-        // ✅ NEW: redirect to charity setup if not linked yet
         if (!meJson.charityId) {
           window.location.href = "/charity-setup";
           return;
         }
-
         window.location.href = "/dashboard";
         return;
       }
 
-      // Fallback (should never happen)
       window.location.href = "/dashboard";
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
@@ -71,14 +58,12 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-      <div className="max-w-md w-full bg-white rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold mb-2 text-center">
+    <div className="min-h-screen flex items-center justify-center bg-brand-surface px-4">
+      <div className="max-w-md w-full bg-white/80 rounded-lg shadow p-6">
+        <h1 className="text-2xl font-bold mb-2 text-center text-brand-primary">
           Gift Aid Portal
         </h1>
-        <p className="text-sm text-gray-600 text-center mb-6">
-          Sign in to continue
-        </p>
+        <p className="text-sm text-gray-600 text-center mb-6">Sign in to continue</p>
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
@@ -88,9 +73,7 @@ export default function Login() {
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Email
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
             <input
               type="email"
               required
@@ -103,9 +86,7 @@ export default function Login() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Password
-            </label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
               type="password"
               required
@@ -120,16 +101,15 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-600 text-white rounded px-4 py-2 text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+            className="w-full bg-brand-primary text-white rounded px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
           >
             {loading ? "Signing in…" : "Sign In"}
           </button>
         </form>
 
-        {/* ✅ Signup link */}
         <div className="text-sm text-gray-600 mt-4 text-center">
           New here?{" "}
-          <Link to="/signup" className="text-blue-600 hover:underline">
+          <Link to="/signup" className="text-brand-primary hover:underline hover:opacity-90">
             Create an account
           </Link>
         </div>
