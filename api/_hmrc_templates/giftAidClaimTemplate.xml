@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
+  <EnvelopeVersion>2.0</EnvelopeVersion>
+
+  <Header>
+    <MessageDetails>
+      <Class>HMRC-CHAR-CLM</Class>
+      <Qualifier>request</Qualifier>
+      <Function>submit</Function>
+      <CorrelationID>{{CORRELATION_ID}}</CorrelationID>
+      <Transformation>XML</Transformation>
+      <GatewayTest>1</GatewayTest>
+      <GatewayTimestamp>{{GATEWAY_TIMESTAMP}}</GatewayTimestamp>
+    </MessageDetails>
+
+    <SenderDetails>
+      <IDAuthentication>
+        <SenderID>{{SENDER_ID}}</SenderID>
+        <Authentication>
+          <Method>clear</Method>
+          <Role>principal</Role>
+          <Value>{{AUTH_VALUE}}</Value>
+        </Authentication>
+      </IDAuthentication>
+    </SenderDetails>
+  </Header>
+
+  <GovTalkDetails>
+    <Keys>
+      <Key Type="CHARID">{{CHARID}}</Key>
+    </Keys>
+
+    <TargetDetails>
+      <Organisation>HMRC</Organisation>
+    </TargetDetails>
+
+    <ChannelRouting>
+      <Channel>
+        <URI>0000</URI>
+        <Product>GA Valid Sample</Product>
+        <Version>1.0</Version>
+      </Channel>
+    </ChannelRouting>
+  </GovTalkDetails>
+
+  <Body>
+    <IRenvelope xmlns="http://www.govtalk.gov.uk/taxation/charities/r68/2">
+      <IRheader>
+        <Keys>
+          <Key Type="CHARID">{{CHARID}}</Key>
+        </Keys>
+
+        <!-- This sample uses PeriodEnd only -->
+        <PeriodEnd>{{PERIOD_END}}</PeriodEnd>
+
+        <DefaultCurrency>GBP</DefaultCurrency>
+
+        <!-- IRmark will be computed later from the Body payload -->
+        <IRmark Type="generic">{{IRMARK}}</IRmark>
+
+        <Sender>Individual</Sender>
+      </IRheader>
+
+      <R68>
+        <AuthOfficial>
+          <OffName>
+            <Fore>{{OFFICIAL_FORE}}</Fore>
+            <Sur>{{OFFICIAL_SUR}}</Sur>
+          </OffName>
+          <OffID>
+            <Postcode>{{OFFICIAL_POSTCODE}}</Postcode>
+          </OffID>
+          <Phone>{{OFFICIAL_PHONE}}</Phone>
+        </AuthOfficial>
+
+        <Declaration>yes</Declaration>
+
+        <Claim>
+          <OrgName>{{ORG_NAME}}</OrgName>
+          <HMRCref>{{HMRC_REF}}</HMRCref>
+
+          <Regulator>
+            <RegName>{{REG_NAME}}</RegName>
+            <RegNo>{{REG_NO}}</RegNo>
+          </Regulator>
+
+          <Repayment>
+            {{DONATION_ROWS}}
+
+            <!-- Earliest Gift Aid date for this repayment period -->
+            <EarliestGAdate>{{EARLIEST_GA_DATE}}</EarliestGAdate>
+          </Repayment>
+
+          <GASDS>
+            <ConnectedCharities>no</ConnectedCharities>
+            <CommBldgs>no</CommBldgs>
+          </GASDS>
+        </Claim>
+      </R68>
+    </IRenvelope>
+  </Body>
+</GovTalkMessage>
