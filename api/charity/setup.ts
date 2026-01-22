@@ -35,13 +35,25 @@ function normalizeOptionalString(v: any): string | null {
   return s;
 }
 
+/**
+ * Normalize required string values; returns "" if invalid.
+ */
+function normalizeRequiredString(v: any): string {
+  if (v === undefined || v === null) return "";
+  const s = String(v).trim();
+  if (!s) return "";
+  if (s.toLowerCase() === "undefined") return "";
+  if (s.toLowerCase() === "null") return "";
+  return s;
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method !== "POST") {
       return send(res, 405, { ok: false, error: "Method not allowed" });
     }
 
-    // ✅ requireUser returns a user object with .id (matches your charity/me.ts usage)
+    // ✅ requireUser returns a user object with .id
     const user = await requireUser(req);
     const userId = user?.id;
 
@@ -51,14 +63,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const body = parseBody(req);
 
-    const name = String(body.name || "").trim();
-    const contact_email = String(body.contact_email || "").trim();
+    const name = normalizeRequiredString(body.name);
+    const contact_email = normalizeRequiredString(body.contact_email);
+
+    // ✅ NEW: charity_id is mandatory at setup
+    // This is the charity identifier used in HMRC XML (CHARID / HMRCref in the sample schema).
+    const charity_id = normalizeRequiredString(body.charity_id);
+
+    // Optional
     const charity_number = normalizeOptionalString(body.charity_number);
 
     if (!name) return send(res, 400, { ok: false, error: "Charity name is required" });
-    if (!contact_email) {
-      return send(res, 400, { ok: false, error: "Contact email is required" });
-    }
+    if (!contact_email) return send(res, 400, { ok: false, error: "Contact email is required" });
+    if (!charity_id) return send(res, 400, { ok: false, error: "Charity ID is required" });
 
     /**
      * 1) Check if user already has a charity.
@@ -75,7 +92,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .maybeSingle();
 
     if (uErr) {
-      // Fallback if Supabase can't coerce to single object due to duplicates
       const errMsg = String(uErr.message || "");
       const looksLikeMultiple =
         errMsg.toLowerCase().includes("cannot coerce") ||
@@ -101,7 +117,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      // Prefer a row that already has charity_id, otherwise newest row
       const withCharity = userRows.find((r: any) => !!r.charity_id);
       existingUser = (withCharity || userRows[0]) as any;
     } else {
@@ -115,6 +130,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    // If already linked, do nothing.
     if (existingUser.charity_id) {
       return send(res, 200, {
         ok: true,
@@ -124,32 +140,46 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     /**
-     * 2) Optional duplicate protection: if charity_number exists, reuse charity
+     * 2) Duplicate protection
+     *
+     * Primary: charity_id (mandatory and should be unique)
+     * Secondary: charity_number (optional)
      */
-    let charityIdToUse: string | null = null;
+    let charityDbIdToUse: string | null = null;
 
-    if (charity_number) {
-      const { data: existingCharity, error: exErr } = await supabaseAdmin
+    // 2A) Try reuse by charity_id
+    const { data: existingByCharId, error: exCharIdErr } = await supabaseAdmin
+      .from("charities")
+      .select("id")
+      .eq("charity_id", charity_id)
+      .maybeSingle();
+
+    if (exCharIdErr) return send(res, 500, { ok: false, error: exCharIdErr.message });
+    if (existingByCharId?.id) charityDbIdToUse = existingByCharId.id;
+
+    // 2B) If not found, optionally reuse by charity_number
+    if (!charityDbIdToUse && charity_number) {
+      const { data: existingByNumber, error: exNumErr } = await supabaseAdmin
         .from("charities")
         .select("id")
         .eq("charity_number", charity_number)
         .maybeSingle();
 
-      if (exErr) return send(res, 500, { ok: false, error: exErr.message });
-
-      if (existingCharity?.id) charityIdToUse = existingCharity.id;
+      if (exNumErr) return send(res, 500, { ok: false, error: exNumErr.message });
+      if (existingByNumber?.id) charityDbIdToUse = existingByNumber.id;
     }
 
     /**
      * 3) Otherwise create charity
      */
-    if (!charityIdToUse) {
+    if (!charityDbIdToUse) {
       const { data: created, error: cErr } = await supabaseAdmin
         .from("charities")
         .insert({
           name,
           contact_email,
           charity_number,
+          charity_id, // ✅ NEW (mandatory)
           created_by: userId,
           self_submit_enabled: false,
         })
@@ -165,10 +195,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      charityIdToUse = created.id;
+      charityDbIdToUse = created.id;
     }
 
-    if (!charityIdToUse || typeof charityIdToUse !== "string") {
+    if (!charityDbIdToUse || typeof charityDbIdToUse !== "string") {
       return send(res, 500, {
         ok: false,
         error: "Internal error: charity id was not created correctly.",
@@ -176,18 +206,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     /**
-     * 4) Link user -> charity
+     * 4) Link user -> charity (public.users table)
      */
     const { error: linkErr } = await supabaseAdmin
       .from("users")
-      .update({ charity_id: charityIdToUse })
+      .update({ charity_id: charityDbIdToUse })
       .eq("id", userId);
 
     if (linkErr) return send(res, 500, { ok: false, error: linkErr.message });
 
     return send(res, 200, {
       ok: true,
-      charity_id: charityIdToUse,
+      charity_id: charityDbIdToUse, // DB UUID id for the charity row (used everywhere in your portal)
       alreadySetup: false,
     });
   } catch (e: any) {
