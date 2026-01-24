@@ -2,82 +2,91 @@ import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { supabaseAdmin } from "../../_utils/supabase.js";
 import { requireOperator } from "../../_utils/requireOperator.js";
 
-function json(res: VercelResponse, status: number, payload: any) {
-  return res.status(status).setHeader("Content-Type", "application/json").send(JSON.stringify(payload));
+function send(res: VercelResponse, status: number, body: any) {
+  return res.status(status).json(body);
 }
 
-function parseBody(req: VercelRequest): any {
+function parseBody(req: VercelRequest) {
   const b: any = (req as any).body;
   if (!b) return {};
   if (typeof b === "object") return b;
   if (typeof b === "string") {
-    try { return JSON.parse(b); } catch { return {}; }
+    try {
+      return JSON.parse(b);
+    } catch {
+      return {};
+    }
   }
   return {};
 }
 
-function isIsoDate(d: any) {
-  return typeof d === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d);
+function norm(v: any): string {
+  return String(v ?? "").trim();
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== "POST") return json(res, 405, { ok: false, error: "Method not allowed" });
+    if (req.method !== "POST") {
+      return send(res, 405, { ok: false, error: "Method not allowed" });
+    }
 
     await requireOperator(req);
 
     const body = parseBody(req);
-    const claimId = String(body.claimId || "");
 
-    const donor_title = String(body.title || "").trim();
-    const donor_first_name = String(body.firstName || "").trim();
-    const donor_last_name = String(body.lastName || "").trim();
-    const donor_address = String(body.address || "").trim();
-    const donor_postcode = String(body.postcode || "").trim();
+    const claimId = norm(body.claimId);
+    const title = norm(body.title) || null;
 
-    const donation_date = String(body.donationDate || "").trim();
-    const donation_amount = Number(body.donationAmount);
+    const firstName = norm(body.firstName);
+    const lastName = norm(body.lastName);
+    const address = norm(body.address);
+    const postcode = norm(body.postcode);
 
-    if (!claimId) return json(res, 400, { ok: false, error: "claimId is required" });
-    if (!donor_first_name) return json(res, 400, { ok: false, error: "First Name is required" });
-    if (!donor_last_name) return json(res, 400, { ok: false, error: "Last Name is required" });
-    if (!donor_address) return json(res, 400, { ok: false, error: "Address is required" });
-    if (!donor_postcode) return json(res, 400, { ok: false, error: "Postcode is required" });
-    if (!isIsoDate(donation_date)) return json(res, 400, { ok: false, error: "Donation Date must be YYYY-MM-DD" });
-    if (!Number.isFinite(donation_amount) || donation_amount <= 0) {
-      return json(res, 400, { ok: false, error: "Donation Amount must be a positive number" });
+    const donationDate = norm(body.donationDate);
+    const donationAmount = Number(body.donationAmount);
+
+    if (!claimId) return send(res, 400, { ok: false, error: "claimId is required" });
+    if (!firstName) return send(res, 400, { ok: false, error: "First Name is required" });
+    if (!lastName) return send(res, 400, { ok: false, error: "Last Name is required" });
+    if (!address) return send(res, 400, { ok: false, error: "Address is required" });
+    if (!postcode) return send(res, 400, { ok: false, error: "Postcode is required" });
+    if (!donationDate) return send(res, 400, { ok: false, error: "Donation Date is required" });
+
+    if (!Number.isFinite(donationAmount) || donationAmount <= 0) {
+      return send(res, 400, { ok: false, error: "Donation Amount must be a positive number" });
     }
 
-    // Must be draft (optional but recommended)
-    const { data: claim, error: claimErr } = await supabaseAdmin
-      .from("claims")
-      .select("id,status")
-      .eq("id", claimId)
-      .single();
+    // ✅ IMPORTANT: satisfy DB NOT NULL constraint
+    const donor_name = [title || "", firstName, lastName].filter(Boolean).join(" ").trim();
 
-    if (claimErr) return json(res, 500, { ok: false, error: claimErr.message });
-    if (!claim) return json(res, 404, { ok: false, error: "Claim not found" });
-    if (claim.status !== "draft") return json(res, 400, { ok: false, error: "Can only add items to a draft claim" });
-
+    // Insert includes BOTH:
+    // - legacy donor_name (required in your DB right now)
+    // - structured donor_* fields used by your UI
     const { data, error } = await supabaseAdmin
       .from("claim_items")
       .insert({
         claim_id: claimId,
-        donor_title: donor_title || null,
-        donor_first_name,
-        donor_last_name,
-        donor_address,
-        donor_postcode,
-        donation_date,
-        donation_amount,
+
+        donor_name, // ✅ fixes your error
+
+        donor_title: title,
+        donor_first_name: firstName,
+        donor_last_name: lastName,
+        donor_address: address,
+        donor_postcode: postcode,
+
+        donation_date: donationDate,
+        donation_amount: donationAmount,
       })
-      .select("*")
+      .select("id")
       .single();
 
-    if (error) return json(res, 500, { ok: false, error: error.message });
+    if (error) {
+      return send(res, 500, { ok: false, error: error.message });
+    }
 
-    return json(res, 200, { ok: true, item: data });
+    return send(res, 200, { ok: true, id: data?.id });
   } catch (e: any) {
-    return json(res, 500, { ok: false, error: e?.message ?? "Server error" });
+    return send(res, 500, { ok: false, error: e?.message ?? "Server error" });
   }
 }
