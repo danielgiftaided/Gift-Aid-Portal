@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { supabaseAdmin } from "../../../_utils/supabase.js";
-import { requireOperator } from "../../../_utils/requireOperator.js";
-import { encryptJson } from "../../../_utils/crypto.js";
+import { supabaseAdmin } from "../../_utils/supabase.js";
+import { requireOperator } from "../../_utils/requireOperator.js";
+import { encryptJson } from "../../_utils/crypto.js";
 
 function send(res: VercelResponse, status: number, body: any) {
   return res.status(status).json(body);
@@ -12,14 +12,20 @@ function parseBody(req: VercelRequest) {
   if (!b) return {};
   if (typeof b === "object") return b;
   if (typeof b === "string") {
-    try { return JSON.parse(b); } catch { return {}; }
+    try {
+      return JSON.parse(b);
+    } catch {
+      return {};
+    }
   }
   return {};
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== "POST") return send(res, 405, { ok: false, error: "Method not allowed" });
+    if (req.method !== "POST") {
+      return send(res, 405, { ok: false, error: "Method not allowed" });
+    }
 
     const operator = await requireOperator(req);
     const operatorId = operator.id;
@@ -43,7 +49,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // deactivate existing active
     await supabaseAdmin
       .from("hmrc_connections")
-      .update({ active: false, updated_by: operatorId, updated_at: new Date().toISOString() })
+      .update({
+        active: false,
+        updated_by: operatorId,
+        updated_at: new Date().toISOString(),
+      })
       .eq("charity_id", charityId)
       .eq("active", true);
 
