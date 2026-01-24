@@ -9,7 +9,7 @@
       <Function>submit</Function>
       <CorrelationID>{{CORRELATION_ID}}</CorrelationID>
       <Transformation>XML</Transformation>
-      <GatewayTest>1</GatewayTest>
+      <GatewayTest>{{GATEWAY_TEST}}</GatewayTest>
       <GatewayTimestamp>{{GATEWAY_TIMESTAMP}}</GatewayTimestamp>
     </MessageDetails>
 
@@ -37,7 +37,7 @@
     <ChannelRouting>
       <Channel>
         <URI>0000</URI>
-        <Product>GA Valid Sample</Product>
+        <Product>{{PRODUCT_NAME}}</Product>
         <Version>1.0</Version>
       </Channel>
     </ChannelRouting>
@@ -49,15 +49,9 @@
         <Keys>
           <Key Type="CHARID">{{CHARID}}</Key>
         </Keys>
-
-        <!-- This sample uses PeriodEnd only -->
         <PeriodEnd>{{PERIOD_END}}</PeriodEnd>
-
         <DefaultCurrency>GBP</DefaultCurrency>
-
-        <!-- IRmark will be computed later from the Body payload -->
         <IRmark Type="generic">{{IRMARK}}</IRmark>
-
         <Sender>Individual</Sender>
       </IRheader>
 
@@ -77,7 +71,7 @@
 
         <Claim>
           <OrgName>{{ORG_NAME}}</OrgName>
-          <HMRCref>{{HMRC_REF}}</HMRCref>
+          <HMRCref>{{HMRCREF}}</HMRCref>
 
           <Regulator>
             <RegName>{{REG_NAME}}</RegName>
@@ -85,10 +79,11 @@
           </Regulator>
 
           <Repayment>
-            {{DONATION_ROWS}}
-
-            <!-- Earliest Gift Aid date for this repayment period -->
+{{DONATION_ROWS}}
             <EarliestGAdate>{{EARLIEST_GA_DATE}}</EarliestGAdate>
+
+            <!-- Optional section from sample: keep placeholders empty if unused -->
+            {{OTHER_INC_BLOCK}}
           </Repayment>
 
           <GASDS>
