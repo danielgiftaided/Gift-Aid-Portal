@@ -130,6 +130,15 @@ function parseCsvToObjects(csv: string): Array<Record<string, string>> {
   return out;
 }
 
+function escapeHtml(s: string) {
+  return s
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
 export default function AdminClaimDetail() {
   const { id } = useParams();
   const claimId = id ?? "";
@@ -236,6 +245,80 @@ export default function AdminClaimDetail() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claimId]);
+
+  /**
+   * ✅ NEW: Preview HMRC XML (calls admin endpoint with Bearer token)
+   * This avoids the "Not authenticated" error you saw when pasting the URL directly.
+   */
+  const previewHmrcXml = async () => {
+    try {
+      setBusy("xml");
+      setError(null);
+
+      if (!claimId) throw new Error("Missing claim id in URL");
+
+      const token = await getToken();
+
+      const res = await fetch(`/api/admin/claims/xml?claimId=${encodeURIComponent(claimId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const text = await res.text();
+
+      if (!res.ok) {
+        // Sometimes API returns JSON error; show raw text either way
+        throw new Error(`XML preview failed (${res.status}): ${text.slice(0, 200)}`);
+      }
+
+      // Open in new tab in a readable way
+      const w = window.open("", "_blank");
+      if (!w) throw new Error("Popup blocked. Please allow popups and try again.");
+
+      w.document.open();
+      w.document.write(`
+        <!doctype html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>HMRC XML Preview</title>
+            <style>
+              body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; padding: 16px; }
+              pre { white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb; }
+              .bar { display:flex; gap:10px; align-items:center; margin-bottom: 12px; }
+              .muted { color:#6b7280; font-size:12px; }
+              button { padding: 8px 10px; border:1px solid #e5e7eb; border-radius: 8px; background:white; cursor:pointer; }
+              button:hover { background:#f9fafb; }
+            </style>
+          </head>
+          <body>
+            <div class="bar">
+              <button id="copyBtn">Copy XML</button>
+              <span class="muted">Claim: ${escapeHtml(claimId)}</span>
+            </div>
+            <pre id="xml">${escapeHtml(text)}</pre>
+            <script>
+              const copyBtn = document.getElementById('copyBtn');
+              copyBtn.addEventListener('click', async () => {
+                const xml = document.getElementById('xml').innerText;
+                try {
+                  await navigator.clipboard.writeText(xml);
+                  copyBtn.innerText = 'Copied!';
+                  setTimeout(() => copyBtn.innerText = 'Copy XML', 1200);
+                } catch {
+                  alert('Copy failed. You can select and copy manually.');
+                }
+              });
+            </script>
+          </body>
+        </html>
+      `);
+      w.document.close();
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to preview XML");
+    } finally {
+      setBusy(null);
+    }
+  };
 
   const addItem = async () => {
     try {
@@ -578,9 +661,7 @@ export default function AdminClaimDetail() {
           <h2 className="font-semibold mb-2">Charity</h2>
           <div className="text-lg font-medium">{charity?.name ?? "Unknown Charity"}</div>
           <div className="text-sm text-gray-600">{charity?.contact_email ?? "-"}</div>
-          <div className="text-xs text-gray-400 mt-1 break-all">
-            Charity ID: {claim?.charity_id}
-          </div>
+          <div className="text-xs text-gray-400 mt-1 break-all">Charity ID: {claim?.charity_id}</div>
         </div>
 
         <div className="bg-white rounded-lg shadow p-4">
@@ -600,6 +681,16 @@ export default function AdminClaimDetail() {
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
+            {/* ✅ NEW: Preview HMRC XML */}
+            <button
+              onClick={previewHmrcXml}
+              disabled={busy !== null}
+              className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-50"
+              title="Generate and preview the HMRC XML for this claim (admin only)"
+            >
+              {busy === "xml" ? "Generating XML…" : "Preview HMRC XML"}
+            </button>
+
             <button
               disabled={busy !== null || (claim?.status !== "draft" && claim?.status !== "ready")}
               onClick={markReady}
@@ -705,9 +796,7 @@ export default function AdminClaimDetail() {
                   ))}
                 </tbody>
               </table>
-              {csvRows.length > 5 && (
-                <div className="text-xs text-gray-500 mt-2">Showing first 5 rows only.</div>
-              )}
+              {csvRows.length > 5 && <div className="text-xs text-gray-500 mt-2">Showing first 5 rows only.</div>}
             </div>
           )}
 
