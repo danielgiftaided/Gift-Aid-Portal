@@ -2,12 +2,8 @@ import fs from "fs";
 import path from "path";
 import { supabaseAdmin } from "./supabase.js";
 
-/** ✅ bump this if you ever need to prove deployments again */
-export const HMRC_XML_VERSION = "2026-01-18-v2-no-title";
+export const HMRC_XML_VERSION = "2026-01-18-v3-no-replaceAll-no-title";
 
-/**
- * Escapes XML special characters in text nodes.
- */
 function xmlEscape(v: any): string {
   return String(v ?? "")
     .replace(/&/g, "&amp;")
@@ -26,9 +22,7 @@ function readTemplate(): string {
   );
 
   if (!fs.existsSync(templatePath)) {
-    throw new Error(
-      "HMRC XML template not found. Create api/_hmrc_templates/giftAidClaimTemplate.xml"
-    );
+    throw new Error("HMRC XML template not found at api/_hmrc_templates/giftAidClaimTemplate.xml");
   }
 
   return fs.readFileSync(templatePath, "utf8");
@@ -66,7 +60,7 @@ type ClaimRow = {
 type CharityRow = {
   id: string;
   name: string;
-  charity_id: string; // mandatory HMRC charity identifier
+  charity_id: string; // HMRC CHARID (mandatory)
   contact_email?: string | null;
 };
 
@@ -107,7 +101,9 @@ function earliestDonationDate(items: ClaimItemRow[]): string {
 function replaceAllPlaceholders(template: string, vars: Record<string, string>) {
   let out = template;
   for (const [k, v] of Object.entries(vars)) {
-    out = out.replaceAll(`{{${k}}}`, v);
+    const token = `{{${k}}}`;
+    // ✅ works without String.replaceAll
+    out = out.split(token).join(v);
   }
   return out;
 }
@@ -116,7 +112,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
   if (!id) throw new Error("claimId is required");
 
-  // 1) Claim
+  // Claim
   const { data: claim, error: claimErr } = await supabaseAdmin
     .from("claims")
     .select("id, charity_id, period_end")
@@ -126,7 +122,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   if (claimErr || !claim) throw new Error(claimErr?.message || "Claim not found");
   const claimRow = claim as ClaimRow;
 
-  // 2) Charity
+  // Charity
   const { data: charity, error: charityErr } = await supabaseAdmin
     .from("charities")
     .select("id, name, charity_id, contact_email")
@@ -137,10 +133,10 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const charityRow = charity as CharityRow;
 
   if (!charityRow.charity_id || !String(charityRow.charity_id).trim()) {
-    throw new Error("Charity is missing charity_id (mandatory). Please set it first.");
+    throw new Error("Charity is missing charity_id (required for HMRC CHARID).");
   }
 
-  // 3) Items (✅ NO title column)
+  // Items (✅ no title column)
   const { data: items, error: itemsErr } = await supabaseAdmin
     .from("claim_items")
     .select(
@@ -152,6 +148,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   if (itemsErr) throw new Error(itemsErr.message);
 
   const itemRows = (items || []) as ClaimItemRow[];
+
   const donationRowsXml = itemRows.map(buildGadRowXml).join("\n");
 
   const periodEnd = normalizeDate(claimRow.period_end);
@@ -159,6 +156,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   const earliestGA = earliestDonationDate(itemRows) || periodEnd;
 
+  // Template variables (matches your sample style)
   const vars: Record<string, string> = {
     CORRELATION_ID: xmlEscape(claimRow.id),
     GATEWAY_TIMESTAMP: xmlEscape(nowIso()),
