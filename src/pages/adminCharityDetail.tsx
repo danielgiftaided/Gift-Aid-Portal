@@ -6,7 +6,7 @@ type Charity = {
   id: string;
   name: string;
   contact_email: string;
-  charity_id: string; // HMRC CHARID
+  charity_number: string | null; // ✅ This is HMRC CHARID now
   self_submit_enabled?: boolean;
 };
 
@@ -22,7 +22,10 @@ export default function AdminCharityDetail() {
   const charityUuid = id ?? "";
 
   const [charity, setCharity] = useState<Charity | null>(null);
-  const [hmrcCharId, setHmrcCharId] = useState("");
+
+  // ✅ Operator-editable Charity Number (HMRC CHARID)
+  const [charityNumber, setCharityNumber] = useState("");
+
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,19 +39,22 @@ export default function AdminCharityDetail() {
 
       const token = await getToken();
 
-      // You likely already have an admin list; this is a direct get by ID.
-      const res = await fetch(`/api/admin/charities/get?charityId=${encodeURIComponent(charityUuid)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      // NOTE: this endpoint must return charity_number in the charity object.
+      const res = await fetch(
+        `/api/admin/charities/get?charityId=${encodeURIComponent(charityUuid)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to load charity");
 
-      setCharity(json.charity);
-      setHmrcCharId(json.charity?.charity_id ?? "");
+      const c = json.charity as Charity;
+      setCharity(c);
+      setCharityNumber(c?.charity_number ?? "");
     } catch (e: any) {
       setError(e?.message ?? "Error");
       setCharity(null);
+      setCharityNumber("");
     } finally {
       setLoading(false);
     }
@@ -59,24 +65,39 @@ export default function AdminCharityDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [charityUuid]);
 
-  const saveHmrcCharId = async () => {
+  const saveCharityNumber = async () => {
     try {
       setBusy("save");
       setError(null);
 
+      if (!charityUuid) throw new Error("Missing charity id");
+      const trimmed = charityNumber.trim();
+
+      if (!trimmed) throw new Error("Charity number (HMRC CHARID) is required");
+      if (!/^[A-Za-z0-9]+$/.test(trimmed)) {
+        throw new Error("Charity number must be letters/numbers only (no spaces).");
+      }
+
       const token = await getToken();
 
-      const res = await fetch("/api/admin/charities/update-hmrc-charid", {
+      // ✅ NEW endpoint (operator-only)
+      const res = await fetch("/api/admin/charities/update-number", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ charityId: charityUuid, hmrcCharId }),
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          charityId: charityUuid,
+          charity_number: trimmed,
+        }),
       });
 
       const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to update HMRC CHARID");
+      if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to update charity number");
 
-      setCharity(json.charity);
-      setHmrcCharId(json.charity?.charity_id ?? "");
+      // Refresh data after save
+      await load();
     } catch (e: any) {
       setError(e?.message ?? "Save failed");
     } finally {
@@ -113,21 +134,26 @@ export default function AdminCharityDetail() {
 
         <h2 className="text-lg font-semibold mb-2">HMRC Settings</h2>
         <p className="text-sm text-gray-600 mb-3">
-          HMRC CHARID is used in the HMRC Gift Aid XML (CHARID and HMRCref in the sample style).
+          The <span className="font-medium">Charity Number</span> is used as the HMRC{" "}
+          <span className="font-medium">CHARID</span> in the Gift Aid XML.
+          Only operators can edit this value.
         </p>
 
-        <label className="block text-sm font-medium mb-1">HMRC CHARID</label>
+        <label className="block text-sm font-medium mb-1">
+          Charity number (HMRC CHARID)
+        </label>
+
         <div className="flex flex-col md:flex-row gap-3">
           <input
             className="border rounded px-3 py-2 text-sm w-full md:max-w-md"
-            value={hmrcCharId}
-            onChange={(e) => setHmrcCharId(e.target.value)}
-            placeholder="e.g. AA12345"
+            value={charityNumber}
+            onChange={(e) => setCharityNumber(e.target.value)}
+            placeholder="e.g. AA12345 or 328158"
             autoComplete="off"
             disabled={busy !== null}
           />
           <button
-            onClick={saveHmrcCharId}
+            onClick={saveCharityNumber}
             disabled={busy !== null}
             className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
           >
@@ -135,9 +161,10 @@ export default function AdminCharityDetail() {
           </button>
         </div>
 
-        {charity?.charity_id && (
+        {charity?.charity_number && (
           <div className="text-xs text-gray-500 mt-2">
-            Current saved HMRC CHARID: <span className="font-medium">{charity.charity_id}</span>
+            Current saved charity number:{" "}
+            <span className="font-medium">{charity.charity_number}</span>
           </div>
         )}
 
