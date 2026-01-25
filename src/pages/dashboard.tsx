@@ -5,6 +5,7 @@ interface Charity {
   id: string;
   name: string;
   contact_email: string;
+  charity_id: string; // HMRC CHARID stored here
 }
 
 interface Submission {
@@ -17,24 +18,37 @@ interface Submission {
   tax_year: string;
 }
 
+async function getToken(): Promise<string> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) throw new Error("Not logged in");
+  return token;
+}
+
 export default function Dashboard() {
   const [user, setUser] = useState<any>(null);
   const [charity, setCharity] = useState<Charity | null>(null);
   const [submissions, setSubmissions] = useState<Submission[]>([]);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // HMRC CHARID edit
+  const [hmrcCharId, setHmrcCharId] = useState("");
+
   useEffect(() => {
-    checkUser();
+    loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const checkUser = async () => {
+  const loadAll = async () => {
     try {
       setLoading(true);
       setError(null);
 
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (!user) {
         window.location.href = "/login";
@@ -43,51 +57,61 @@ export default function Dashboard() {
 
       setUser(user);
 
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
+      const token = await getToken();
 
-      if (!token) throw new Error("No session token found. Please log in again.");
-
+      // 1) charity/me (now includes charity_id)
       const charityResp = await fetch("/api/charity/me", {
-        method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
-
       const charityJson = await charityResp.json();
-
-      if (!charityResp.ok || !charityJson?.ok) {
-        const isNoCharity =
-          charityResp.status === 403 &&
-          charityJson?.error === "User is not linked to a charity";
-
-        if (isNoCharity) {
-          window.location.href = "/charity-setup";
-          return;
-        }
-
+      if (!charityResp.ok || !charityJson.ok) {
         throw new Error(charityJson?.error || "Failed to load charity");
       }
 
-      setCharity(charityJson.charity as Charity);
+      setCharity(charityJson.charity);
+      setHmrcCharId(charityJson.charity?.charity_id ?? "");
 
+      // 2) submissions list
       const subsResp = await fetch("/api/submissions/list?limit=100&offset=0", {
-        method: "GET",
         headers: { Authorization: `Bearer ${token}` },
       });
-
       const subsJson = await subsResp.json();
-
       if (!subsResp.ok || !subsJson.ok) {
         throw new Error(subsJson?.error || "Failed to load submissions");
       }
-
-      setSubmissions((subsJson.submissions || []) as Submission[]);
+      setSubmissions(subsJson.submissions || []);
     } catch (e: any) {
       setError(e?.message ?? "Something went wrong");
       setCharity(null);
       setSubmissions([]);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const saveHmrcCharId = async () => {
+    try {
+      setBusy("saveHmrcCharId");
+      setError(null);
+
+      const token = await getToken();
+      const res = await fetch("/api/charity/update-hmrc-charid", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ hmrcCharId }),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        throw new Error(json?.error || "Failed to update HMRC CHARID");
+      }
+
+      setCharity(json.charity);
+      setHmrcCharId(json.charity?.charity_id ?? "");
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to update HMRC CHARID");
+    } finally {
+      setBusy(null);
     }
   };
 
@@ -99,12 +123,12 @@ export default function Dashboard() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case "approved":
-        return "bg-brand-accent/10 text-brand-accent";
+        return "bg-green-100 text-green-800";
       case "rejected":
         return "bg-red-100 text-red-800";
       case "submitted":
       case "pending":
-        return "bg-brand-primary/10 text-brand-primary";
+        return "bg-blue-100 text-blue-800";
       default:
         return "bg-gray-100 text-gray-800";
     }
@@ -114,18 +138,15 @@ export default function Dashboard() {
   const pendingCount = submissions.filter((s) => s.status === "pending" || s.status === "submitted").length;
 
   if (loading) {
-    return <div className="min-h-screen flex items-center justify-center bg-brand-surface">Loading...</div>;
+    return <div className="min-h-screen flex items-center justify-center">Loading...</div>;
   }
 
   return (
-    <div className="min-h-screen bg-brand-surface">
-      <div className="bg-white/80 shadow">
+    <div className="min-h-screen bg-gray-50">
+      <div className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-brand-primary">Gift Aid Portal</h1>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 text-sm rounded border border-brand-primary/20 text-brand-primary hover:bg-brand-primary/10"
-          >
+          <h1 className="text-2xl font-bold">Gift Aid Portal</h1>
+          <button onClick={handleLogout} className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900">
             Log Out
           </button>
         </div>
@@ -138,43 +159,67 @@ export default function Dashboard() {
           </div>
         )}
 
-        <div className="bg-white/80 rounded-lg shadow p-6 mb-6">
-          <h2 className="text-xl font-semibold mb-2 text-brand-primary">
-            Welcome, {charity?.name || "Charity"}
-          </h2>
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-2">Welcome, {charity?.name || "Charity"}</h2>
           <p className="text-gray-600">View and track your Gift Aid submissions</p>
         </div>
 
+        {/* ✅ Charity settings (HMRC CHARID editable by charity users) */}
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h3 className="text-lg font-semibold mb-2">Charity Settings</h3>
+          <p className="text-sm text-gray-600 mb-3">
+            HMRC CHARID is required for HMRC submissions. You can update it here at any time.
+          </p>
+
+          <label className="block text-sm font-medium mb-1">HMRC CHARID</label>
+          <div className="flex flex-col md:flex-row gap-3">
+            <input
+              className="border rounded px-3 py-2 text-sm w-full md:max-w-md"
+              value={hmrcCharId}
+              onChange={(e) => setHmrcCharId(e.target.value)}
+              placeholder="e.g. AA12345"
+              autoComplete="off"
+              disabled={busy !== null}
+            />
+            <button
+              onClick={saveHmrcCharId}
+              disabled={busy !== null}
+              className="px-4 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+            >
+              {busy === "saveHmrcCharId" ? "Saving…" : "Save"}
+            </button>
+          </div>
+
+          {charity?.charity_id && (
+            <div className="text-xs text-gray-500 mt-2">
+              Current saved HMRC CHARID: <span className="font-medium">{charity.charity_id}</span>
+            </div>
+          )}
+        </div>
+
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-          <div className="bg-white/80 rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow p-6">
             <div className="text-sm text-gray-600">Total Claimed</div>
-            <div className="text-3xl font-bold text-brand-primary">
-              £{totalClaimed.toLocaleString()}
-            </div>
+            <div className="text-3xl font-bold text-blue-600">£{totalClaimed.toLocaleString()}</div>
           </div>
 
-          <div className="bg-white/80 rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow p-6">
             <div className="text-sm text-gray-600">Total Submissions</div>
-            <div className="text-3xl font-bold text-brand-primary">
-              {submissions.length}
-            </div>
+            <div className="text-3xl font-bold text-gray-900">{submissions.length}</div>
           </div>
 
-          <div className="bg-white/80 rounded-lg shadow p-6">
+          <div className="bg-white rounded-lg shadow p-6">
             <div className="text-sm text-gray-600">Pending</div>
-            <div className="text-3xl font-bold text-brand-accent">
-              {pendingCount}
-            </div>
+            <div className="text-3xl font-bold text-orange-600">{pendingCount}</div>
           </div>
         </div>
 
-        <div className="bg-white/80 rounded-lg shadow">
+        <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-brand-primary">Recent Submissions</h3>
-
+            <h3 className="text-lg font-semibold">Recent Submissions</h3>
             <button
-              onClick={checkUser}
-              className="px-3 py-2 text-sm rounded border border-brand-primary/20 text-brand-primary hover:bg-brand-primary/10"
+              onClick={loadAll}
+              className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50"
               title="Refresh data"
             >
               Refresh
@@ -183,14 +228,14 @@ export default function Dashboard() {
 
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-brand-primary/5">
+              <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">Tax Year</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">Amount</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">Donations</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-600 uppercase">HMRC Ref</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax Year</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Donations</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">HMRC Ref</th>
                 </tr>
               </thead>
 
@@ -228,9 +273,7 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {user?.id && (
-          <div className="text-xs text-gray-400 mt-6">Logged in user: {user.id}</div>
-        )}
+        {user?.id && <div className="text-xs text-gray-400 mt-6">Logged in user: {user.id}</div>}
       </div>
     </div>
   );
