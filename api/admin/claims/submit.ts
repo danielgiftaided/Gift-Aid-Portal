@@ -1,155 +1,117 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { supabaseAdmin } from "../../_utils/supabase.js";
 import { requireOperator } from "../../_utils/requireOperator.js";
-import { decryptJson } from "../../_utils/crypto.js";
+import { buildGiftAidClaimXml } from "../../_utils/hmrcXml.js";
+import { hmrcTestSubmit } from "../../_utils/hmrcTransport.js";
 
-/**
- * Vercel can deliver req.body as:
- * - object (already parsed)
- * - string (raw JSON)
- * - undefined
- */
-function parseBody(req: VercelRequest): any {
+function parseBody(req: VercelRequest) {
   const b: any = (req as any).body;
   if (!b) return {};
   if (typeof b === "object") return b;
   if (typeof b === "string") {
-    try {
-      return JSON.parse(b);
-    } catch {
-      return {};
-    }
+    try { return JSON.parse(b); } catch { return {}; }
   }
   return {};
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== "POST") {
-      return res.status(405).json({ ok: false, error: "Method not allowed" });
-    }
+    if (req.method !== "POST") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
-    // ✅ operator-only enforcement
     await requireOperator(req);
 
     const body = parseBody(req);
     const claimId = String(body.claimId || "").trim();
-    if (!claimId) {
-      return res.status(400).json({ ok: false, error: "claimId is required" });
-    }
+    if (!claimId) return res.status(400).json({ ok: false, error: "claimId is required" });
 
-    // 1) Load claim (need charity_id + status)
+    // 1) Load claim
     const { data: claim, error: claimErr } = await supabaseAdmin
       .from("claims")
-      .select("id, charity_id, status")
+      .select("id, charity_id, period_start, period_end, status")
       .eq("id", claimId)
       .single();
 
-    if (claimErr || !claim) {
-      return res.status(404).json({ ok: false, error: "Claim not found" });
-    }
+    if (claimErr || !claim) return res.status(404).json({ ok: false, error: claimErr?.message || "Claim not found" });
+    if (claim.status !== "ready") return res.status(400).json({ ok: false, error: "Claim must be 'ready' to submit" });
 
-    if (claim.status !== "ready") {
-      return res
-        .status(400)
-        .json({ ok: false, error: "Claim must be 'ready' to submit" });
-    }
-
-    // 2) Load charity HMRC connection pointer
-    const { data: charityRow, error: charityErr } = await supabaseAdmin
+    // 2) Load charity (we are using charities.charity_number as HMRC CHARID)
+    const { data: charity, error: charityErr } = await supabaseAdmin
       .from("charities")
-      .select("id, hmrc_connection_id, hmrc_mode")
+      .select("id, name, contact_email, charity_number")
       .eq("id", claim.charity_id)
       .single();
 
-    if (charityErr || !charityRow) {
-      return res.status(404).json({ ok: false, error: "Charity not found" });
-    }
+    if (charityErr || !charity) return res.status(500).json({ ok: false, error: charityErr?.message || "Charity missing" });
 
-    // If not set, we cannot submit automatically.
-    if (!charityRow.hmrc_connection_id) {
+    const hmrcCharId = String(charity.charity_number || "").trim();
+    if (!hmrcCharId) {
       return res.status(400).json({
         ok: false,
-        error:
-          "This charity has no HMRC connection set. Ask the charity (or admin) to enter HMRC credentials first.",
+        error: "Charity number (HMRC CHARID) is missing. Ask an operator to set it in Admin > Charity Detail.",
       });
     }
 
-    // 3) Load the active HMRC connection
-    const { data: conn, error: connErr } = await supabaseAdmin
-      .from("hmrc_connections")
-      .select("id, charity_id, mode, active, credentials_encrypted, updated_at")
-      .eq("id", charityRow.hmrc_connection_id)
-      .eq("active", true)
-      .single();
+    // 3) Load claim items (your newer schema fields)
+    const { data: items, error: itemsErr } = await supabaseAdmin
+      .from("claim_items")
+      .select("donor_title, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount")
+      .eq("claim_id", claimId);
 
-    if (connErr || !conn) {
-      return res.status(400).json({
-        ok: false,
-        error:
-          "HMRC connection not found or not active. Please re-save the HMRC credentials.",
-      });
-    }
+    if (itemsErr) return res.status(500).json({ ok: false, error: itemsErr.message });
+    if (!items || items.length === 0) return res.status(400).json({ ok: false, error: "No donations in this claim" });
 
-    // 4) Decrypt credentials (server-side only)
-    // IMPORTANT: never return these to client, never log passwords.
-    let creds: any;
-    try {
-      creds = decryptJson(conn.credentials_encrypted);
-    } catch (e: any) {
-      return res.status(500).json({
-        ok: false,
-        error:
-          "Failed to decrypt HMRC credentials. Check HMRC_CRED_ENCRYPTION_KEY is set correctly in Vercel.",
-      });
-    }
+    // 4) Build XML
+    const xml = buildGiftAidClaimXml({
+      claimId,
+      hmrcCharId,
+      orgName: charity.name,
+      periodEnd: String(claim.period_end),
+      items: items.map((it: any) => ({
+        title: it.donor_title || null,
+        firstName: it.donor_first_name,
+        lastName: it.donor_last_name,
+        address: it.donor_address,
+        postcode: it.donor_postcode,
+        donationDate: String(it.donation_date),
+        donationAmount: Number(it.donation_amount),
+      })),
+      // For now keep these sample-style values; later we’ll pull from hmrc_connections
+      senderId: "GIFTAIDCHAR",
+      password: "testing2",
+      gatewayTest: 1,
+      productName: "GA Valid Sample",
+      channelUri: "0000",
+    });
 
-    const gatewayUserId = String(creds?.gatewayUserId || "").trim();
-    const gatewayPassword = String(creds?.gatewayPassword || "").trim();
+    // 5) Send to HMRC TEST endpoint
+    const submitResult = await hmrcTestSubmit(xml);
 
-    if (!gatewayUserId || !gatewayPassword) {
-      return res.status(400).json({
-        ok: false,
-        error:
-          "HMRC credentials are incomplete. Please re-save them (gatewayUserId + gatewayPassword).",
-      });
-    }
+    // 6) Store submission response + mark as pending
+    const totalAmount = items.reduce((s: number, it: any) => s + Number(it.donation_amount || 0), 0);
 
-    // ✅ At this point, we have everything required to submit to HMRC.
-    // NEXT STEP (later): Build XML + IRmark + transport to HMRC Charities Online XML endpoint.
-    // For now, we confirm end-to-end operator flow + credential lookup works.
+    const { error: updErr } = await supabaseAdmin.from("claims").update({
+      status: "submitted", // or "pending" if you prefer
+      donation_count: items.length,
+      total_amount: totalAmount,
+      hmrc_correlation_id: claimId, // we used claimId as CorrelationID
+      hmrc_last_message: submitResult.ok
+        ? `HMRC TEST submit accepted (HTTP ${submitResult.status}). Next: poll.`
+        : `HMRC TEST submit failed (HTTP ${submitResult.status}).`,
+      hmrc_raw_response: submitResult.bodyText,
+    }).eq("id", claimId);
 
-    const modeLabel =
-      charityRow.hmrc_mode === "central" ? "central" : "charity";
-
-    const { error: updateErr } = await supabaseAdmin
-      .from("claims")
-      .update({
-        status: "submitted",
-        hmrc_last_message:
-          `Submitted by operator (HMRC transport not yet connected). ` +
-          `Connection mode: ${modeLabel}.`,
-      })
-      .eq("id", claimId);
-
-    if (updateErr) {
-      return res.status(500).json({ ok: false, error: updateErr.message });
-    }
+    if (updErr) return res.status(500).json({ ok: false, error: updErr.message });
 
     return res.status(200).json({
       ok: true,
-      submitted: true,
-      claimId,
-      charityId: claim.charity_id,
-      hmrcMode: charityRow.hmrc_mode ?? "charity",
-      connectionId: conn.id,
-      // Never return password; we only confirm the connection is present.
-      gatewayUserIdMasked:
-        gatewayUserId.length <= 3
-          ? "***"
-          : `${gatewayUserId.slice(0, 2)}***${gatewayUserId.slice(-1)}`,
+      hmrc: {
+        httpStatus: submitResult.status,
+        ok: submitResult.ok,
+        contentType: submitResult.contentType,
+        responseSnippet: submitResult.bodyText.slice(0, 400),
+      },
     });
   } catch (err: any) {
-    return res.status(403).json({ ok: false, error: err.message });
+    return res.status(403).json({ ok: false, error: err?.message ?? "Forbidden" });
   }
 }
