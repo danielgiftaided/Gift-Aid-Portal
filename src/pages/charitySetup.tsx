@@ -1,11 +1,28 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
 
+function normalizeHmrcCharId(v: string) {
+  return v.trim().toUpperCase();
+}
+
+function validateHmrcCharId(charId: string): string | null {
+  if (!charId) return "HMRC CHARID is required";
+  if (charId.length < 3) return "HMRC CHARID looks too short";
+  if (charId.length > 30) return "HMRC CHARID looks too long";
+  if (!/^[A-Z0-9\-]+$/.test(charId)) return "HMRC CHARID must be letters/numbers/hyphen only";
+  return null;
+}
+
 export default function CharitySetup() {
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  const [charityId, setCharityId] = useState(""); // ✅ NEW (mandatory)
+
+  // Optional charity number (regulator number etc)
   const [charityNumber, setCharityNumber] = useState("");
+
+  // ✅ NEW: HMRC CHARID required
+  const [hmrcCharId, setHmrcCharId] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,9 +46,17 @@ export default function CharitySetup() {
       setLoading(true);
       setError(null);
 
-      if (!name.trim()) throw new Error("Charity name is required");
-      if (!contactEmail.trim()) throw new Error("Contact email is required");
-      if (!charityId.trim()) throw new Error("Charity ID is required"); // ✅ NEW
+      const cleanName = name.trim();
+      const cleanEmail = contactEmail.trim();
+      const cleanCharityNo = charityNumber.trim() || null;
+      const cleanHmrcCharId = normalizeHmrcCharId(hmrcCharId);
+
+      if (!cleanName) throw new Error("Charity name is required");
+      if (!cleanEmail) throw new Error("Contact email is required");
+
+      // ✅ Required
+      const vErr = validateHmrcCharId(cleanHmrcCharId);
+      if (vErr) throw new Error(vErr);
 
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
@@ -44,10 +69,12 @@ export default function CharitySetup() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          name: name.trim(),
-          contact_email: contactEmail.trim(),
-          charity_id: charityId.trim(), // ✅ NEW
-          charity_number: charityNumber.trim() || null,
+          name: cleanName,
+          contact_email: cleanEmail,
+          charity_number: cleanCharityNo,
+
+          // ✅ NEW: store HMRC CHARID in charities.charity_id
+          charity_id: cleanHmrcCharId,
         }),
       });
 
@@ -80,14 +107,9 @@ export default function CharitySetup() {
           </div>
         )}
 
-        <label
-          className="block text-sm font-medium mb-1"
-          htmlFor="charityName"
-        >
-          Charity name
-        </label>
+        <label className="block text-sm font-medium mb-1">Charity name</label>
         <input
-          id="charityName"
+          id="charity-name"
           name="charityName"
           className="w-full border rounded px-3 py-2 mb-3"
           value={name}
@@ -95,58 +117,43 @@ export default function CharitySetup() {
           placeholder="e.g. Helping Hands"
           autoComplete="organization"
           disabled={loading}
-          required
         />
 
-        <label
-          className="block text-sm font-medium mb-1"
-          htmlFor="contactEmail"
-        >
-          Contact email
-        </label>
+        <label className="block text-sm font-medium mb-1">Contact email</label>
         <input
-          id="contactEmail"
+          id="contact-email"
           name="contactEmail"
-          type="email"
           className="w-full border rounded px-3 py-2 mb-3"
           value={contactEmail}
           onChange={(e) => setContactEmail(e.target.value)}
           placeholder="contact@charity.org"
           autoComplete="email"
           disabled={loading}
-          required
         />
 
-        {/* ✅ NEW: Charity ID (mandatory) */}
-        <label
-          className="block text-sm font-medium mb-1"
-          htmlFor="charityId"
-        >
-          Charity ID (required)
+        {/* ✅ NEW REQUIRED FIELD */}
+        <label className="block text-sm font-medium mb-1">
+          HMRC CHARID <span className="text-red-600">*</span>
         </label>
         <input
-          id="charityId"
-          name="charityId"
-          className="w-full border rounded px-3 py-2 mb-3"
-          value={charityId}
-          onChange={(e) => setCharityId(e.target.value)}
+          id="hmrc-charid"
+          name="hmrcCharId"
+          className="w-full border rounded px-3 py-2 mb-1"
+          value={hmrcCharId}
+          onChange={(e) => setHmrcCharId(e.target.value)}
           placeholder="e.g. AA12345"
           autoComplete="off"
           disabled={loading}
-          required
         />
-        <p className="text-xs text-gray-500 mb-3">
-          This is the charity’s identifier used for HMRC Charities Online submissions.
-        </p>
+        <div className="text-xs text-gray-500 mb-3">
+          This is used in HMRC Gift Aid submissions. Letters/numbers only.
+        </div>
 
-        <label
-          className="block text-sm font-medium mb-1"
-          htmlFor="charityNumber"
-        >
+        <label className="block text-sm font-medium mb-1">
           Charity number (optional)
         </label>
         <input
-          id="charityNumber"
+          id="charity-number"
           name="charityNumber"
           className="w-full border rounded px-3 py-2 mb-4"
           value={charityNumber}
