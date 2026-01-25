@@ -3,10 +3,7 @@ import { supabaseAdmin } from "../_utils/supabase.js";
 import { requireUser } from "../_utils/requireUser.js";
 
 function send(res: VercelResponse, status: number, body: any) {
-  return res
-    .status(status)
-    .setHeader("Content-Type", "application/json")
-    .send(JSON.stringify(body));
+  return res.status(status).json(body);
 }
 
 function parseBody(req: VercelRequest) {
@@ -30,8 +27,8 @@ function normalizeOptionalString(v: any): string | null {
   if (v === undefined || v === null) return null;
   const s = String(v).trim();
   if (!s) return null;
-  if (s.toLowerCase() === "undefined") return null;
-  if (s.toLowerCase() === "null") return null;
+  const lower = s.toLowerCase();
+  if (lower === "undefined" || lower === "null") return null;
   return s;
 }
 
@@ -42,9 +39,26 @@ function normalizeRequiredString(v: any): string {
   if (v === undefined || v === null) return "";
   const s = String(v).trim();
   if (!s) return "";
-  if (s.toLowerCase() === "undefined") return "";
-  if (s.toLowerCase() === "null") return "";
+  const lower = s.toLowerCase();
+  if (lower === "undefined" || lower === "null") return "";
   return s;
+}
+
+/**
+ * HMRC CHARID normalization + validation
+ */
+function normalizeHmrcCharId(v: any): string {
+  return normalizeRequiredString(v).toUpperCase();
+}
+
+function validateHmrcCharId(charId: string): string | null {
+  if (!charId) return "Charity ID (HMRC CHARID) is required";
+  if (charId.length < 3) return "Charity ID (HMRC CHARID) looks too short";
+  if (charId.length > 30) return "Charity ID (HMRC CHARID) looks too long";
+  if (!/^[A-Z0-9\-]+$/.test(charId)) {
+    return "Charity ID (HMRC CHARID) must be letters/numbers/hyphen only";
+  }
+  return null;
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -66,20 +80,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const name = normalizeRequiredString(body.name);
     const contact_email = normalizeRequiredString(body.contact_email);
 
-    // ✅ NEW: charity_id is mandatory at setup
-    // This is the charity identifier used in HMRC XML (CHARID / HMRCref in the sample schema).
-    const charity_id = normalizeRequiredString(body.charity_id);
+    // ✅ REQUIRED: HMRC CHARID (stored on charities.charity_id)
+    const hmrc_charid = normalizeHmrcCharId(body.charity_id);
 
     // Optional
     const charity_number = normalizeOptionalString(body.charity_number);
 
     if (!name) return send(res, 400, { ok: false, error: "Charity name is required" });
     if (!contact_email) return send(res, 400, { ok: false, error: "Contact email is required" });
-    if (!charity_id) return send(res, 400, { ok: false, error: "Charity ID is required" });
+
+    const charIdErr = validateHmrcCharId(hmrc_charid);
+    if (charIdErr) return send(res, 400, { ok: false, error: charIdErr });
 
     /**
      * 1) Check if user already has a charity.
-     *
      * Using maybeSingle() prevents the "Cannot coerce..." crash if duplicates exist.
      * If duplicates exist, we fall back to fetching all rows and selecting one.
      */
@@ -101,7 +115,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return send(res, 500, { ok: false, error: uErr.message });
       }
 
-      // Fetch all rows and pick the first one with a charity_id if present
+      // Fetch all rows and pick newest (prefer a row that already has charity_id if any)
       const { data: userRows, error: uErr2 } = await supabaseAdmin
         .from("users")
         .select("id, charity_id, created_at")
@@ -130,34 +144,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // If already linked, do nothing.
+    // If already linked, return existing link
     if (existingUser.charity_id) {
       return send(res, 200, {
         ok: true,
-        charity_id: existingUser.charity_id,
+        charity_id: existingUser.charity_id, // ✅ this is the DB UUID of charities.id
         alreadySetup: true,
       });
     }
 
     /**
      * 2) Duplicate protection
-     *
-     * Primary: charity_id (mandatory and should be unique)
-     * Secondary: charity_number (optional)
+     * Primary: HMRC CHARID (charities.charity_id)
+     * Secondary: charity_number (charities.charity_number)
      */
     let charityDbIdToUse: string | null = null;
 
-    // 2A) Try reuse by charity_id
+    // 2A) reuse by HMRC CHARID (stored on charities.charity_id)
     const { data: existingByCharId, error: exCharIdErr } = await supabaseAdmin
       .from("charities")
       .select("id")
-      .eq("charity_id", charity_id)
+      .eq("charity_id", hmrc_charid)
       .maybeSingle();
 
     if (exCharIdErr) return send(res, 500, { ok: false, error: exCharIdErr.message });
     if (existingByCharId?.id) charityDbIdToUse = existingByCharId.id;
 
-    // 2B) If not found, optionally reuse by charity_number
+    // 2B) reuse by charity_number (optional)
     if (!charityDbIdToUse && charity_number) {
       const { data: existingByNumber, error: exNumErr } = await supabaseAdmin
         .from("charities")
@@ -179,7 +192,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           name,
           contact_email,
           charity_number,
-          charity_id, // ✅ NEW (mandatory)
+          charity_id: hmrc_charid, // ✅ HMRC CHARID stored here
           created_by: userId,
           self_submit_enabled: false,
         })
@@ -201,12 +214,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!charityDbIdToUse || typeof charityDbIdToUse !== "string") {
       return send(res, 500, {
         ok: false,
-        error: "Internal error: charity id was not created correctly.",
+        error: "Internal error: charity DB id was not created correctly.",
       });
     }
 
     /**
-     * 4) Link user -> charity (public.users table)
+     * 4) Link user -> charity (public.users.charity_id = charities.id UUID)
      */
     const { error: linkErr } = await supabaseAdmin
       .from("users")
@@ -217,7 +230,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     return send(res, 200, {
       ok: true,
-      charity_id: charityDbIdToUse, // DB UUID id for the charity row (used everywhere in your portal)
+      charity_id: charityDbIdToUse, // ✅ DB UUID of charities.id
       alreadySetup: false,
     });
   } catch (e: any) {
