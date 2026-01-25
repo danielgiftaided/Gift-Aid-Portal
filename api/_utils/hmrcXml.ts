@@ -3,13 +3,11 @@ import path from "path";
 import { supabaseAdmin } from "./supabase.js";
 
 /**
- * ✅ Option A: export a version constant so imports like
- *   import { HMRC_XML_VERSION } from "../../_utils/hmrcXml.js"
- * work correctly.
+ * ✅ Option A: exported constant so other modules can import it.
  */
-export const HMRC_XML_VERSION = "2026-01-25-v1";
+export const HMRC_XML_VERSION = "2026-01-25-v2";
 
-/** Basic XML escaping */
+/** XML escape */
 function xmlEscape(v: any): string {
   return String(v ?? "")
     .replace(/&/g, "&amp;")
@@ -19,7 +17,7 @@ function xmlEscape(v: any): string {
     .replace(/'/g, "&apos;");
 }
 
-/** Normalize date to YYYY-MM-DD (best effort) */
+/** Best-effort normalize date to YYYY-MM-DD */
 function normalizeDate(d: any): string {
   const s = String(d ?? "").trim();
   if (!s) return "";
@@ -34,7 +32,7 @@ function normalizeDate(d: any): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/** Format numbers as money (two decimals) */
+/** Money to 2dp */
 function formatMoney(n: any): string {
   const v = Number(n);
   if (!Number.isFinite(v)) return "0.00";
@@ -43,7 +41,7 @@ function formatMoney(n: any): string {
 
 /**
  * Avoid String.replaceAll (TS target compatibility).
- * Replaces all occurrences of {{KEY}} in the template.
+ * Replaces all occurrences of {{KEY}} in template.
  */
 function replaceAllPlaceholders(template: string, vars: Record<string, string>) {
   let out = template;
@@ -59,8 +57,8 @@ function templatePath(): string {
 }
 
 /**
- * Read external template if present.
- * If not found, use a built-in template matching your sample style.
+ * Loads an external template if present, otherwise uses a safe built-in template.
+ * This keeps your sample structure.
  */
 function loadTemplateOrFallback(): string {
   const p = templatePath();
@@ -69,6 +67,7 @@ function loadTemplateOrFallback(): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
   <EnvelopeVersion>2.0</EnvelopeVersion>
+
   <Header>
     <MessageDetails>
       <Class>HMRC-CHAR-CLM</Class>
@@ -79,6 +78,7 @@ function loadTemplateOrFallback(): string {
       <GatewayTest>{{GATEWAY_TEST}}</GatewayTest>
       <GatewayTimestamp>{{GATEWAY_TIMESTAMP}}</GatewayTimestamp>
     </MessageDetails>
+
     <SenderDetails>
       <IDAuthentication>
         <SenderID>{{SENDER_ID}}</SenderID>
@@ -95,9 +95,11 @@ function loadTemplateOrFallback(): string {
     <Keys>
       <Key Type="CHARID">{{CHARID}}</Key>
     </Keys>
+
     <TargetDetails>
       <Organisation>HMRC</Organisation>
     </TargetDetails>
+
     <ChannelRouting>
       <Channel>
         <URI>0000</URI>
@@ -161,10 +163,15 @@ function loadTemplateOrFallback(): string {
 }
 
 /**
- * Build a <GAD> row.
- * Matches your sample style: Fore, Sur, House, Postcode + Date + Total.
- * (Title is NOT used in the sample, so we do not include it here.)
+ * Normalise postcode output for HMRC:
+ * - trim
+ * - uppercase
  */
+function normalizePostcode(postcode: any): string {
+  return String(postcode ?? "").trim().toUpperCase();
+}
+
+/** Build a single <GAD> row in the sample style */
 function buildGadRowXml(item: {
   donor_first_name: string;
   donor_last_name: string;
@@ -175,14 +182,16 @@ function buildGadRowXml(item: {
 }): string {
   const donationDate = normalizeDate(item.donation_date);
   const amount = formatMoney(item.donation_amount);
+  const postcode = normalizePostcode(item.donor_postcode);
+  const address = String(item.donor_address ?? "").trim();
 
   return [
     "            <GAD>",
     "              <Donor>",
-    `                <Fore>${xmlEscape(item.donor_first_name)}</Fore>`,
-    `                <Sur>${xmlEscape(item.donor_last_name)}</Sur>`,
-    `                <House>${xmlEscape(item.donor_address)}</House>`,
-    `                <Postcode>${xmlEscape(item.donor_postcode)}</Postcode>`,
+    `                <Fore>${xmlEscape(String(item.donor_first_name ?? "").trim())}</Fore>`,
+    `                <Sur>${xmlEscape(String(item.donor_last_name ?? "").trim())}</Sur>`,
+    `                <House>${xmlEscape(address)}</House>`,
+    `                <Postcode>${xmlEscape(postcode)}</Postcode>`,
     "              </Donor>",
     `              <Date>${xmlEscape(donationDate)}</Date>`,
     `              <Total>${xmlEscape(amount)}</Total>`,
@@ -190,10 +199,7 @@ function buildGadRowXml(item: {
   ].join("\n");
 }
 
-function earliestDonationDate(
-  items: Array<{ donation_date: string }>,
-  fallback: string
-): string {
+function earliestDonationDate(items: Array<{ donation_date: string }>, fallback: string): string {
   const dates = items
     .map((it) => normalizeDate(it.donation_date))
     .filter((d) => /^\d{4}-\d{2}-\d{2}$/.test(d))
@@ -202,8 +208,14 @@ function earliestDonationDate(
 }
 
 /**
- * MAIN:
- * returns GovTalkMessage XML for a claimId.
+ * ✅ MAIN entrypoint used by Preview XML + later Submit:
+ * Reads current charities.charity_id (HMRC CHARID).
+ *
+ * IMPORTANT:
+ * You asked for HMRC CHARID to be editable by both charity users and admin.
+ * That is achieved by:
+ * - storing it on the charity record (charities.charity_id)
+ * - generating XML from whatever is currently stored there
  */
 export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
@@ -223,9 +235,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   const periodStart = normalizeDate((claim as any).period_start) || periodEnd;
 
-  // 2) Load charity
-  // IMPORTANT: You previously clarified Charity ID is a required field in your system.
-  // In your earlier API code, this field was called `charity_id` on the charities table.
+  // 2) Load charity — HMRC CHARID lives here
   const { data: charity, error: charityErr } = await supabaseAdmin
     .from("charities")
     .select("id, name, contact_email, charity_id")
@@ -234,10 +244,11 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   if (charityErr || !charity) throw new Error(charityErr?.message || "Charity not found");
 
+  // This is HMRC CHARID (the value you want both users/admin to be able to edit)
   const charid = String((charity as any).charity_id || "").trim();
   if (!charid) {
     throw new Error(
-      "Charity is missing charity_id (HMRC CHARID). Make this mandatory at charity setup."
+      "Charity is missing HMRC CHARID (charities.charity_id). Please set it in Charity Setup / Admin Charity page."
     );
   }
 
@@ -245,7 +256,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const { data: items, error: itemsErr } = await supabaseAdmin
     .from("claim_items")
     .select(
-      "id, donor_title, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount"
+      "id, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount"
     )
     .eq("claim_id", id)
     .order("donation_date", { ascending: true });
@@ -260,7 +271,9 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
     if (!String(it.donor_first_name || "").trim()) throw new Error(`Item ${it.id}: First Name is required`);
     if (!String(it.donor_last_name || "").trim()) throw new Error(`Item ${it.id}: Last Name is required`);
     if (!String(it.donor_address || "").trim()) throw new Error(`Item ${it.id}: Address is required`);
-    if (!String(it.donor_postcode || "").trim()) throw new Error(`Item ${it.id}: Postcode is required`);
+
+    const pc = normalizePostcode(it.donor_postcode);
+    if (!pc) throw new Error(`Item ${it.id}: Postcode is required`);
 
     const d = normalizeDate(it.donation_date);
     if (!d) throw new Error(`Item ${it.id}: Donation Date is required (YYYY-MM-DD)`);
@@ -269,7 +282,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
     if (!Number.isFinite(amt) || amt <= 0) throw new Error(`Item ${it.id}: Donation Amount must be > 0`);
   }
 
-  // 5) Build donation rows
+  // 5) Donation rows
   const donationRowsXml = itemRows
     .map((it) =>
       buildGadRowXml({
@@ -285,20 +298,19 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   const earliestGA = earliestDonationDate(itemRows, periodStart);
 
-  // 6) Fill template variables
+  // 6) Fill template
   const template = loadTemplateOrFallback();
 
   const vars: Record<string, string> = {
-    // Message details
     CORRELATION_ID: xmlEscape(id),
     GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? "1"),
     GATEWAY_TIMESTAMP: xmlEscape(new Date().toISOString()),
 
-    // Sender details
+    // Sender details (still sample defaults; later these will come from hmrc_connections)
     SENDER_ID: xmlEscape(process.env.HMRC_SENDER_ID ?? "GIFTAIDCHAR"),
     AUTH_VALUE: xmlEscape(process.env.HMRC_AUTH_VALUE ?? "testing2"),
 
-    // Keys
+    // Keys / IDs
     CHARID: xmlEscape(charid),
 
     // Routing
@@ -308,7 +320,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
     PERIOD_END: xmlEscape(periodEnd),
     IRMARK: xmlEscape(process.env.HMRC_IRMARK ?? "nMs6zamBGcmT7n0selJHXuiQUEw="),
 
-    // Official (placeholder defaults)
+    // Official (sample defaults)
     OFFICIAL_FORE: xmlEscape(process.env.HMRC_OFFICIAL_FORE ?? "John"),
     OFFICIAL_SUR: xmlEscape(process.env.HMRC_OFFICIAL_SUR ?? "Smith"),
     OFFICIAL_POSTCODE: xmlEscape(process.env.HMRC_OFFICIAL_POSTCODE ?? "AB12 3CD"),
@@ -316,7 +328,12 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
     // Claim
     ORG_NAME: xmlEscape(String((charity as any).name || "My Organisation")),
+
+    // Keep HMRCref same as sample style for now (Charity HMRC ID).
+    // Later, after submission, HMRC will return a separate submission reference which you store on the claim.
     HMRCREF: xmlEscape(charid),
+
+    // Regulator (sample defaults)
     REG_NAME: xmlEscape(process.env.HMRC_REG_NAME ?? "CCEW"),
     REG_NO: xmlEscape(process.env.HMRC_REG_NO ?? "A1234"),
 
