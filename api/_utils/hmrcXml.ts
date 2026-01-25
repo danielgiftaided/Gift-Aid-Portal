@@ -47,7 +47,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
    * --------------------------------------------------------- */
   const { data: charity, error: charityErr } = await supabaseAdmin
     .from("charities")
-    .select("id, name, hmrc_charity_id")
+    .select("id, name, charity_id")
     .eq("id", claim.charity_id)
     .single();
 
@@ -55,11 +55,11 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
     throw new Error("Charity not found");
   }
 
-  if (!charity.hmrc_charity_id) {
+  if (!charity.charity_id) {
     throw new Error("Charity is missing HMRC Charity ID");
   }
 
-  const charId = charity.hmrc_charity_id;
+  const charId = charity.charity_id;
 
   /* -----------------------------------------------------------
    * Load claim items
