@@ -4,7 +4,7 @@ import { supabase } from "../lib/supabase";
 export default function CharitySetup() {
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
-  const [charityNumber, setCharityNumber] = useState(""); // REQUIRED (also HMRC CHARID)
+  const [charityNumber, setCharityNumber] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -13,6 +13,7 @@ export default function CharitySetup() {
       const {
         data: { user },
       } = await supabase.auth.getUser();
+
       if (!user) window.location.href = "/login";
       else setContactEmail(user.email ?? "");
     })();
@@ -26,11 +27,14 @@ export default function CharitySetup() {
       if (!name.trim()) throw new Error("Charity name is required");
       if (!contactEmail.trim()) throw new Error("Contact email is required");
 
-      // ✅ REQUIRED (this will be used as HMRC CHARID)
-      const cn = charityNumber.trim().toUpperCase();
-      if (!cn) throw new Error("Charity number is required");
-      if (!/^[A-Z0-9]+$/.test(cn)) {
-        throw new Error("Charity number must be letters/numbers only (no spaces or symbols).");
+      // ✅ Charity number is now required and used as HMRC CHARID
+      if (!charityNumber.trim())
+        throw new Error("Charity number is required (this is your HMRC CHARID)");
+
+      // Optional: basic validation (letters/numbers only)
+      const cleaned = charityNumber.trim();
+      if (!/^[A-Za-z0-9]+$/.test(cleaned)) {
+        throw new Error("Charity number must be letters/numbers only (no spaces).");
       }
 
       const { data } = await supabase.auth.getSession();
@@ -46,12 +50,15 @@ export default function CharitySetup() {
         body: JSON.stringify({
           name: name.trim(),
           contact_email: contactEmail.trim(),
-          charity_number: cn, // ✅ required; backend treats this as HMRC CHARID too
+          // ✅ send only charity_number
+          charity_number: cleaned,
         }),
       });
 
       const json = await res.json();
-      if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to setup charity");
+      if (!res.ok || !json.ok) {
+        throw new Error(json?.error || "Failed to setup charity");
+      }
 
       window.location.href = "/dashboard";
     } catch (e: any) {
@@ -75,36 +82,42 @@ export default function CharitySetup() {
           </div>
         )}
 
-        <label className="block text-sm font-medium mb-1">Charity name</label>
+        <label className="block text-sm font-medium mb-1">Charity name *</label>
         <input
           className="w-full border rounded px-3 py-2 mb-3"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="e.g. Helping Hands"
           autoComplete="organization"
+          disabled={loading}
+          required
         />
 
-        <label className="block text-sm font-medium mb-1">Contact email</label>
+        <label className="block text-sm font-medium mb-1">Contact email *</label>
         <input
           className="w-full border rounded px-3 py-2 mb-3"
           value={contactEmail}
           onChange={(e) => setContactEmail(e.target.value)}
           placeholder="contact@charity.org"
           autoComplete="email"
+          disabled={loading}
+          required
         />
 
         <label className="block text-sm font-medium mb-1">
-          Charity number <span className="text-red-600">*</span>
+          Charity number (HMRC CHARID) *
         </label>
         <input
           className="w-full border rounded px-3 py-2"
           value={charityNumber}
           onChange={(e) => setCharityNumber(e.target.value)}
-          placeholder="e.g. AA12345"
+          placeholder="e.g. AA12345 or 328158"
           autoComplete="off"
+          disabled={loading}
+          required
         />
         <div className="text-xs text-gray-500 mt-2 mb-4">
-          This will be used as your HMRC CHARID in Gift Aid submissions. Letters/numbers only.
+          This is the identifier HMRC expects in Gift Aid submissions. Letters/numbers only.
         </div>
 
         <button
