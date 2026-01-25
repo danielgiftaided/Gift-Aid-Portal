@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { supabaseAdmin } from "../../../_utils/supabase.js";
-import { requireOperator } from "../../../_utils/requireOperator.js";
+import { supabaseAdmin } from "../../_utils/supabase.js";
+import { requireOperator } from "../../_utils/requireOperator.js";
 
 function send(res: VercelResponse, status: number, body: any) {
   return res.status(status).json(body);
@@ -29,12 +29,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await requireOperator(req);
 
     const body = parseBody(req);
+
     const charityId = String(body.charityId || "").trim();
-    const charityNumber = String(body.charity_number || "").trim();
+
+    // ✅ accept either "charity_number" OR "charityNumber" from the UI
+    const charityNumberRaw =
+      body.charity_number ?? body.charityNumber ?? body.hmrcCharId ?? "";
+
+    const charityNumber = String(charityNumberRaw || "").trim();
 
     if (!charityId) return send(res, 400, { ok: false, error: "charityId is required" });
     if (!charityNumber) {
-      return send(res, 400, { ok: false, error: "charity_number is required" });
+      return send(res, 400, { ok: false, error: "charityNumber is required" });
     }
 
     // letters/numbers only (no spaces)
@@ -45,13 +51,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    // Optional: enforce uniqueness so two charities can’t share same HMRC CHARID
-    const { data: dupe } = await supabaseAdmin
+    // Optional: enforce uniqueness so two charities can’t share the same number
+    const { data: dupe, error: dupeErr } = await supabaseAdmin
       .from("charities")
       .select("id")
       .eq("charity_number", charityNumber)
       .neq("id", charityId)
       .maybeSingle();
+
+    if (dupeErr) return send(res, 500, { ok: false, error: dupeErr.message });
 
     if (dupe?.id) {
       return send(res, 400, {
@@ -60,14 +68,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const { error } = await supabaseAdmin
+    // ✅ update and return the updated charity (helps the UI refresh cleanly)
+    const { data: updated, error } = await supabaseAdmin
       .from("charities")
       .update({ charity_number: charityNumber })
-      .eq("id", charityId);
+      .eq("id", charityId)
+      .select("id, name, contact_email, charity_number, self_submit_enabled")
+      .single();
 
     if (error) return send(res, 500, { ok: false, error: error.message });
 
-    return send(res, 200, { ok: true });
+    return send(res, 200, { ok: true, charity: updated });
   } catch (e: any) {
     return send(res, 403, { ok: false, error: e?.message ?? "Forbidden" });
   }
