@@ -6,7 +6,7 @@ type Charity = {
   id: string;
   name: string;
   contact_email: string;
-  charity_number: string | null; // ✅ This is HMRC CHARID now
+  charity_number: string; // ✅ HMRC CHARID stored here
   self_submit_enabled?: boolean;
 };
 
@@ -22,10 +22,7 @@ export default function AdminCharityDetail() {
   const charityUuid = id ?? "";
 
   const [charity, setCharity] = useState<Charity | null>(null);
-
-  // ✅ Operator-editable Charity Number (HMRC CHARID)
   const [charityNumber, setCharityNumber] = useState("");
-
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +36,6 @@ export default function AdminCharityDetail() {
 
       const token = await getToken();
 
-      // NOTE: this endpoint must return charity_number in the charity object.
       const res = await fetch(
         `/api/admin/charities/get?charityId=${encodeURIComponent(charityUuid)}`,
         { headers: { Authorization: `Bearer ${token}` } }
@@ -48,13 +44,11 @@ export default function AdminCharityDetail() {
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to load charity");
 
-      const c = json.charity as Charity;
-      setCharity(c);
-      setCharityNumber(c?.charity_number ?? "");
+      setCharity(json.charity);
+      setCharityNumber(json.charity?.charity_number ?? "");
     } catch (e: any) {
       setError(e?.message ?? "Error");
       setCharity(null);
-      setCharityNumber("");
     } finally {
       setLoading(false);
     }
@@ -70,34 +64,23 @@ export default function AdminCharityDetail() {
       setBusy("save");
       setError(null);
 
-      if (!charityUuid) throw new Error("Missing charity id");
-      const trimmed = charityNumber.trim();
-
-      if (!trimmed) throw new Error("Charity number (HMRC CHARID) is required");
-      if (!/^[A-Za-z0-9]+$/.test(trimmed)) {
-        throw new Error("Charity number must be letters/numbers only (no spaces).");
-      }
-
       const token = await getToken();
 
-      // ✅ NEW endpoint (operator-only)
       const res = await fetch("/api/admin/charities/update-number", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({
           charityId: charityUuid,
-          charity_number: trimmed,
+          charityNumber: charityNumber, // ✅ matches handler (also accepts charity_number / hmrcCharId)
         }),
       });
 
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to update charity number");
 
-      // Refresh data after save
-      await load();
+      // ✅ update UI from response
+      setCharity(json.charity);
+      setCharityNumber(json.charity?.charity_number ?? "");
     } catch (e: any) {
       setError(e?.message ?? "Save failed");
     } finally {
@@ -134,15 +117,11 @@ export default function AdminCharityDetail() {
 
         <h2 className="text-lg font-semibold mb-2">HMRC Settings</h2>
         <p className="text-sm text-gray-600 mb-3">
-          The <span className="font-medium">Charity Number</span> is used as the HMRC{" "}
-          <span className="font-medium">CHARID</span> in the Gift Aid XML.
-          Only operators can edit this value.
+          Charity number is used as the HMRC CHARID in Gift Aid XML submissions.
+          Only operators can edit this.
         </p>
 
-        <label className="block text-sm font-medium mb-1">
-          Charity number (HMRC CHARID)
-        </label>
-
+        <label className="block text-sm font-medium mb-1">Charity number (HMRC CHARID)</label>
         <div className="flex flex-col md:flex-row gap-3">
           <input
             className="border rounded px-3 py-2 text-sm w-full md:max-w-md"
