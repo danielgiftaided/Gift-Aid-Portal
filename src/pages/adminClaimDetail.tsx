@@ -55,9 +55,8 @@ async function safeReadJson(res: Response) {
 /**
  * Minimal CSV parser:
  * - supports commas
- * - supports quoted values with commas: "10 Downing St, London"
+ * - supports quoted values with commas
  * - supports escaped quotes: ""
- * Returns array of objects keyed by header columns.
  */
 function parseCsvToObjects(csv: string): Array<Record<string, string>> {
   const rows: string[][] = [];
@@ -71,7 +70,6 @@ function parseCsvToObjects(csv: string): Array<Record<string, string>> {
   };
 
   const pushRow = () => {
-    // ignore completely empty lines
     if (row.length === 1 && row[0].trim() === "") {
       row = [];
       return;
@@ -123,16 +121,12 @@ function parseCsvToObjects(csv: string): Array<Record<string, string>> {
     for (let i = 0; i < headers.length; i++) {
       obj[headers[i]] = (r[i] ?? "").trim();
     }
-    // skip blank lines (all fields empty)
     const anyValue = Object.values(obj).some((v) => v.trim() !== "");
     if (anyValue) out.push(obj);
   }
   return out;
 }
 
-/**
- * ✅ Safe HTML escaping WITHOUT replaceAll() (works on older TS targets)
- */
 function escapeHtml(s: string) {
   return String(s ?? "")
     .split("&")
@@ -147,6 +141,51 @@ function escapeHtml(s: string) {
     .join("&#039;");
 }
 
+function openXmlInNewTab(title: string, subtitle: string, xml: string) {
+  const w = window.open("", "_blank");
+  if (!w) throw new Error("Popup blocked. Please allow popups and try again.");
+
+  w.document.open();
+  w.document.write(`
+    <!doctype html>
+    <html>
+      <head>
+        <meta charset="utf-8" />
+        <title>${escapeHtml(title)}</title>
+        <style>
+          body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; padding: 16px; }
+          pre { white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb; }
+          .bar { display:flex; gap:10px; align-items:center; margin-bottom: 12px; flex-wrap: wrap; }
+          .muted { color:#6b7280; font-size:12px; }
+          button { padding: 8px 10px; border:1px solid #e5e7eb; border-radius: 8px; background:white; cursor:pointer; }
+          button:hover { background:#f9fafb; }
+        </style>
+      </head>
+      <body>
+        <div class="bar">
+          <button id="copyBtn">Copy</button>
+          <span class="muted">${escapeHtml(subtitle)}</span>
+        </div>
+        <pre id="xml">${escapeHtml(xml)}</pre>
+        <script>
+          const copyBtn = document.getElementById('copyBtn');
+          copyBtn.addEventListener('click', async () => {
+            const xml = document.getElementById('xml').innerText;
+            try {
+              await navigator.clipboard.writeText(xml);
+              copyBtn.innerText = 'Copied!';
+              setTimeout(() => copyBtn.innerText = 'Copy', 1200);
+            } catch {
+              alert('Copy failed. You can select and copy manually.');
+            }
+          });
+        </script>
+      </body>
+    </html>
+  `);
+  w.document.close();
+}
+
 export default function AdminClaimDetail() {
   const { id } = useParams();
   const claimId = id ?? "";
@@ -158,7 +197,7 @@ export default function AdminClaimDetail() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Add single item form fields (HMRC-aligned)
+  // Add single item form fields
   const [title, setTitle] = useState("");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
@@ -207,38 +246,24 @@ export default function AdminClaimDetail() {
       if (!claimId) throw new Error("Missing claim id in URL");
       const token = await getToken();
 
-      // 1) claim + charity
-      const claimRes = await fetch(
-        `/api/admin/claims/get?claimId=${encodeURIComponent(claimId)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const claimRes = await fetch(`/api/admin/claims/get?claimId=${encodeURIComponent(claimId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       const { json: claimJson, text: claimText } = await safeReadJson(claimRes);
-
-      if (!claimRes.ok) {
-        throw new Error(`claims/get failed (${claimRes.status}): ${claimText.slice(0, 160)}`);
-      }
-      if (!claimJson?.ok) {
-        throw new Error(claimJson?.error || "Failed to load claim");
-      }
+      if (!claimRes.ok) throw new Error(`claims/get failed (${claimRes.status}): ${claimText.slice(0, 160)}`);
+      if (!claimJson?.ok) throw new Error(claimJson?.error || "Failed to load claim");
 
       setClaim(claimJson.claim as Claim);
       setCharity(claimJson.charity as Charity);
 
-      // 2) claim items
-      const itemsRes = await fetch(
-        `/api/admin/claims/items?claimId=${encodeURIComponent(claimId)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const itemsRes = await fetch(`/api/admin/claims/items?claimId=${encodeURIComponent(claimId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       const { json: itemsJson, text: itemsText } = await safeReadJson(itemsRes);
-
-      if (!itemsRes.ok) {
-        throw new Error(`claims/items failed (${itemsRes.status}): ${itemsText.slice(0, 160)}`);
-      }
-      if (!itemsJson?.ok) {
-        throw new Error(itemsJson?.error || "Failed to load claim items");
-      }
+      if (!itemsRes.ok) throw new Error(`claims/items failed (${itemsRes.status}): ${itemsText.slice(0, 160)}`);
+      if (!itemsJson?.ok) throw new Error(itemsJson?.error || "Failed to load claim items");
 
       setItems((itemsJson.items || []) as ClaimItem[]);
     } catch (e: any) {
@@ -256,73 +281,69 @@ export default function AdminClaimDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [claimId]);
 
-  /**
-   * ✅ NEW: Preview HMRC XML (calls admin endpoint with Bearer token)
-   */
   const previewHmrcXml = async () => {
     try {
       setBusy("xml");
       setError(null);
 
-      if (!claimId) throw new Error("Missing claim id in URL");
+      const token = await getToken();
+
+      const res = await fetch(`/api/admin/claims/xml?claimId=${encodeURIComponent(claimId)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const text = await res.text();
+      if (!res.ok) throw new Error(`XML preview failed (${res.status}): ${text.slice(0, 200)}`);
+
+      openXmlInNewTab("HMRC XML Preview", `Claim: ${claimId}`, text);
+    } catch (e: any) {
+      setError(e?.message ?? "Failed to preview XML");
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  /**
+   * ✅ NEW: Send to HMRC ISV and show receipt
+   */
+  const sendToIsv = async () => {
+    try {
+      setBusy("isv");
+      setError(null);
 
       const token = await getToken();
 
-      const res = await fetch(
-        `/api/admin/claims/xml?claimId=${encodeURIComponent(claimId)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await fetch("/api/admin/claims/submit-isv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ claimId }),
+      });
 
-      const text = await res.text();
+      const { json, text } = await safeReadJson(res);
 
       if (!res.ok) {
-        throw new Error(`XML preview failed (${res.status}): ${text.slice(0, 200)}`);
+        // if handler returned receipt text, include it
+        const msg = json?.error || text || "ISV submit failed";
+        const receipt = json?.receipt ? `\n\nReceipt:\n${json.receipt}` : "";
+        throw new Error(`${msg}${receipt}`.slice(0, 1200));
       }
 
-      const w = window.open("", "_blank");
-      if (!w) throw new Error("Popup blocked. Please allow popups and try again.");
+      if (!json?.ok) throw new Error(json?.error || "ISV submit failed");
 
-      w.document.open();
-      w.document.write(`
-        <!doctype html>
-        <html>
-          <head>
-            <meta charset="utf-8" />
-            <title>HMRC XML Preview</title>
-            <style>
-              body { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; padding: 16px; }
-              pre { white-space: pre-wrap; word-break: break-word; background: #f7f7f7; padding: 12px; border-radius: 8px; border: 1px solid #e5e7eb; }
-              .bar { display:flex; gap:10px; align-items:center; margin-bottom: 12px; }
-              .muted { color:#6b7280; font-size:12px; }
-              button { padding: 8px 10px; border:1px solid #e5e7eb; border-radius: 8px; background:white; cursor:pointer; }
-              button:hover { background:#f9fafb; }
-            </style>
-          </head>
-          <body>
-            <div class="bar">
-              <button id="copyBtn">Copy XML</button>
-              <span class="muted">Claim: ${escapeHtml(claimId)}</span>
-            </div>
-            <pre id="xml">${escapeHtml(text)}</pre>
-            <script>
-              const copyBtn = document.getElementById('copyBtn');
-              copyBtn.addEventListener('click', async () => {
-                const xml = document.getElementById('xml').innerText;
-                try {
-                  await navigator.clipboard.writeText(xml);
-                  copyBtn.innerText = 'Copied!';
-                  setTimeout(() => copyBtn.innerText = 'Copy XML', 1200);
-                } catch {
-                  alert('Copy failed. You can select and copy manually.');
-                }
-              });
-            </script>
-          </body>
-        </html>
-      `);
-      w.document.close();
+      const receipt = String(json.receipt || "").trim();
+      if (!receipt) {
+        throw new Error("HMRC ISV returned success, but receipt was empty.");
+      }
+
+      openXmlInNewTab(
+        "HMRC ISV Receipt",
+        `Claim: ${claimId} • HTTP ${json.httpStatus ?? ""}`,
+        receipt
+      );
+
+      await load();
     } catch (e: any) {
-      setError(e?.message ?? "Failed to preview XML");
+      setError(e?.message ?? "Failed to send to ISV");
     } finally {
       setBusy(null);
     }
@@ -334,7 +355,6 @@ export default function AdminClaimDetail() {
       setError(null);
 
       if (!canEditItems) throw new Error("Items can only be added while claim is draft");
-
       if (!firstName.trim()) throw new Error("First Name is required");
       if (!lastName.trim()) throw new Error("Last Name is required");
       if (!address.trim()) throw new Error("Address is required");
@@ -343,9 +363,7 @@ export default function AdminClaimDetail() {
       if (!donationAmount) throw new Error("Donation Amount is required");
 
       const amount = Number(donationAmount);
-      if (!Number.isFinite(amount) || amount <= 0) {
-        throw new Error("Donation Amount must be a positive number");
-      }
+      if (!Number.isFinite(amount) || amount <= 0) throw new Error("Donation Amount must be a positive number");
 
       const token = await getToken();
 
@@ -365,10 +383,7 @@ export default function AdminClaimDetail() {
       });
 
       const { json, text } = await safeReadJson(res);
-
-      if (!res.ok) {
-        throw new Error(`add-item failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`);
-      }
+      if (!res.ok) throw new Error(`add-item failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`);
       if (!json?.ok) throw new Error(json?.error || "Failed to add item");
 
       setTitle("");
@@ -411,11 +426,11 @@ export default function AdminClaimDetail() {
   const saveEdit = async () => {
     try {
       if (!editingId) return;
+
       setBusy(`save:${editingId}`);
       setError(null);
 
       if (!canEditItems) throw new Error("Items can only be edited while claim is draft");
-
       if (!editFirstName.trim()) throw new Error("First Name is required");
       if (!editLastName.trim()) throw new Error("Last Name is required");
       if (!editAddress.trim()) throw new Error("Address is required");
@@ -444,10 +459,7 @@ export default function AdminClaimDetail() {
       });
 
       const { json, text } = await safeReadJson(res);
-
-      if (!res.ok) {
-        throw new Error(`update-item failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`);
-      }
+      if (!res.ok) throw new Error(`update-item failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`);
       if (!json?.ok) throw new Error(json?.error || "Failed to update item");
 
       cancelEdit();
@@ -478,10 +490,7 @@ export default function AdminClaimDetail() {
       });
 
       const { json, text } = await safeReadJson(res);
-
-      if (!res.ok) {
-        throw new Error(`delete-item failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`);
-      }
+      if (!res.ok) throw new Error(`delete-item failed (${res.status}): ${(json?.error ?? text).slice(0, 160)}`);
       if (!json?.ok) throw new Error(json?.error || "Failed to delete item");
 
       if (editingId === itemId) cancelEdit();
@@ -493,7 +502,6 @@ export default function AdminClaimDetail() {
     }
   };
 
-  // ===== CSV import =====
   const onPickCsvFile = async (file: File | null) => {
     try {
       setCsvErrors([]);
@@ -508,7 +516,6 @@ export default function AdminClaimDetail() {
 
       const text = await file.text();
       const parsed = parseCsvToObjects(text);
-
       if (parsed.length === 0) throw new Error("CSV contains no rows (check header row and data).");
 
       const normKey = (k: string) =>
@@ -530,7 +537,6 @@ export default function AdminClaimDetail() {
       };
 
       const normalized = parsed.map(normalizeRow);
-
       setCsvFilename(file.name);
       setCsvRows(normalized);
       setCsvPreviewOpen(true);
@@ -560,10 +566,7 @@ export default function AdminClaimDetail() {
       });
 
       const { json, text } = await safeReadJson(res);
-
-      if (!res.ok) {
-        throw new Error(`import-csv failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
-      }
+      if (!res.ok) throw new Error(`import-csv failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
       if (!json?.ok) throw new Error(json?.error || "Failed to import CSV");
 
       setCsvErrors(json.errors || []);
@@ -589,10 +592,7 @@ export default function AdminClaimDetail() {
       });
 
       const { json, text } = await safeReadJson(res);
-
-      if (!res.ok) {
-        throw new Error(`mark-ready failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
-      }
+      if (!res.ok) throw new Error(`mark-ready failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
       if (!json?.ok) throw new Error(json?.error || "Failed to mark ready");
 
       await load();
@@ -617,10 +617,7 @@ export default function AdminClaimDetail() {
       });
 
       const { json, text } = await safeReadJson(res);
-
-      if (!res.ok) {
-        throw new Error(`submit failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
-      }
+      if (!res.ok) throw new Error(`submit failed (${res.status}): ${(json?.error ?? text).slice(0, 200)}`);
       if (!json?.ok) throw new Error(json?.error || "Failed to submit claim");
 
       await load();
@@ -649,18 +646,13 @@ export default function AdminClaimDetail() {
           <div className="text-xs text-gray-500 break-all">{claimId}</div>
         </div>
 
-        <button
-          onClick={load}
-          className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50"
-        >
+        <button onClick={load} className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50">
           Refresh
         </button>
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
-        </div>
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">{error}</div>
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -674,14 +666,10 @@ export default function AdminClaimDetail() {
         <div className="bg-white rounded-lg shadow p-4">
           <h2 className="font-semibold mb-2">Status</h2>
           <div className="text-sm">
-            <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">
-              {claim?.status ?? "-"}
-            </span>
+            <span className="px-2 py-1 text-xs rounded-full bg-gray-100 text-gray-800">{claim?.status ?? "-"}</span>
           </div>
 
-          {claim?.hmrc_last_message && (
-            <div className="text-xs text-gray-500 mt-2">{claim.hmrc_last_message}</div>
-          )}
+          {claim?.hmrc_last_message && <div className="text-xs text-gray-500 mt-2">{claim.hmrc_last_message}</div>}
 
           <div className="text-xs text-gray-500 mt-2">
             HMRC Ref: <span className="font-medium">{claim?.hmrc_reference ?? "-"}</span>
@@ -697,6 +685,16 @@ export default function AdminClaimDetail() {
               {busy === "xml" ? "Generating XML…" : "Preview HMRC XML"}
             </button>
 
+            {/* ✅ NEW */}
+            <button
+              onClick={sendToIsv}
+              disabled={busy !== null}
+              className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              title="Send this claim XML to HMRC ISV test gateway and show the receipt"
+            >
+              {busy === "isv" ? "Sending to ISV…" : "Send to HMRC ISV (test)"}
+            </button>
+
             <button
               disabled={busy !== null || (claim?.status !== "draft" && claim?.status !== "ready")}
               onClick={markReady}
@@ -709,10 +707,10 @@ export default function AdminClaimDetail() {
             <button
               disabled={busy !== null || claim?.status !== "ready"}
               onClick={submitClaim}
-              className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-              title="Submit this claim to HMRC"
+              className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-50"
+              title="Your existing stub submit (separate from ISV test)"
             >
-              {busy === "submit" ? "Submitting…" : "Submit to HMRC"}
+              {busy === "submit" ? "Submitting…" : "Submit (stub)"}
             </button>
           </div>
         </div>
@@ -737,9 +735,7 @@ export default function AdminClaimDetail() {
                 Required columns: title, first_name, last_name, address, postcode, donation_amount, donation_date
               </div>
             </div>
-            <div className="text-xs text-gray-500">
-              {canEditItems ? "Claim is draft ✅" : "Import disabled (claim not draft) ❗"}
-            </div>
+            <div className="text-xs text-gray-500">{canEditItems ? "Claim is draft ✅" : "Import disabled ❗"}</div>
           </div>
 
           <div className="mt-3 flex flex-wrap items-center gap-3">
@@ -760,7 +756,7 @@ export default function AdminClaimDetail() {
             <button
               onClick={importCsv}
               disabled={!canEditItems || busy !== null || csvRows.length === 0}
-              className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+              className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50 disabled:opacity-50"
             >
               {busy === "importCsv" ? "Importing…" : "Import CSV"}
             </button>
@@ -802,9 +798,7 @@ export default function AdminClaimDetail() {
                   ))}
                 </tbody>
               </table>
-              {csvRows.length > 5 && (
-                <div className="text-xs text-gray-500 mt-2">Showing first 5 rows only.</div>
-              )}
+              {csvRows.length > 5 && <div className="text-xs text-gray-500 mt-2">Showing first 5 rows only.</div>}
             </div>
           )}
 
@@ -1076,12 +1070,9 @@ export default function AdminClaimDetail() {
         </div>
       </div>
 
-      {/* Helpful CSV template */}
       <div className="text-xs text-gray-500 mt-6">
         CSV template header:{" "}
-        <span className="font-mono">
-          title,first_name,last_name,address,postcode,donation_amount,donation_date
-        </span>
+        <span className="font-mono">title,first_name,last_name,address,postcode,donation_amount,donation_date</span>
       </div>
     </div>
   );
