@@ -5,17 +5,22 @@ export default function CharitySetup() {
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [charityNumber, setCharityNumber] = useState("");
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
       if (!user) {
         window.location.href = "/login";
-      } else {
-        setContactEmail(user.email ?? "");
+        return;
       }
+
+      setContactEmail(user.email ?? "");
     })();
   }, []);
 
@@ -24,13 +29,17 @@ export default function CharitySetup() {
       setLoading(true);
       setError(null);
 
-      if (!name.trim()) throw new Error("Charity name is required");
-      if (!contactEmail.trim()) throw new Error("Contact email is required");
-      if (!charityNumber.trim()) throw new Error("Registered charity number is required");
+      const cleanName = name.trim();
+      const cleanEmail = contactEmail.trim();
+      const cleanCharityNumber = charityNumber.trim();
 
-      // Letters / numbers only
-      if (!/^[A-Za-z0-9]+$/.test(charityNumber.trim())) {
-        throw new Error("Registered charity number must contain only letters and numbers");
+      if (!cleanName) throw new Error("Charity name is required");
+      if (!cleanEmail) throw new Error("Contact email is required");
+      if (!cleanCharityNumber) throw new Error("Registered charity number is required");
+
+      // Letters / numbers only (no spaces). HMRC sample CHARID is alphanumeric.
+      if (!/^[A-Za-z0-9]+$/.test(cleanCharityNumber)) {
+        throw new Error("Registered charity number must contain only letters and numbers (no spaces).");
       }
 
       const { data } = await supabase.auth.getSession();
@@ -44,10 +53,11 @@ export default function CharitySetup() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          name: name.trim(),
-          contact_email: contactEmail.trim(),
-          charity_id: charityNumber.trim(), // HMRC CHARID = registered charity number
-          charity_number: charityNumber.trim(),
+          name: cleanName,
+          contact_email: cleanEmail,
+          // ✅ Single source of truth:
+          // Charity Number = HMRC CHARID
+          charity_number: cleanCharityNumber,
         }),
       });
 
@@ -67,9 +77,7 @@ export default function CharitySetup() {
   return (
     <div className="min-h-screen bg-brand-surface flex items-center justify-center px-4">
       <div className="max-w-md w-full bg-white/80 rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold mb-2 text-brand-primary">
-          Set up your charity
-        </h1>
+        <h1 className="text-2xl font-bold mb-2 text-brand-primary">Set up your charity</h1>
         <p className="text-gray-600 mb-4">
           Enter your charity details to create your portal workspace.
         </p>
@@ -88,7 +96,9 @@ export default function CharitySetup() {
           className="w-full border rounded px-3 py-2 mb-3"
           value={name}
           onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. Helping Hands"
           autoComplete="organization"
+          disabled={loading}
         />
 
         {/* Contact email */}
@@ -99,19 +109,27 @@ export default function CharitySetup() {
           className="w-full border rounded px-3 py-2 mb-3"
           value={contactEmail}
           onChange={(e) => setContactEmail(e.target.value)}
+          placeholder="contact@charity.org"
           autoComplete="email"
+          disabled={loading}
         />
 
-        {/* Registered charity number */}
+        {/* Registered charity number (also HMRC CHARID) */}
         <label className="block text-sm font-medium mb-1">
-          Registered Charity Number <span className="text-red-600">*</span>
+          Registered charity number <span className="text-red-600">*</span>
         </label>
         <input
-          className="w-full border rounded px-3 py-2 mb-4"
+          className="w-full border rounded px-3 py-2"
           value={charityNumber}
           onChange={(e) => setCharityNumber(e.target.value)}
+          placeholder="e.g. 328158 or AA12345"
           autoComplete="off"
+          disabled={loading}
         />
+        <div className="text-xs text-gray-500 mt-2 mb-4">
+          This will be used as the HMRC CHARID in Gift Aid submissions. Letters/numbers only.
+          Charity users cannot edit this later — only an operator can.
+        </div>
 
         <button
           onClick={submit}
