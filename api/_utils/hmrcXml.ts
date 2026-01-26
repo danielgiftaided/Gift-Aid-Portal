@@ -5,7 +5,7 @@ import { supabaseAdmin } from "./supabase.js";
 /**
  * ✅ Exported constant so other modules can import it.
  */
-export const HMRC_XML_VERSION = "2026-01-26-v1";
+export const HMRC_XML_VERSION = "2026-01-26-v2";
 
 /** XML escape */
 function xmlEscape(v: any): string {
@@ -162,8 +162,28 @@ function loadTemplateOrFallback(): string {
 `;
 }
 
+/** Normalise postcode output for HMRC */
 function normalizePostcode(postcode: any): string {
   return String(postcode ?? "").trim().toUpperCase();
+}
+
+/**
+ * HMRC CHARID / HMRCref normalisation:
+ * - trim
+ * - remove spaces
+ * - uppercase
+ * - enforce letters/numbers only
+ */
+function normalizeHmrcCharId(v: any): string {
+  const raw = String(v ?? "").trim();
+  if (!raw) return "";
+  const noSpaces = raw.replace(/\s+/g, "");
+  const up = noSpaces.toUpperCase();
+
+  if (!/^[A-Z0-9]+$/.test(up)) {
+    throw new Error("HMRC CHARID must contain only letters and numbers (no spaces).");
+  }
+  return up;
 }
 
 /** Build a single <GAD> row in the sample style */
@@ -204,9 +224,9 @@ function earliestDonationDate(items: Array<{ donation_date: string }>, fallback:
 
 /**
  * ✅ MAIN entrypoint used by Preview XML + later Submit:
- * We now use charities.charity_number as HMRC CHARID.
+ * HMRC CHARID is stored as charities.charity_number.
  *
- * (We keep charities.charity_id as an optional legacy fallback.)
+ * We keep charities.charity_id as a legacy fallback only.
  */
 export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
@@ -234,13 +254,16 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   if (charityErr || !charity) throw new Error(charityErr?.message || "Charity not found");
 
-  const charid =
-    String((charity as any).charity_number || "").trim() ||
-    String((charity as any).charity_id || "").trim(); // legacy fallback
+  const rawCharId =
+    (charity as any).charity_number ||
+    (charity as any).charity_id ||
+    "";
+
+  const charid = normalizeHmrcCharId(rawCharId);
 
   if (!charid) {
     throw new Error(
-      "Charity is missing Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin."
+      "Charity is missing Registered Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin."
     );
   }
 
