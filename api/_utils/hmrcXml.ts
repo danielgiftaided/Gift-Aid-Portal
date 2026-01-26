@@ -3,9 +3,9 @@ import path from "path";
 import { supabaseAdmin } from "./supabase.js";
 
 /**
- * ✅ Option A: exported constant so other modules can import it.
+ * ✅ Exported constant so other modules can import it.
  */
-export const HMRC_XML_VERSION = "2026-01-25-v2";
+export const HMRC_XML_VERSION = "2026-01-26-v1";
 
 /** XML escape */
 function xmlEscape(v: any): string {
@@ -162,11 +162,6 @@ function loadTemplateOrFallback(): string {
 `;
 }
 
-/**
- * Normalise postcode output for HMRC:
- * - trim
- * - uppercase
- */
 function normalizePostcode(postcode: any): string {
   return String(postcode ?? "").trim().toUpperCase();
 }
@@ -209,13 +204,9 @@ function earliestDonationDate(items: Array<{ donation_date: string }>, fallback:
 
 /**
  * ✅ MAIN entrypoint used by Preview XML + later Submit:
- * Reads current charities.charity_id (HMRC CHARID).
+ * We now use charities.charity_number as HMRC CHARID.
  *
- * IMPORTANT:
- * You asked for HMRC CHARID to be editable by both charity users and admin.
- * That is achieved by:
- * - storing it on the charity record (charities.charity_id)
- * - generating XML from whatever is currently stored there
+ * (We keep charities.charity_id as an optional legacy fallback.)
  */
 export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
@@ -232,32 +223,31 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   const periodEnd = normalizeDate((claim as any).period_end);
   if (!periodEnd) throw new Error("Claim period_end is missing/invalid (expected YYYY-MM-DD)");
-
   const periodStart = normalizeDate((claim as any).period_start) || periodEnd;
 
-  // 2) Load charity — HMRC CHARID lives here
+  // 2) Load charity — HMRC CHARID == charity_number
   const { data: charity, error: charityErr } = await supabaseAdmin
     .from("charities")
-    .select("id, name, contact_email, charity_id")
+    .select("id, name, contact_email, charity_number, charity_id")
     .eq("id", (claim as any).charity_id)
     .single();
 
   if (charityErr || !charity) throw new Error(charityErr?.message || "Charity not found");
 
-  // This is HMRC CHARID (the value you want both users/admin to be able to edit)
-  const charid = String((charity as any).charity_id || "").trim();
+  const charid =
+    String((charity as any).charity_number || "").trim() ||
+    String((charity as any).charity_id || "").trim(); // legacy fallback
+
   if (!charid) {
     throw new Error(
-      "Charity is missing HMRC CHARID (charities.charity_id). Please set it in Charity Setup / Admin Charity page."
+      "Charity is missing Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin."
     );
   }
 
-  // 3) Load claim items (split donor fields)
+  // 3) Load claim items
   const { data: items, error: itemsErr } = await supabaseAdmin
     .from("claim_items")
-    .select(
-      "id, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount"
-    )
+    .select("id, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount")
     .eq("claim_id", id)
     .order("donation_date", { ascending: true });
 
@@ -306,42 +296,30 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
     GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? "1"),
     GATEWAY_TIMESTAMP: xmlEscape(new Date().toISOString()),
 
-    // Sender details (still sample defaults; later these will come from hmrc_connections)
     SENDER_ID: xmlEscape(process.env.HMRC_SENDER_ID ?? "GIFTAIDCHAR"),
     AUTH_VALUE: xmlEscape(process.env.HMRC_AUTH_VALUE ?? "testing2"),
 
-    // Keys / IDs
     CHARID: xmlEscape(charid),
 
-    // Routing
     PRODUCT_NAME: xmlEscape(process.env.HMRC_PRODUCT_NAME ?? "GA Valid Sample"),
 
-    // IRheader
     PERIOD_END: xmlEscape(periodEnd),
     IRMARK: xmlEscape(process.env.HMRC_IRMARK ?? "nMs6zamBGcmT7n0selJHXuiQUEw="),
 
-    // Official (sample defaults)
     OFFICIAL_FORE: xmlEscape(process.env.HMRC_OFFICIAL_FORE ?? "John"),
     OFFICIAL_SUR: xmlEscape(process.env.HMRC_OFFICIAL_SUR ?? "Smith"),
     OFFICIAL_POSTCODE: xmlEscape(process.env.HMRC_OFFICIAL_POSTCODE ?? "AB12 3CD"),
     OFFICIAL_PHONE: xmlEscape(process.env.HMRC_OFFICIAL_PHONE ?? "01234 567890"),
 
-    // Claim
     ORG_NAME: xmlEscape(String((charity as any).name || "My Organisation")),
-
-    // Keep HMRCref same as sample style for now (Charity HMRC ID).
-    // Later, after submission, HMRC will return a separate submission reference which you store on the claim.
     HMRCREF: xmlEscape(charid),
 
-    // Regulator (sample defaults)
     REG_NAME: xmlEscape(process.env.HMRC_REG_NAME ?? "CCEW"),
     REG_NO: xmlEscape(process.env.HMRC_REG_NO ?? "A1234"),
 
-    // Repayment
     DONATION_ROWS: donationRowsXml,
     EARLIEST_GA_DATE: xmlEscape(earliestGA),
 
-    // Optional blocks
     OTHER_INC_BLOCK: "",
   };
 
