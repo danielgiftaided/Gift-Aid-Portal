@@ -6,7 +6,7 @@ type Charity = {
   id: string;
   name: string;
   contact_email: string;
-  charity_number: string; // ✅ HMRC CHARID stored here
+  charity_number: string | null; // HMRC CHARID
   self_submit_enabled?: boolean;
 };
 
@@ -36,10 +36,9 @@ export default function AdminCharityDetail() {
 
       const token = await getToken();
 
-      const res = await fetch(
-        `/api/admin/charities/get?charityId=${encodeURIComponent(charityUuid)}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
+      const res = await fetch(`/api/admin/charities/get?charityId=${encodeURIComponent(charityUuid)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to load charity");
@@ -66,21 +65,16 @@ export default function AdminCharityDetail() {
 
       const token = await getToken();
 
-      const res = await fetch("/api/admin/charities/update-number", {
+      const res = await fetch("/api/admin/charities/update-charity-number", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          charityId: charityUuid,
-          charityNumber: charityNumber, // ✅ matches handler (also accepts charity_number / hmrcCharId)
-        }),
+        body: JSON.stringify({ charityId: charityUuid, charity_number: charityNumber }),
       });
 
       const json = await res.json();
       if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to update charity number");
 
-      // ✅ update UI from response
-      setCharity(json.charity);
-      setCharityNumber(json.charity?.charity_number ?? "");
+      await load();
     } catch (e: any) {
       setError(e?.message ?? "Save failed");
     } finally {
@@ -88,9 +82,7 @@ export default function AdminCharityDetail() {
     }
   };
 
-  if (loading) {
-    return <div className="max-w-4xl mx-auto p-6 text-gray-500">Loading charity…</div>;
-  }
+  if (loading) return <div className="max-w-4xl mx-auto p-6 text-gray-500">Loading charity…</div>;
 
   return (
     <div className="max-w-4xl mx-auto p-6">
@@ -106,9 +98,7 @@ export default function AdminCharityDetail() {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-          {error}
-        </div>
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">{error}</div>
       )}
 
       <div className="bg-white rounded-lg shadow p-6">
@@ -117,17 +107,17 @@ export default function AdminCharityDetail() {
 
         <h2 className="text-lg font-semibold mb-2">HMRC Settings</h2>
         <p className="text-sm text-gray-600 mb-3">
-          Charity number is used as the HMRC CHARID in Gift Aid XML submissions.
+          <strong>Charity Number</strong> is used as the HMRC CHARID (shown in XML as CHARID and HMRCref).
           Only operators can edit this.
         </p>
 
-        <label className="block text-sm font-medium mb-1">Charity number (HMRC CHARID)</label>
+        <label className="block text-sm font-medium mb-1">Charity Number (HMRC CHARID)</label>
         <div className="flex flex-col md:flex-row gap-3">
           <input
             className="border rounded px-3 py-2 text-sm w-full md:max-w-md"
             value={charityNumber}
             onChange={(e) => setCharityNumber(e.target.value)}
-            placeholder="e.g. AA12345 or 328158"
+            placeholder="e.g. 328158"
             autoComplete="off"
             disabled={busy !== null}
           />
@@ -142,16 +132,12 @@ export default function AdminCharityDetail() {
 
         {charity?.charity_number && (
           <div className="text-xs text-gray-500 mt-2">
-            Current saved charity number:{" "}
-            <span className="font-medium">{charity.charity_number}</span>
+            Current saved Charity Number: <span className="font-medium">{charity.charity_number}</span>
           </div>
         )}
 
         <div className="mt-6 flex gap-3">
-          <button
-            onClick={load}
-            className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50"
-          >
+          <button onClick={load} className="px-3 py-2 text-sm rounded border border-gray-200 hover:bg-gray-50">
             Refresh
           </button>
 
