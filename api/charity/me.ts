@@ -10,6 +10,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const user = await requireUser(req);
 
+    // 1) Find user's charity_id (DB UUID)
     const { data: userRow, error: userErr } = await supabaseAdmin
       .from("users")
       .select("charity_id")
@@ -17,12 +18,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .single();
 
     if (userErr || !userRow?.charity_id) {
-      return res.status(403).json({ ok: false, error: "User is not linked to a charity" });
+      return res.status(403).json({
+        ok: false,
+        error: "User is not linked to a charity",
+      });
     }
 
+    // 2) Load charity details
+    // ✅ Use charity_number as the HMRC CHARID going forward
     const { data: charity, error: charityErr } = await supabaseAdmin
       .from("charities")
-      .select("id, name, contact_email, charity_id")
+      .select("id, name, contact_email, charity_number")
       .eq("id", userRow.charity_id)
       .single();
 
