@@ -4,18 +4,13 @@ import { requireOperator } from "../../_utils/requireOperator.js";
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
-    if (req.method !== "GET") {
-      return res.status(405).json({ ok: false, error: "Method not allowed" });
-    }
+    if (req.method !== "GET") return res.status(405).json({ ok: false, error: "Method not allowed" });
 
     await requireOperator(req);
 
     const charityId = String(req.query.charityId ?? "").trim();
-    if (!charityId) {
-      return res.status(400).json({ ok: false, error: "charityId is required" });
-    }
+    if (!charityId) return res.status(400).json({ ok: false, error: "charityId is required" });
 
-    // ✅ IMPORTANT: return charity_number (HMRC CHARID)
     const { data: charity, error } = await supabaseAdmin
       .from("charities")
       .select("id, name, contact_email, charity_number, self_submit_enabled")
