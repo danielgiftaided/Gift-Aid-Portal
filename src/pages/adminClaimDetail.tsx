@@ -130,13 +130,21 @@ function parseCsvToObjects(csv: string): Array<Record<string, string>> {
   return out;
 }
 
+/**
+ * ✅ Safe HTML escaping WITHOUT replaceAll() (works on older TS targets)
+ */
 function escapeHtml(s: string) {
-  return s
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#039;");
+  return String(s ?? "")
+    .split("&")
+    .join("&amp;")
+    .split("<")
+    .join("&lt;")
+    .split(">")
+    .join("&gt;")
+    .split('"')
+    .join("&quot;")
+    .split("'")
+    .join("&#039;");
 }
 
 export default function AdminClaimDetail() {
@@ -200,9 +208,10 @@ export default function AdminClaimDetail() {
       const token = await getToken();
 
       // 1) claim + charity
-      const claimRes = await fetch(`/api/admin/claims/get?claimId=${encodeURIComponent(claimId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const claimRes = await fetch(
+        `/api/admin/claims/get?claimId=${encodeURIComponent(claimId)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
       const { json: claimJson, text: claimText } = await safeReadJson(claimRes);
 
@@ -217,9 +226,10 @@ export default function AdminClaimDetail() {
       setCharity(claimJson.charity as Charity);
 
       // 2) claim items
-      const itemsRes = await fetch(`/api/admin/claims/items?claimId=${encodeURIComponent(claimId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const itemsRes = await fetch(
+        `/api/admin/claims/items?claimId=${encodeURIComponent(claimId)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
       const { json: itemsJson, text: itemsText } = await safeReadJson(itemsRes);
 
@@ -248,7 +258,6 @@ export default function AdminClaimDetail() {
 
   /**
    * ✅ NEW: Preview HMRC XML (calls admin endpoint with Bearer token)
-   * This avoids the "Not authenticated" error you saw when pasting the URL directly.
    */
   const previewHmrcXml = async () => {
     try {
@@ -259,18 +268,17 @@ export default function AdminClaimDetail() {
 
       const token = await getToken();
 
-      const res = await fetch(`/api/admin/claims/xml?claimId=${encodeURIComponent(claimId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(
+        `/api/admin/claims/xml?claimId=${encodeURIComponent(claimId)}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
 
       const text = await res.text();
 
       if (!res.ok) {
-        // Sometimes API returns JSON error; show raw text either way
         throw new Error(`XML preview failed (${res.status}): ${text.slice(0, 200)}`);
       }
 
-      // Open in new tab in a readable way
       const w = window.open("", "_blank");
       if (!w) throw new Error("Popup blocked. Please allow popups and try again.");
 
@@ -503,7 +511,6 @@ export default function AdminClaimDetail() {
 
       if (parsed.length === 0) throw new Error("CSV contains no rows (check header row and data).");
 
-      // Accept a few header variations; normalize into required keys.
       const normKey = (k: string) =>
         k.trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
 
@@ -681,7 +688,6 @@ export default function AdminClaimDetail() {
           </div>
 
           <div className="mt-3 flex flex-wrap gap-2">
-            {/* ✅ NEW: Preview HMRC XML */}
             <button
               onClick={previewHmrcXml}
               disabled={busy !== null}
@@ -704,7 +710,7 @@ export default function AdminClaimDetail() {
               disabled={busy !== null || claim?.status !== "ready"}
               onClick={submitClaim}
               className="px-3 py-2 text-sm rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
-              title="Submit this claim to HMRC (stub for now)"
+              title="Submit this claim to HMRC"
             >
               {busy === "submit" ? "Submitting…" : "Submit to HMRC"}
             </button>
@@ -796,7 +802,9 @@ export default function AdminClaimDetail() {
                   ))}
                 </tbody>
               </table>
-              {csvRows.length > 5 && <div className="text-xs text-gray-500 mt-2">Showing first 5 rows only.</div>}
+              {csvRows.length > 5 && (
+                <div className="text-xs text-gray-500 mt-2">Showing first 5 rows only.</div>
+              )}
             </div>
           )}
 
