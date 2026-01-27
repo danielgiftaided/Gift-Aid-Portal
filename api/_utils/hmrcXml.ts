@@ -5,9 +5,8 @@ import { supabaseAdmin } from "./supabase.js";
 
 /**
  * ✅ Exported constant so other modules can import it.
- * Bump this when you deploy changes so you can confirm which version is live via header.
  */
-export const HMRC_XML_VERSION = "2026-01-27-v2-correlationid-fix";
+export const HMRC_XML_VERSION = "2026-01-27-v3-correlationid-empty";
 
 /** XML escape */
 function xmlEscape(v: any): string {
@@ -17,25 +16,6 @@ function xmlEscape(v: any): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
-}
-
-/**
- * HMRC CorrelationID schema rule (from your error):
- * Must match: [0-9A-F]{0,32} OR spaces up to 32.
- *
- * We derive a valid ID from claim UUID by:
- * - removing non-hex chars (hyphens)
- * - uppercasing
- * - truncating to 32 chars
- */
-function hmrcCorrelationIdFromClaimId(claimId: string): string {
-  const hex = String(claimId || "")
-    .replace(/[^0-9a-fA-F]/g, "")
-    .toUpperCase()
-    .slice(0, 32);
-
-  if (!hex) throw new Error("Cannot derive HMRC CorrelationID from claimId");
-  return hex;
 }
 
 /** Best-effort normalize date to YYYY-MM-DD */
@@ -85,6 +65,8 @@ function loadTemplateOrFallback(): string {
   const p = templatePath();
   if (fs.existsSync(p)) return fs.readFileSync(p, "utf8");
 
+  // NOTE: CorrelationID exists but should be EMPTY for GovTalk submissions.
+  // We'll always replace it with "" so the tag becomes empty.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
   <EnvelopeVersion>2.0</EnvelopeVersion>
@@ -227,7 +209,10 @@ function earliestDonationDate(items: Array<{ donation_date: string }>, fallback:
 /**
  * ✅ MAIN entrypoint used by Preview XML + ISV Submit:
  * Uses charities.charity_number as HMRC CHARID.
- * (Keeps charities.charity_id as legacy fallback, in case you still have old data.)
+ * (Keeps charities.charity_id as legacy fallback.)
+ *
+ * IMPORTANT GOVTALK RULE:
+ * - CorrelationID in GovTalkMessage/Header/MessageDetails is a RESERVED system field → must be blank.
  */
 export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
@@ -313,13 +298,13 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const template = loadTemplateOrFallback();
 
   const vars: Record<string, string> = {
-    // ✅ FIXED: HMRC-compliant CorrelationID (32 hex uppercase)
-    CORRELATION_ID: xmlEscape(hmrcCorrelationIdFromClaimId(id)),
+    // ✅ CRITICAL: MUST BE BLANK to avoid GovTalk 1020
+    CORRELATION_ID: "",
 
     GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? "1"),
     GATEWAY_TIMESTAMP: xmlEscape(new Date().toISOString()),
 
-    // Sender details (still sample defaults; later these will come from hmrc_connections)
+    // Sender details (sample defaults; later use hmrc_connections)
     SENDER_ID: xmlEscape(process.env.HMRC_SENDER_ID ?? "GIFTAIDCHAR"),
     AUTH_VALUE: xmlEscape(process.env.HMRC_AUTH_VALUE ?? "testing2"),
 
@@ -341,12 +326,6 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
     // Claim
     ORG_NAME: xmlEscape(String((charity as any).name || "My Organisation")),
-
-    /**
-     * <HMRCref> in the sample is the charity’s HMRC reference / identifier (not the submission receipt).
-     * For now we keep it the same as CHARID (your registered charity number).
-     * Later, after submission, HMRC returns a separate receipt/transaction reference which you store on the claim.
-     */
     HMRCREF: xmlEscape(charid),
 
     // Regulator (sample defaults)
