@@ -302,7 +302,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
     CORRELATION_ID: "",
 
     GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? "1"),
-    GATEWAY_TIMESTAMP: xmlEscape(new Date().toISOString()),
+    GATEWAY_TIMESTAMP: xmlEscape(new Date().toISOString().replace("Z", "")),
 
     // Sender details (sample defaults; later use hmrc_connections)
     SENDER_ID: xmlEscape(process.env.HMRC_SENDER_ID ?? "GIFTAIDCHAR"),
