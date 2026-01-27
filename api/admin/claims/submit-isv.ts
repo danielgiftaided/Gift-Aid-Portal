@@ -87,7 +87,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     res.setHeader("x-hmrc-xml-version", HMRC_XML_VERSION);
 
     const url = String(
-      process.env.HMRC_ISV_SUBMISSION_URL || "https://secure.dev.gateway.gov.uk/submission"
+      process.env.HMRC_ISV_SUBMISSION_URL || "https://test-transaction-engine.tax.service.gov.uk/submission"
     ).trim();
 
     if (!/^https:\/\//i.test(url)) {
