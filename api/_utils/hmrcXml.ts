@@ -1,11 +1,13 @@
+// api/_utils/hmrcXml.ts
 import fs from "fs";
 import path from "path";
 import { supabaseAdmin } from "./supabase.js";
 
 /**
  * ✅ Exported constant so other modules can import it.
+ * Bump this when you deploy changes so you can confirm which version is live via header.
  */
-export const HMRC_XML_VERSION = "2026-01-26-v2";
+export const HMRC_XML_VERSION = "2026-01-27-v2-correlationid-fix";
 
 /** XML escape */
 function xmlEscape(v: any): string {
@@ -15,6 +17,25 @@ function xmlEscape(v: any): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+/**
+ * HMRC CorrelationID schema rule (from your error):
+ * Must match: [0-9A-F]{0,32} OR spaces up to 32.
+ *
+ * We derive a valid ID from claim UUID by:
+ * - removing non-hex chars (hyphens)
+ * - uppercasing
+ * - truncating to 32 chars
+ */
+function hmrcCorrelationIdFromClaimId(claimId: string): string {
+  const hex = String(claimId || "")
+    .replace(/[^0-9a-fA-F]/g, "")
+    .toUpperCase()
+    .slice(0, 32);
+
+  if (!hex) throw new Error("Cannot derive HMRC CorrelationID from claimId");
+  return hex;
 }
 
 /** Best-effort normalize date to YYYY-MM-DD */
@@ -162,28 +183,9 @@ function loadTemplateOrFallback(): string {
 `;
 }
 
-/** Normalise postcode output for HMRC */
+/** Postcode output for HMRC: trim + uppercase */
 function normalizePostcode(postcode: any): string {
   return String(postcode ?? "").trim().toUpperCase();
-}
-
-/**
- * HMRC CHARID / HMRCref normalisation:
- * - trim
- * - remove spaces
- * - uppercase
- * - enforce letters/numbers only
- */
-function normalizeHmrcCharId(v: any): string {
-  const raw = String(v ?? "").trim();
-  if (!raw) return "";
-  const noSpaces = raw.replace(/\s+/g, "");
-  const up = noSpaces.toUpperCase();
-
-  if (!/^[A-Z0-9]+$/.test(up)) {
-    throw new Error("HMRC CHARID must contain only letters and numbers (no spaces).");
-  }
-  return up;
 }
 
 /** Build a single <GAD> row in the sample style */
@@ -223,10 +225,9 @@ function earliestDonationDate(items: Array<{ donation_date: string }>, fallback:
 }
 
 /**
- * ✅ MAIN entrypoint used by Preview XML + later Submit:
- * HMRC CHARID is stored as charities.charity_number.
- *
- * We keep charities.charity_id as a legacy fallback only.
+ * ✅ MAIN entrypoint used by Preview XML + ISV Submit:
+ * Uses charities.charity_number as HMRC CHARID.
+ * (Keeps charities.charity_id as legacy fallback, in case you still have old data.)
  */
 export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
@@ -254,16 +255,13 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   if (charityErr || !charity) throw new Error(charityErr?.message || "Charity not found");
 
-  const rawCharId =
-    (charity as any).charity_number ||
-    (charity as any).charity_id ||
-    "";
-
-  const charid = normalizeHmrcCharId(rawCharId);
+  const charid =
+    String((charity as any).charity_number || "").trim() ||
+    String((charity as any).charity_id || "").trim(); // legacy fallback
 
   if (!charid) {
     throw new Error(
-      "Charity is missing Registered Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin."
+      "Charity is missing Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin."
     );
   }
 
@@ -315,34 +313,51 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const template = loadTemplateOrFallback();
 
   const vars: Record<string, string> = {
-    CORRELATION_ID: xmlEscape(id),
+    // ✅ FIXED: HMRC-compliant CorrelationID (32 hex uppercase)
+    CORRELATION_ID: xmlEscape(hmrcCorrelationIdFromClaimId(id)),
+
     GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? "1"),
     GATEWAY_TIMESTAMP: xmlEscape(new Date().toISOString()),
 
+    // Sender details (still sample defaults; later these will come from hmrc_connections)
     SENDER_ID: xmlEscape(process.env.HMRC_SENDER_ID ?? "GIFTAIDCHAR"),
     AUTH_VALUE: xmlEscape(process.env.HMRC_AUTH_VALUE ?? "testing2"),
 
+    // Keys / IDs
     CHARID: xmlEscape(charid),
 
+    // Routing
     PRODUCT_NAME: xmlEscape(process.env.HMRC_PRODUCT_NAME ?? "GA Valid Sample"),
 
+    // IRheader
     PERIOD_END: xmlEscape(periodEnd),
     IRMARK: xmlEscape(process.env.HMRC_IRMARK ?? "nMs6zamBGcmT7n0selJHXuiQUEw="),
 
+    // Official (sample defaults)
     OFFICIAL_FORE: xmlEscape(process.env.HMRC_OFFICIAL_FORE ?? "John"),
     OFFICIAL_SUR: xmlEscape(process.env.HMRC_OFFICIAL_SUR ?? "Smith"),
     OFFICIAL_POSTCODE: xmlEscape(process.env.HMRC_OFFICIAL_POSTCODE ?? "AB12 3CD"),
     OFFICIAL_PHONE: xmlEscape(process.env.HMRC_OFFICIAL_PHONE ?? "01234 567890"),
 
+    // Claim
     ORG_NAME: xmlEscape(String((charity as any).name || "My Organisation")),
+
+    /**
+     * <HMRCref> in the sample is the charity’s HMRC reference / identifier (not the submission receipt).
+     * For now we keep it the same as CHARID (your registered charity number).
+     * Later, after submission, HMRC returns a separate receipt/transaction reference which you store on the claim.
+     */
     HMRCREF: xmlEscape(charid),
 
+    // Regulator (sample defaults)
     REG_NAME: xmlEscape(process.env.HMRC_REG_NAME ?? "CCEW"),
     REG_NO: xmlEscape(process.env.HMRC_REG_NO ?? "A1234"),
 
+    // Repayment
     DONATION_ROWS: donationRowsXml,
     EARLIEST_GA_DATE: xmlEscape(earliestGA),
 
+    // Optional blocks
     OTHER_INC_BLOCK: "",
   };
 
