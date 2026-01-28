@@ -6,7 +6,7 @@ import { supabaseAdmin } from "./supabase.js";
 /**
  * ✅ Exported constant so other modules can import it.
  */
-export const HMRC_XML_VERSION = "2026-01-27-v3-correlationid-empty";
+export const HMRC_XML_VERSION = "2026-01-27-v4-correlationid-and-gatewaytimestamp-empty";
 
 /** XML escape */
 function xmlEscape(v: any): string {
@@ -60,13 +60,15 @@ function templatePath(): string {
 /**
  * Loads an external template if present, otherwise uses a safe built-in template.
  * This keeps your sample structure.
+ *
+ * IMPORTANT:
+ * - CorrelationID is reserved/system-controlled on the Transaction Engine route -> must be blank
+ * - GatewayTimestamp can also be treated as system-controlled for this route -> keep blank to avoid fixed-value errors
  */
 function loadTemplateOrFallback(): string {
   const p = templatePath();
   if (fs.existsSync(p)) return fs.readFileSync(p, "utf8");
 
-  // NOTE: CorrelationID exists but should be EMPTY for GovTalk submissions.
-  // We'll always replace it with "" so the tag becomes empty.
   return `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
   <EnvelopeVersion>2.0</EnvelopeVersion>
@@ -211,8 +213,9 @@ function earliestDonationDate(items: Array<{ donation_date: string }>, fallback:
  * Uses charities.charity_number as HMRC CHARID.
  * (Keeps charities.charity_id as legacy fallback.)
  *
- * IMPORTANT GOVTALK RULE:
- * - CorrelationID in GovTalkMessage/Header/MessageDetails is a RESERVED system field → must be blank.
+ * IMPORTANT GOVTALK / TRANSACTION ENGINE RULES (based on your gateway errors):
+ * - CorrelationID is reserved/system-controlled -> MUST be blank
+ * - GatewayTimestamp can trigger fixed-value errors -> keep blank
  */
 export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
@@ -298,11 +301,13 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const template = loadTemplateOrFallback();
 
   const vars: Record<string, string> = {
-    // ✅ CRITICAL: MUST BE BLANK to avoid GovTalk 1020
+    // ✅ CRITICAL: leave blank (reserved/system-controlled)
     CORRELATION_ID: "",
 
+    // ✅ CRITICAL: leave blank (avoids fixed-value schema error on Transaction Engine route)
+    GATEWAY_TIMESTAMP: "",
+
     GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? "1"),
-    GATEWAY_TIMESTAMP: xmlEscape(new Date().toISOString().replace("Z", "")),
 
     // Sender details (sample defaults; later use hmrc_connections)
     SENDER_ID: xmlEscape(process.env.HMRC_SENDER_ID ?? "GIFTAIDCHAR"),
