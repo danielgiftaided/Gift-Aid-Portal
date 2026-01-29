@@ -4,26 +4,10 @@ import path from "path";
 import { supabaseAdmin } from "./supabase.js";
 
 /**
- * Version stamp (exposed via response headers in your handlers)
+ * ✅ Exported constant so other modules can import it.
  */
-export const HMRC_XML_VERSION = "2026-01-28-v1-ets-creds-and-ts-modes";
+export const HMRC_XML_VERSION = "2026-01-29-v1-ets-template-no-gatewaytimestamp";
 
-/**
- * Modes:
- * - ETS: External Test Service (Transaction Engine style) -> CorrelationID must be blank, GatewayTimestamp should be blank/omitted
- * - LIVE: Live Transaction Engine -> same rule as ETS for CorrelationID/GatewayTimestamp
- * - LTS: Local Test Service -> GatewayTimestamp MUST be populated (CorrelationID can be blank)
- *
- * Set env HMRC_XML_MODE to one of: "ETS" | "LIVE" | "LTS"
- */
-function getXmlMode(): "ETS" | "LIVE" | "LTS" {
-  const v = String(process.env.HMRC_XML_MODE || "ETS").trim().toUpperCase();
-  if (v === "LIVE") return "LIVE";
-  if (v === "LTS") return "LTS";
-  return "ETS";
-}
-
-/** XML escape */
 function xmlEscape(v: any): string {
   return String(v ?? "")
     .replace(/&/g, "&amp;")
@@ -33,7 +17,6 @@ function xmlEscape(v: any): string {
     .replace(/'/g, "&apos;");
 }
 
-/** Best-effort normalize date to YYYY-MM-DD */
 function normalizeDate(d: any): string {
   const s = String(d ?? "").trim();
   if (!s) return "";
@@ -48,17 +31,12 @@ function normalizeDate(d: any): string {
   return `${yyyy}-${mm}-${dd}`;
 }
 
-/** Money to 2dp */
 function formatMoney(n: any): string {
   const v = Number(n);
   if (!Number.isFinite(v)) return "0.00";
   return v.toFixed(2);
 }
 
-/**
- * Avoid String.replaceAll (TS target compatibility).
- * Replaces all occurrences of {{KEY}} in template.
- */
 function replaceAllPlaceholders(template: string, vars: Record<string, string>) {
   let out = template;
   for (const [k, v] of Object.entries(vars)) {
@@ -73,12 +51,9 @@ function templatePath(): string {
 }
 
 /**
- * Loads an external template if present, otherwise uses a safe built-in template.
- *
- * Notes:
- * - For ETS/LIVE, CorrelationID must be empty.
- * - For ETS/LIVE, GatewayTimestamp should be empty (Transaction Engine populates it).
- * - For LTS, GatewayTimestamp must be populated.
+ * ETS/Reflector sample-style GovTalk:
+ * - CorrelationID must be empty
+ * - DO NOT include GatewayTimestamp (sample omits it)
  */
 function loadTemplateOrFallback(): string {
   const p = templatePath();
@@ -87,7 +62,6 @@ function loadTemplateOrFallback(): string {
   return `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
   <EnvelopeVersion>2.0</EnvelopeVersion>
-
   <Header>
     <MessageDetails>
       <Class>HMRC-CHAR-CLM</Class>
@@ -96,9 +70,7 @@ function loadTemplateOrFallback(): string {
       <CorrelationID>{{CORRELATION_ID}}</CorrelationID>
       <Transformation>XML</Transformation>
       <GatewayTest>{{GATEWAY_TEST}}</GatewayTest>
-      <GatewayTimestamp>{{GATEWAY_TIMESTAMP}}</GatewayTimestamp>
     </MessageDetails>
-
     <SenderDetails>
       <IDAuthentication>
         <SenderID>{{SENDER_ID}}</SenderID>
@@ -115,11 +87,9 @@ function loadTemplateOrFallback(): string {
     <Keys>
       <Key Type="CHARID">{{CHARID}}</Key>
     </Keys>
-
     <TargetDetails>
       <Organisation>HMRC</Organisation>
     </TargetDetails>
-
     <ChannelRouting>
       <Channel>
         <URI>{{VENDOR_ID}}</URI>
@@ -182,12 +152,10 @@ function loadTemplateOrFallback(): string {
 `;
 }
 
-/** Postcode output for HMRC: trim + uppercase */
 function normalizePostcode(postcode: any): string {
   return String(postcode ?? "").trim().toUpperCase();
 }
 
-/** Build a single <GAD> row in the sample style */
 function buildGadRowXml(item: {
   donor_first_name: string;
   donor_last_name: string;
@@ -224,122 +192,63 @@ function earliestDonationDate(items: Array<{ donation_date: string }>, fallback:
 }
 
 /**
- * Returns ETS test credentials per Charities Technical Pack.
- * If you set HMRC_SENDER_ID / HMRC_AUTH_VALUE, those override.
- */
-function getSenderCreds(mode: "ETS" | "LIVE" | "LTS") {
-  const senderFromEnv = String(process.env.HMRC_SENDER_ID || "").trim();
-  const passFromEnv = String(process.env.HMRC_AUTH_VALUE || "").trim();
-
-  // If explicitly set, always use env.
-  if (senderFromEnv && passFromEnv) {
-    return { senderId: senderFromEnv, authValue: passFromEnv };
-  }
-
-  // Defaults:
-  // ETS uses fixed test creds from the pack.
-  if (mode === "ETS") {
-    return { senderId: "323412300001", authValue: "testing1" };
-  }
-
-  // LIVE/LTS default to your old sample values unless overridden.
-  return {
-    senderId: senderFromEnv || "GIFTAIDCHAR",
-    authValue: passFromEnv || "testing2",
-  };
-}
-
-/**
- * For ETS the pack shows a sample CHARID "AB12345".
- * Some environments validate header keys; allow forcing a test CHARID via env.
- *
- * If you set HMRC_TEST_CHARID it will be used for ETS mode (only),
- * otherwise we use the charity’s stored charity_number.
- */
-function chooseCharIdForMode(mode: "ETS" | "LIVE" | "LTS", charityNumberOrLegacy: string) {
-  if (mode === "ETS") {
-    const forced = String(process.env.HMRC_TEST_CHARID || "").trim();
-    if (forced) return forced;
-    // Safe default sample from the pack
-    return charityNumberOrLegacy || "AB12345";
-  }
-  return charityNumberOrLegacy;
-}
-
-/**
- * ✅ MAIN entrypoint used by Preview XML + ISV Submit:
- * Uses charities.charity_number as HMRC CHARID / HMRCref.
- * (Keeps charities.charity_id as legacy fallback.)
+ * MAIN entrypoint used by Preview XML + ISV Submit.
+ * Uses charities.charity_number as HMRC CHARID.
  */
 export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
   if (!id) throw new Error("claimId is required");
 
-  const mode = getXmlMode();
-
-  // 1) Load claim
+  // Load claim
   const { data: claim, error: claimErr } = await supabaseAdmin
     .from("claims")
     .select("id, charity_id, period_start, period_end")
     .eq("id", id)
     .single();
-
   if (claimErr || !claim) throw new Error(claimErr?.message || "Claim not found");
 
   const periodEnd = normalizeDate((claim as any).period_end);
   if (!periodEnd) throw new Error("Claim period_end is missing/invalid (expected YYYY-MM-DD)");
   const periodStart = normalizeDate((claim as any).period_start) || periodEnd;
 
-  // 2) Load charity — HMRC CHARID == charity_number
+  // Load charity
   const { data: charity, error: charityErr } = await supabaseAdmin
     .from("charities")
     .select("id, name, contact_email, charity_number, charity_id")
     .eq("id", (claim as any).charity_id)
     .single();
-
   if (charityErr || !charity) throw new Error(charityErr?.message || "Charity not found");
 
-  const rawCharid =
+  const charid =
     String((charity as any).charity_number || "").trim() ||
     String((charity as any).charity_id || "").trim(); // legacy fallback
 
-  const charid = chooseCharIdForMode(mode, rawCharid);
-
   if (!charid) {
-    throw new Error("Missing Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin.");
+    throw new Error("Charity is missing Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin.");
   }
 
-  // 3) Load claim items
+  // Load items
   const { data: items, error: itemsErr } = await supabaseAdmin
     .from("claim_items")
-    .select(
-      "id, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount"
-    )
+    .select("id, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount")
     .eq("claim_id", id)
     .order("donation_date", { ascending: true });
-
   if (itemsErr) throw new Error(itemsErr.message);
 
   const itemRows = (items || []) as any[];
   if (itemRows.length === 0) throw new Error("No donation items found for this claim");
 
-  // 4) Validate items
   for (const it of itemRows) {
     if (!String(it.donor_first_name || "").trim()) throw new Error(`Item ${it.id}: First Name is required`);
     if (!String(it.donor_last_name || "").trim()) throw new Error(`Item ${it.id}: Last Name is required`);
     if (!String(it.donor_address || "").trim()) throw new Error(`Item ${it.id}: Address is required`);
-
-    const pc = normalizePostcode(it.donor_postcode);
-    if (!pc) throw new Error(`Item ${it.id}: Postcode is required`);
-
-    const d = normalizeDate(it.donation_date);
-    if (!d) throw new Error(`Item ${it.id}: Donation Date is required (YYYY-MM-DD)`);
+    if (!normalizePostcode(it.donor_postcode)) throw new Error(`Item ${it.id}: Postcode is required`);
+    if (!normalizeDate(it.donation_date)) throw new Error(`Item ${it.id}: Donation Date is required (YYYY-MM-DD)`);
 
     const amt = Number(it.donation_amount);
     if (!Number.isFinite(amt) || amt <= 0) throw new Error(`Item ${it.id}: Donation Amount must be > 0`);
   }
 
-  // 5) Donation rows
   const donationRowsXml = itemRows
     .map((it) =>
       buildGadRowXml({
@@ -355,76 +264,50 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   const earliestGA = earliestDonationDate(itemRows, periodStart);
 
-  // 6) Header fields per mode
-  // - CorrelationID: reserved/system-controlled for Transaction Engine (ETS/LIVE) -> MUST be blank
-  // - GatewayTimestamp:
-  //    - LTS requires a value
-  //    - ETS/LIVE should be blank (Transaction Engine populates)
-  const correlationId = ""; // always blank to avoid 1020
-  const gatewayTimestamp =
-    mode === "LTS"
-      ? new Date().toISOString().replace("Z", "") // LTS example is without trailing Z sometimes; either works locally
-      : ""; // ETS/LIVE blank to avoid fixed-value errors
-
-  const { senderId, authValue } = getSenderCreds(mode);
-
-  // 7) Fill template
   const template = loadTemplateOrFallback();
 
+  // ✅ Force ETS creds unless you override intentionally
+  const senderId = String(process.env.HMRC_SENDER_ID || "323412300001").trim();
+  const authValue = String(process.env.HMRC_AUTH_VALUE || "testing1").trim();
+
   const vars: Record<string, string> = {
-    CORRELATION_ID: xmlEscape(correlationId),
+    // Reserved/system: keep empty
+    CORRELATION_ID: "",
 
-    // GatewayTest:
-    // Keep "1" for test traffic; set to "0" for live if you want (via env).
-    GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? (mode === "LIVE" ? "0" : "1")),
+    GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? "1"),
 
-    GATEWAY_TIMESTAMP: xmlEscape(gatewayTimestamp),
-
-    // Sender details
     SENDER_ID: xmlEscape(senderId),
     AUTH_VALUE: xmlEscape(authValue),
 
-    // Keys / IDs
     CHARID: xmlEscape(charid),
 
-    // ChannelRouting (vendor/product/version)
-    // ETS docs show URI=your vendor id for live; ETS examples sometimes show 0000.
-    // Provide envs so you can match what HMRC expects for your setup.
-    VENDOR_ID: xmlEscape(process.env.HMRC_VENDOR_ID ?? "0000"),
-    PRODUCT_NAME: xmlEscape(process.env.HMRC_PRODUCT_NAME ?? "GA Valid Sample"),
-    PRODUCT_VERSION: xmlEscape(process.env.HMRC_PRODUCT_VERSION ?? "1.0"),
+    // ✅ Use real 4-digit vendor id (sample uses 1234)
+    VENDOR_ID: xmlEscape(process.env.HMRC_VENDOR_ID ?? "1234"),
+    PRODUCT_NAME: xmlEscape(process.env.HMRC_PRODUCT_NAME ?? "MyProduct"),
+    PRODUCT_VERSION: xmlEscape(process.env.HMRC_PRODUCT_VERSION ?? "2.0"),
 
-    // IRheader
     PERIOD_END: xmlEscape(periodEnd),
     IRMARK: xmlEscape(process.env.HMRC_IRMARK ?? "nMs6zamBGcmT7n0selJHXuiQUEw="),
 
-    // Official (sample defaults)
     OFFICIAL_FORE: xmlEscape(process.env.HMRC_OFFICIAL_FORE ?? "John"),
     OFFICIAL_SUR: xmlEscape(process.env.HMRC_OFFICIAL_SUR ?? "Smith"),
     OFFICIAL_POSTCODE: xmlEscape(process.env.HMRC_OFFICIAL_POSTCODE ?? "AB12 3CD"),
     OFFICIAL_PHONE: xmlEscape(process.env.HMRC_OFFICIAL_PHONE ?? "01234 567890"),
 
-    // Claim
     ORG_NAME: xmlEscape(String((charity as any).name || "My Organisation")),
-
-    // Per the pack: HMRCref is the charity’s HMRC reference (same value used in CHARID keys)
     HMRCREF: xmlEscape(charid),
 
-    // Regulator (sample defaults)
     REG_NAME: xmlEscape(process.env.HMRC_REG_NAME ?? "CCEW"),
     REG_NO: xmlEscape(process.env.HMRC_REG_NO ?? "A1234"),
 
-    // Repayment
     DONATION_ROWS: donationRowsXml,
     EARLIEST_GA_DATE: xmlEscape(earliestGA),
 
-    // Optional blocks
     OTHER_INC_BLOCK: "",
   };
 
   const xml = replaceAllPlaceholders(template, vars);
 
-  // 8) Safety check: no placeholders left
   if (xml.indexOf("{{") !== -1) {
     const pos = xml.indexOf("{{");
     const snippet = xml.slice(Math.max(0, pos - 60), Math.min(xml.length, pos + 140));
