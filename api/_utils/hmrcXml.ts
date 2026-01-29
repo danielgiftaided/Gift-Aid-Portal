@@ -4,9 +4,24 @@ import path from "path";
 import { supabaseAdmin } from "./supabase.js";
 
 /**
- * ✅ Exported constant so other modules can import it.
+ * Version stamp (exposed via response headers in your handlers)
  */
-export const HMRC_XML_VERSION = "2026-01-27-v4-correlationid-and-gatewaytimestamp-empty";
+export const HMRC_XML_VERSION = "2026-01-28-v1-ets-creds-and-ts-modes";
+
+/**
+ * Modes:
+ * - ETS: External Test Service (Transaction Engine style) -> CorrelationID must be blank, GatewayTimestamp should be blank/omitted
+ * - LIVE: Live Transaction Engine -> same rule as ETS for CorrelationID/GatewayTimestamp
+ * - LTS: Local Test Service -> GatewayTimestamp MUST be populated (CorrelationID can be blank)
+ *
+ * Set env HMRC_XML_MODE to one of: "ETS" | "LIVE" | "LTS"
+ */
+function getXmlMode(): "ETS" | "LIVE" | "LTS" {
+  const v = String(process.env.HMRC_XML_MODE || "ETS").trim().toUpperCase();
+  if (v === "LIVE") return "LIVE";
+  if (v === "LTS") return "LTS";
+  return "ETS";
+}
 
 /** XML escape */
 function xmlEscape(v: any): string {
@@ -59,11 +74,11 @@ function templatePath(): string {
 
 /**
  * Loads an external template if present, otherwise uses a safe built-in template.
- * This keeps your sample structure.
  *
- * IMPORTANT:
- * - CorrelationID is reserved/system-controlled on the Transaction Engine route -> must be blank
- * - GatewayTimestamp can also be treated as system-controlled for this route -> keep blank to avoid fixed-value errors
+ * Notes:
+ * - For ETS/LIVE, CorrelationID must be empty.
+ * - For ETS/LIVE, GatewayTimestamp should be empty (Transaction Engine populates it).
+ * - For LTS, GatewayTimestamp must be populated.
  */
 function loadTemplateOrFallback(): string {
   const p = templatePath();
@@ -107,9 +122,9 @@ function loadTemplateOrFallback(): string {
 
     <ChannelRouting>
       <Channel>
-        <URI>0000</URI>
+        <URI>{{VENDOR_ID}}</URI>
         <Product>{{PRODUCT_NAME}}</Product>
-        <Version>1.0</Version>
+        <Version>{{PRODUCT_VERSION}}</Version>
       </Channel>
     </ChannelRouting>
   </GovTalkDetails>
@@ -209,17 +224,58 @@ function earliestDonationDate(items: Array<{ donation_date: string }>, fallback:
 }
 
 /**
- * ✅ MAIN entrypoint used by Preview XML + ISV Submit:
- * Uses charities.charity_number as HMRC CHARID.
- * (Keeps charities.charity_id as legacy fallback.)
+ * Returns ETS test credentials per Charities Technical Pack.
+ * If you set HMRC_SENDER_ID / HMRC_AUTH_VALUE, those override.
+ */
+function getSenderCreds(mode: "ETS" | "LIVE" | "LTS") {
+  const senderFromEnv = String(process.env.HMRC_SENDER_ID || "").trim();
+  const passFromEnv = String(process.env.HMRC_AUTH_VALUE || "").trim();
+
+  // If explicitly set, always use env.
+  if (senderFromEnv && passFromEnv) {
+    return { senderId: senderFromEnv, authValue: passFromEnv };
+  }
+
+  // Defaults:
+  // ETS uses fixed test creds from the pack.
+  if (mode === "ETS") {
+    return { senderId: "323412300001", authValue: "testing1" };
+  }
+
+  // LIVE/LTS default to your old sample values unless overridden.
+  return {
+    senderId: senderFromEnv || "GIFTAIDCHAR",
+    authValue: passFromEnv || "testing2",
+  };
+}
+
+/**
+ * For ETS the pack shows a sample CHARID "AB12345".
+ * Some environments validate header keys; allow forcing a test CHARID via env.
  *
- * IMPORTANT GOVTALK / TRANSACTION ENGINE RULES (based on your gateway errors):
- * - CorrelationID is reserved/system-controlled -> MUST be blank
- * - GatewayTimestamp can trigger fixed-value errors -> keep blank
+ * If you set HMRC_TEST_CHARID it will be used for ETS mode (only),
+ * otherwise we use the charity’s stored charity_number.
+ */
+function chooseCharIdForMode(mode: "ETS" | "LIVE" | "LTS", charityNumberOrLegacy: string) {
+  if (mode === "ETS") {
+    const forced = String(process.env.HMRC_TEST_CHARID || "").trim();
+    if (forced) return forced;
+    // Safe default sample from the pack
+    return charityNumberOrLegacy || "AB12345";
+  }
+  return charityNumberOrLegacy;
+}
+
+/**
+ * ✅ MAIN entrypoint used by Preview XML + ISV Submit:
+ * Uses charities.charity_number as HMRC CHARID / HMRCref.
+ * (Keeps charities.charity_id as legacy fallback.)
  */
 export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
   const id = String(claimId || "").trim();
   if (!id) throw new Error("claimId is required");
+
+  const mode = getXmlMode();
 
   // 1) Load claim
   const { data: claim, error: claimErr } = await supabaseAdmin
@@ -243,20 +299,22 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   if (charityErr || !charity) throw new Error(charityErr?.message || "Charity not found");
 
-  const charid =
+  const rawCharid =
     String((charity as any).charity_number || "").trim() ||
     String((charity as any).charity_id || "").trim(); // legacy fallback
 
+  const charid = chooseCharIdForMode(mode, rawCharid);
+
   if (!charid) {
-    throw new Error(
-      "Charity is missing Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin."
-    );
+    throw new Error("Missing Charity Number (used as HMRC CHARID). Ask an operator to set it in Admin.");
   }
 
   // 3) Load claim items
   const { data: items, error: itemsErr } = await supabaseAdmin
     .from("claim_items")
-    .select("id, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount")
+    .select(
+      "id, donor_first_name, donor_last_name, donor_address, donor_postcode, donation_date, donation_amount"
+    )
     .eq("claim_id", id)
     .order("donation_date", { ascending: true });
 
@@ -297,27 +355,44 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   const earliestGA = earliestDonationDate(itemRows, periodStart);
 
-  // 6) Fill template
+  // 6) Header fields per mode
+  // - CorrelationID: reserved/system-controlled for Transaction Engine (ETS/LIVE) -> MUST be blank
+  // - GatewayTimestamp:
+  //    - LTS requires a value
+  //    - ETS/LIVE should be blank (Transaction Engine populates)
+  const correlationId = ""; // always blank to avoid 1020
+  const gatewayTimestamp =
+    mode === "LTS"
+      ? new Date().toISOString().replace("Z", "") // LTS example is without trailing Z sometimes; either works locally
+      : ""; // ETS/LIVE blank to avoid fixed-value errors
+
+  const { senderId, authValue } = getSenderCreds(mode);
+
+  // 7) Fill template
   const template = loadTemplateOrFallback();
 
   const vars: Record<string, string> = {
-    // ✅ CRITICAL: leave blank (reserved/system-controlled)
-    CORRELATION_ID: "",
+    CORRELATION_ID: xmlEscape(correlationId),
 
-    // ✅ CRITICAL: leave blank (avoids fixed-value schema error on Transaction Engine route)
-    GATEWAY_TIMESTAMP: "",
+    // GatewayTest:
+    // Keep "1" for test traffic; set to "0" for live if you want (via env).
+    GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? (mode === "LIVE" ? "0" : "1")),
 
-    GATEWAY_TEST: xmlEscape(process.env.HMRC_GATEWAY_TEST ?? "1"),
+    GATEWAY_TIMESTAMP: xmlEscape(gatewayTimestamp),
 
-    // Sender details (sample defaults; later use hmrc_connections)
-    SENDER_ID: xmlEscape(process.env.HMRC_SENDER_ID ?? "GIFTAIDCHAR"),
-    AUTH_VALUE: xmlEscape(process.env.HMRC_AUTH_VALUE ?? "testing2"),
+    // Sender details
+    SENDER_ID: xmlEscape(senderId),
+    AUTH_VALUE: xmlEscape(authValue),
 
     // Keys / IDs
     CHARID: xmlEscape(charid),
 
-    // Routing
+    // ChannelRouting (vendor/product/version)
+    // ETS docs show URI=your vendor id for live; ETS examples sometimes show 0000.
+    // Provide envs so you can match what HMRC expects for your setup.
+    VENDOR_ID: xmlEscape(process.env.HMRC_VENDOR_ID ?? "0000"),
     PRODUCT_NAME: xmlEscape(process.env.HMRC_PRODUCT_NAME ?? "GA Valid Sample"),
+    PRODUCT_VERSION: xmlEscape(process.env.HMRC_PRODUCT_VERSION ?? "1.0"),
 
     // IRheader
     PERIOD_END: xmlEscape(periodEnd),
@@ -331,6 +406,8 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
     // Claim
     ORG_NAME: xmlEscape(String((charity as any).name || "My Organisation")),
+
+    // Per the pack: HMRCref is the charity’s HMRC reference (same value used in CHARID keys)
     HMRCREF: xmlEscape(charid),
 
     // Regulator (sample defaults)
@@ -347,7 +424,7 @@ export async function generateHmrcGiftAidXml(claimId: string): Promise<string> {
 
   const xml = replaceAllPlaceholders(template, vars);
 
-  // 7) Safety check: no placeholders left
+  // 8) Safety check: no placeholders left
   if (xml.indexOf("{{") !== -1) {
     const pos = xml.indexOf("{{");
     const snippet = xml.slice(Math.max(0, pos - 60), Math.min(xml.length, pos + 140));
