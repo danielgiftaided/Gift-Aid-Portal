@@ -5,72 +5,88 @@ export class ValidationError extends Error {
   }
 }
 
-// Validate UK postcode format
 export function validatePostcode(postcode: string): boolean {
   const postcodeRegex = /^[A-Z]{1,2}[0-9R][0-9A-Z]?\s?[0-9][A-Z]{2}$/i
   return postcodeRegex.test(postcode.trim())
 }
 
-// Validate HMRC reference format (e.g., A1234B)
 export function validateHMRCReference(ref: string): boolean {
   const hmrcRefRegex = /^[A-Z]\d{4}[A-Z]$/
-  return hmrcRefRegex.test(ref)
+  return hmrcRefRegex.test(ref.trim())
 }
 
-// Validate charity number based on regulator
 export function validateCharityNumber(number: string, regulator: string): boolean {
+  const trimmed = number.trim()
+  
   switch (regulator) {
-    case 'CCEW': // England & Wales
-      return /^\d{6,7}$/.test(number)
-    case 'OSCR': // Scotland
-      return /^SC\d{6}$/.test(number)
-    case 'CCNI': // Northern Ireland
-      return /^NIC\d{6}$/.test(number)
+    case 'CCEW':
+      return /^\d{6,7}$/.test(trimmed)
+    case 'OSCR':
+      return /^SC\d{6}$/i.test(trimmed)
+    case 'CCNI':
+      return /^NIC\d{6}$/i.test(trimmed)
     default:
       return false
   }
 }
 
-// Validate donation amount
 export function validateAmount(amount: number): void {
+  if (typeof amount !== 'number' || isNaN(amount)) {
+    throw new ValidationError('Amount must be a valid number')
+  }
+  
   if (amount < 1) {
     throw new ValidationError('Donation amount must be at least £1.00')
   }
+  
   if (amount > 999999.99) {
     throw new ValidationError('Donation amount cannot exceed £999,999.99')
   }
-  if (!/^\d+\.\d{2}$/.test(amount.toFixed(2))) {
-    throw new ValidationError('Amount must have exactly 2 decimal places')
+  
+  if (Math.round(amount * 100) / 100 !== amount) {
+    throw new ValidationError('Amount must have at most 2 decimal places')
   }
 }
 
-// Validate name format
 export function validateName(name: string, fieldName: string): void {
   if (!name || name.trim().length === 0) {
     throw new ValidationError(`${fieldName} is required`)
   }
-  if (name.length > 35) {
+  
+  const trimmed = name.trim()
+  
+  if (trimmed.length > 35) {
     throw new ValidationError(`${fieldName} must be 35 characters or less`)
   }
-  if (!/^[a-zA-Z\s'-]+$/.test(name)) {
-    throw new ValidationError(`${fieldName} can only contain letters, spaces, hyphens, and apostrophes`)
+  
+  if (!/^[a-zA-Z\s'\-]+$/.test(trimmed)) {
+    throw new ValidationError(
+      `${fieldName} can only contain letters, spaces, hyphens, and apostrophes`
+    )
   }
 }
 
-// Validate date format and logic
-export function validateDonationDate(donationDate: string, declarationDate: string): void {
+export function validateDateFormat(date: string, fieldName: string): void {
   const dateRegex = /^\d{4}-\d{2}-\d{2}$/
   
-  if (!dateRegex.test(donationDate)) {
-    throw new ValidationError('Donation date must be in YYYY-MM-DD format')
+  if (!dateRegex.test(date)) {
+    throw new ValidationError(`${fieldName} must be in YYYY-MM-DD format`)
   }
-  if (!dateRegex.test(declarationDate)) {
-    throw new ValidationError('Declaration date must be in YYYY-MM-DD format')
+  
+  const parsed = new Date(date)
+  if (isNaN(parsed.getTime())) {
+    throw new ValidationError(`${fieldName} is not a valid date`)
   }
+}
+
+export function validateDonationDates(donationDate: string, declarationDate: string): void {
+  validateDateFormat(donationDate, 'Donation date')
+  validateDateFormat(declarationDate, 'Declaration date')
 
   const donation = new Date(donationDate)
   const declaration = new Date(declarationDate)
   const today = new Date()
+  today.setHours(0, 0, 0, 0)
 
   if (donation > today) {
     throw new ValidationError('Donation date cannot be in the future')
@@ -80,102 +96,166 @@ export function validateDonationDate(donationDate: string, declarationDate: stri
     throw new ValidationError('Declaration date must be on or before donation date')
   }
 
-  // Check declaration is within last 4 tax years
   const fourYearsAgo = new Date()
   fourYearsAgo.setFullYear(fourYearsAgo.getFullYear() - 4)
+  fourYearsAgo.setMonth(3)
+  fourYearsAgo.setDate(6)
   
   if (declaration < fourYearsAgo) {
     throw new ValidationError('Declaration date must be within the last 4 tax years')
   }
 }
 
-// Validate tax year format
 export function validateTaxYear(taxYear: string): void {
   const taxYearRegex = /^\d{4}-\d{2}$/
   
   if (!taxYearRegex.test(taxYear)) {
-    throw new ValidationError('Tax year must be in format YYYY-YY (e.g., 2023-24)')
+    throw new ValidationError('Tax year must be in format YYYY-YY (e.g., 2024-25)')
   }
 
   const [startYear, endYearSuffix] = taxYear.split('-')
-  const startYearNum = parseInt(startYear)
-  const endYearNum = parseInt('20' + endYearSuffix)
+  const startYearNum = parseInt(startYear, 10)
+  const endYearNum = parseInt('20' + endYearSuffix, 10)
 
   if (endYearNum !== startYearNum + 1) {
     throw new ValidationError('Tax year end must be one year after start')
   }
+  
+  const currentTaxYear = getCurrentTaxYear()
+  const [currentStart] = currentTaxYear.split('-')
+  const currentStartNum = parseInt(currentStart, 10)
+  
+  if (startYearNum > currentStartNum) {
+    throw new ValidationError('Cannot claim for future tax years')
+  }
 }
 
-// Get current tax year
 export function getCurrentTaxYear(): string {
   const now = new Date()
   const currentYear = now.getFullYear()
-  const currentMonth = now.getMonth() + 1 // 1-12
+  const currentMonth = now.getMonth() + 1
+  const currentDay = now.getDate()
   
-  // Tax year starts April 6
-  if (currentMonth < 4 || (currentMonth === 4 && now.getDate() < 6)) {
+  if (currentMonth < 4 || (currentMonth === 4 && currentDay < 6)) {
     return `${currentYear - 1}-${String(currentYear).slice(2)}`
   } else {
     return `${currentYear}-${String(currentYear + 1).slice(2)}`
   }
 }
 
-// Check if date falls within tax year
 export function isDateInTaxYear(date: string, taxYear: string): boolean {
-  const [startYear] = taxYear.split('-')
-  const startYearNum = parseInt(startYear)
+  const [startYearStr] = taxYear.split('-')
+  const startYear = parseInt(startYearStr, 10)
   
-  const taxYearStart = new Date(startYearNum, 3, 6) // April 6
-  const taxYearEnd = new Date(startYearNum + 1, 3, 5) // April 5 next year
+  const taxYearStart = new Date(startYear, 3, 6)
+  const taxYearEnd = new Date(startYear + 1, 3, 5)
   const donationDate = new Date(date)
   
   return donationDate >= taxYearStart && donationDate <= taxYearEnd
 }
 
-// Comprehensive validation for entire claim
 export function validateR68Claim(claim: any): void {
-  // Validate charity details
-  if (!validateHMRCReference(claim.charity.charityHMRCRef)) {
-    throw new ValidationError('Invalid HMRC reference format (should be A1234B)')
-  }
-  
-  if (!validateCharityNumber(claim.charity.charityNumber, claim.charity.regulatorCode)) {
-    throw new ValidationError(`Invalid charity number for regulator ${claim.charity.regulatorCode}`)
-  }
+  const errors: string[] = []
 
-  validateTaxYear(claim.taxYear)
-
-  // Validate each donation
-  claim.donations.forEach((donation: any, index: number) => {
-    const donorNum = index + 1
-    
-    try {
-      validateName(donation.donor.forename, 'Forename')
-      validateName(donation.donor.surname, 'Surname')
-      
-      if (!donation.donor.houseNameNumber || donation.donor.houseNameNumber.length > 50) {
-        throw new ValidationError('House name/number required (max 50 characters)')
-      }
-      
-      if (!validatePostcode(donation.donor.postcode)) {
-        throw new ValidationError('Invalid UK postcode format')
-      }
-      
-      validateAmount(donation.amount)
-      validateDonationDate(donation.date, donation.date) // Simplified - adjust based on your declaration date field
-      
-      if (!isDateInTaxYear(donation.date, claim.taxYear)) {
-        throw new ValidationError(`Donation date not in tax year ${claim.taxYear}`)
-      }
-      
-    } catch (error) {
-      throw new ValidationError(`Donor ${donorNum}: ${error.message}`)
+  try {
+    if (!claim.charity) {
+      throw new ValidationError('Charity details are required')
     }
-  })
 
-  // Validate totals
-  const totalDonations = claim.donations.reduce((sum: number, d: any) => sum + d.amount, 0)
-  if (totalDonations < 1) {
-    throw new ValidationError('Total donations must be at least £1.00')
+    if (!validateHMRCReference(claim.charity.charityHMRCRef)) {
+      errors.push('Invalid HMRC reference format (should be like A1234B)')
+    }
+    
+    if (!validateCharityNumber(claim.charity.charityNumber, claim.charity.regulatorCode)) {
+      errors.push(`Invalid charity number for regulator ${claim.charity.regulatorCode}`)
+    }
+
+    if (!claim.charity.charityName || claim.charity.charityName.trim().length === 0) {
+      errors.push('Charity name is required')
+    }
+
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      errors.push(error.message)
+    }
   }
+
+  try {
+    validateTaxYear(claim.taxYear)
+  } catch (error) {
+    if (error instanceof ValidationError) {
+      errors.push(error.message)
+    }
+  }
+
+  if (!claim.donations || claim.donations.length === 0) {
+    errors.push('At least one donation is required')
+  } else {
+    claim.donations.forEach((donation: any, index: number) => {
+      const donorNum = index + 1
+      
+      try {
+        validateName(donation.donor.forename, `Donor ${donorNum} forename`)
+        validateName(donation.donor.surname, `Donor ${donorNum} surname`)
+        
+        if (!donation.donor.houseNameNumber || donation.donor.houseNameNumber.trim().length === 0) {
+          errors.push(`Donor ${donorNum}: House name/number is required`)
+        } else if (donation.donor.houseNameNumber.length > 50) {
+          errors.push(`Donor ${donorNum}: House name/number must be 50 characters or less`)
+        }
+        
+        if (!validatePostcode(donation.donor.postcode)) {
+          errors.push(`Donor ${donorNum}: Invalid UK postcode format`)
+        }
+        
+        validateAmount(donation.amount)
+        
+        validateDonationDates(donation.donationDate, donation.declarationDate)
+        
+        if (!isDateInTaxYear(donation.donationDate, claim.taxYear)) {
+          errors.push(`Donor ${donorNum}: Donation date ${donation.donationDate} not in tax year ${claim.taxYear}`)
+        }
+        
+      } catch (error) {
+        if (error instanceof ValidationError) {
+          errors.push(`Donor ${donorNum}: ${error.message}`)
+        }
+      }
+    })
+  }
+
+  if (claim.donations && claim.donations.length > 0) {
+    const totalDonations = claim.donations.reduce((sum: number, d: any) => sum + (d.amount || 0), 0)
+    
+    if (totalDonations < 1) {
+      errors.push('Total donations must be at least £1.00')
+    }
+  }
+
+  if (claim.otherIncome < 0) {
+    errors.push('Other income cannot be negative')
+  }
+
+  if (claim.adjustment && (!claim.adjustmentAmount || claim.adjustmentAmount === 0)) {
+    errors.push('Adjustment amount is required when adjustment is selected')
+  }
+
+  if (errors.length > 0) {
+    throw new ValidationError(errors.join('; '))
+  }
+}
+
+export default {
+  ValidationError,
+  validatePostcode,
+  validateHMRCReference,
+  validateCharityNumber,
+  validateAmount,
+  validateName,
+  validateDateFormat,
+  validateDonationDates,
+  validateTaxYear,
+  getCurrentTaxYear,
+  isDateInTaxYear,
+  validateR68Claim
 }
