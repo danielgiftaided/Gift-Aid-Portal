@@ -34,7 +34,6 @@ export default function Submissions() {
 
       setUser(user)
       
-      // Get user's charity
       const { data: userData } = await supabase
         .from('users')
         .select('charity_id')
@@ -42,7 +41,6 @@ export default function Submissions() {
         .single()
 
       if (userData) {
-        // Get submissions
         const { data: submissionsData } = await supabase
           .from('submissions')
           .select('*')
