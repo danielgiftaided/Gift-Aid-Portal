@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useRouter } from 'next/router'
+import { useNavigate } from 'react-router-dom'
 
 interface Charity {
   id: string
@@ -21,7 +21,7 @@ export default function Dashboard() {
   const [charity, setCharity] = useState<Charity | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  const navigate = useNavigate()
 
   useEffect(() => {
     checkUserAndLoadData()
@@ -32,7 +32,7 @@ export default function Dashboard() {
       const { data: { user } } = await supabase.auth.getUser()
       
       if (!user) {
-        router.push('/login')
+        navigate('/login')
         return
       }
 
@@ -71,7 +71,7 @@ export default function Dashboard() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.push('/login')
+    navigate('/login')
   }
 
   const getStatusColor = (status: string) => {
@@ -194,7 +194,7 @@ export default function Dashboard() {
 
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
             <button
-              onClick={() => router.push('/submissions')}
+              onClick={() => navigate('/submissions')}
               className="text-blue-600 hover:text-blue-700 font-medium"
             >
               View all submissions →
