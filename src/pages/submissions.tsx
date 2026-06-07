@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useRouter } from 'next/router'
+import { useNavigate } from 'react-router-dom'
 
 interface Submission {
   id: string
@@ -17,7 +17,7 @@ export default function Submissions() {
   const [user, setUser] = useState<any>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
-  const router = useRouter()
+  const navigate = useNavigate()
 
   useEffect(() => {
     checkUserAndLoadSubmissions()
@@ -28,7 +28,7 @@ export default function Submissions() {
       const { data: { user } } = await supabase.auth.getUser()
       
       if (!user) {
-        router.push('/login')
+        navigate('/login')
         return
       }
 
@@ -58,7 +58,7 @@ export default function Submissions() {
 
   const handleLogout = async () => {
     await supabase.auth.signOut()
-    router.push('/login')
+    navigate('/login')
   }
 
   const getStatusColor = (status: string) => {
