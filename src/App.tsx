@@ -1,19 +1,23 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/login'
+import Signup from './pages/signup'
 import Dashboard from './pages/dashboard'
 import Submissions from './pages/submissions'
+import Admin from './pages/admin'
+import CharitySetup from './pages/charity-setup'
 
 function App() {
   return (
-    <Router>
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/submissions" element={<Submissions />} />
-        <Route path="/" element={<Navigate to="/login" />} />
-        <Route path="*" element={<Navigate to="/login" />} />
-      </Routes>
-    </Router>
+    <Routes>
+      <Route path="/login" element={<Login />} />
+      <Route path="/signup" element={<Signup />} />
+      <Route path="/dashboard" element={<Dashboard />} />
+      <Route path="/submissions" element={<Submissions />} />
+      <Route path="/admin" element={<Admin />} />
+      <Route path="/charity-setup" element={<CharitySetup />} />
+      <Route path="/" element={<Navigate to="/login" />} />
+      <Route path="*" element={<Navigate to="/login" />} />
+    </Routes>
   )
 }
 
