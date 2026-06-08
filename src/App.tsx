@@ -4,7 +4,7 @@ import Signup from './pages/signup'
 import Dashboard from './pages/dashboard'
 import Submissions from './pages/submissions'
 import Admin from './pages/admin'
-import CharitySetup from './pages/charity-setup'
+import CharitySetup from './pages/charitySetup'
 
 function App() {
   return (
