@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
-import { supabaseAdmin } from "../../../_utils/supabase.js";
-import { requireOperator } from "../../../_utils/requireOperator.js";
+import { supabaseAdmin } from "../../_utils/supabase.js";
+import { requireOperator } from "../../_utils/requireOperator.js";
 
 function send(res: VercelResponse, status: number, body: any) {
   return res.status(status).json(body);
