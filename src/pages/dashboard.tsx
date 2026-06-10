@@ -17,7 +17,6 @@ interface Submission {
 }
 
 export default function Dashboard() {
-  const [user, setUser] = useState<any>(null)
   const [charity, setCharity] = useState<Charity | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
@@ -29,28 +28,29 @@ export default function Dashboard() {
 
   const checkUserAndLoadData = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!user) {
+      // getSession() reads from localStorage — reliable immediately after navigation
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session) {
         navigate('/login')
         return
       }
 
-      setUser(user)
-      
+      const user = session.user
+
       const { data: userData } = await supabase
         .from('users')
         .select('charity_id')
         .eq('id', user.id)
         .single()
 
-      if (userData) {
+      if (userData?.charity_id) {
         const { data: charityData } = await supabase
           .from('charities')
           .select('*')
           .eq('id', userData.charity_id)
           .single()
-        
+
         setCharity(charityData)
 
         const { data: submissionsData } = await supabase
@@ -75,7 +75,7 @@ export default function Dashboard() {
   }
 
   const getStatusColor = (status: string) => {
-    switch(status) {
+    switch (status) {
       case 'approved': return 'bg-green-100 text-green-800'
       case 'rejected': return 'bg-red-100 text-red-800'
       case 'submitted': return 'bg-blue-100 text-blue-800'
@@ -106,67 +106,48 @@ export default function Dashboard() {
           <h2 className="text-xl font-semibold mb-2">
             Welcome, {charity?.name || 'Charity'}
           </h2>
-          <p className="text-gray-600">
-            View your Gift Aid submission history and status
-          </p>
+          <p className="text-gray-600">View your Gift Aid submission history and status</p>
         </div>
 
         {submissions.length > 0 && (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-600">Total Claimed</div>
-                <div className="text-3xl font-bold text-blue-600">
-                  £{submissions.reduce((sum, s) => sum + (parseFloat(String(s.amount_claimed)) || 0), 0).toLocaleString()}
-                </div>
-              </div>
-              
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-600">Total Submissions</div>
-                <div className="text-3xl font-bold text-gray-900">
-                  {submissions.length}
-                </div>
-              </div>
-
-              <div className="bg-white rounded-lg shadow p-6">
-                <div className="text-sm text-gray-600">Approved</div>
-                <div className="text-3xl font-bold text-green-600">
-                  {submissions.filter(s => s.status === 'approved').length}
-                </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600">Total Claimed</div>
+              <div className="text-3xl font-bold text-blue-600">
+                £{submissions.reduce((sum, s) => sum + (parseFloat(String(s.amount_claimed)) || 0), 0).toLocaleString()}
               </div>
             </div>
-          </>
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600">Total Submissions</div>
+              <div className="text-3xl font-bold text-gray-900">{submissions.length}</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600">Approved</div>
+              <div className="text-3xl font-bold text-green-600">
+                {submissions.filter(s => s.status === 'approved').length}
+              </div>
+            </div>
+          </div>
         )}
 
         <div className="bg-white rounded-lg shadow">
           <div className="px-6 py-4 border-b border-gray-200">
             <h3 className="text-lg font-semibold">Recent Submissions</h3>
           </div>
-          
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Donations
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Status
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Donations</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
-                      No submissions yet
-                    </td>
+                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">No submissions yet</td>
                   </tr>
                 ) : (
                   submissions.map((submission) => (
@@ -191,7 +172,6 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
-
           <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
             <button
               onClick={() => navigate('/submissions')}
