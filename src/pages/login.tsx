@@ -18,20 +18,19 @@ export default function Login() {
         email: email.trim(),
         password,
       });
-
       if (authError) throw authError;
 
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-
       if (!token) throw new Error("Login succeeded but no session token found.");
 
+      // cache: 'no-store' prevents the browser returning a stale 304 response
       const meResp = await fetch("/api/user/me", {
         headers: { Authorization: `Bearer ${token}` },
+        cache: "no-store",
       });
 
       const meJson = await meResp.json();
-
       if (!meResp.ok || !meJson.ok) {
         throw new Error(meJson?.error || "Failed to identify user");
       }
@@ -84,7 +83,6 @@ export default function Login() {
               autoComplete="email"
             />
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
             <input
@@ -97,7 +95,6 @@ export default function Login() {
               autoComplete="current-password"
             />
           </div>
-
           <button
             type="submit"
             disabled={loading}
