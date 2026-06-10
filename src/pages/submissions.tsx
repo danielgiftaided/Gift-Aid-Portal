@@ -14,7 +14,6 @@ interface Submission {
 }
 
 export default function Submissions() {
-  const [user, setUser] = useState<any>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
   const navigate = useNavigate()
@@ -25,22 +24,21 @@ export default function Submissions() {
 
   const checkUserAndLoadSubmissions = async () => {
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      
-      if (!user) {
+      // getSession() reads from localStorage — reliable immediately after navigation
+      const { data: { session } } = await supabase.auth.getSession()
+
+      if (!session) {
         navigate('/login')
         return
       }
 
-      setUser(user)
-      
       const { data: userData } = await supabase
         .from('users')
         .select('charity_id')
-        .eq('id', user.id)
+        .eq('id', session.user.id)
         .single()
 
-      if (userData) {
+      if (userData?.charity_id) {
         const { data: submissionsData } = await supabase
           .from('submissions')
           .select('*')
@@ -62,7 +60,7 @@ export default function Submissions() {
   }
 
   const getStatusColor = (status: string) => {
-    switch(status) {
+    switch (status) {
       case 'approved': return 'bg-green-100 text-green-800'
       case 'rejected': return 'bg-red-100 text-red-800'
       case 'submitted': return 'bg-blue-100 text-blue-800'
@@ -92,9 +90,7 @@ export default function Submissions() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
           <h2 className="text-3xl font-bold mb-2">Your Gift Aid Submissions</h2>
-          <p className="text-gray-600">
-            View all submissions you've made to HMRC
-          </p>
+          <p className="text-gray-600">View all submissions you've made to HMRC</p>
         </div>
 
         {submissions.length === 0 ? (
@@ -107,24 +103,12 @@ export default function Submissions() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Submission Date
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Tax Year
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Amount Claimed
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Donations
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">
-                    HMRC Reference
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Submission Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax Year</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount Claimed</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Donations</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">HMRC Reference</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
@@ -132,18 +116,13 @@ export default function Submissions() {
                   <tr key={submission.id} className="hover:bg-gray-50">
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {new Date(submission.submission_date).toLocaleDateString('en-GB', {
-                        year: 'numeric',
-                        month: 'long',
-                        day: 'numeric'
+                        year: 'numeric', month: 'long', day: 'numeric'
                       })}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {submission.tax_year}
-                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{submission.tax_year}</td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-600">
                       £{parseFloat(String(submission.amount_claimed || 0)).toLocaleString('en-GB', {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2
+                        minimumFractionDigits: 2, maximumFractionDigits: 2
                       })}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
