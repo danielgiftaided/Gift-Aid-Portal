@@ -14,7 +14,7 @@ function App() {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/submissions" element={<Submissions />} />
       <Route path="/admin" element={<Admin />} />
-      <Route path="/charitySetup" element={<CharitySetup />} />
+      <Route path="/charity-Setup" element={<CharitySetup />} />
       <Route path="/" element={<Navigate to="/login" />} />
       <Route path="*" element={<Navigate to="/login" />} />
     </Routes>
