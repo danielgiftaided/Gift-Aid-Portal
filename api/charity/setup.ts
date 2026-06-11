@@ -1,34 +1,22 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useNavigate } from "react-router-dom";
 
 export default function CharitySetup() {
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [charityNumber, setCharityNumber] = useState("");
-
   const [loading, setLoading] = useState(false);
-  const [checking, setChecking] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    (async () => {
-      try {
-        // getSession() reads from localStorage without a network round-trip
-        // much more reliable than getUser() immediately after navigation
-        const { data: { session } } = await supabase.auth.getSession();
-
-        if (!session) {
-          window.location.href = "/login";
-          return;
-        }
-
-        setContactEmail(session.user.email ?? "");
-      } catch {
-        window.location.href = "/login";
-      } finally {
-        setChecking(false);
+    // Pre-fill email from session if available — no redirect on failure
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email) {
+        setContactEmail(session.user.email);
       }
-    })();
+    });
   }, []);
 
   const submit = async () => {
@@ -45,12 +33,15 @@ export default function CharitySetup() {
       if (!cleanCharityNumber) throw new Error("Registered charity number is required");
 
       if (!/^[A-Za-z0-9]+$/.test(cleanCharityNumber)) {
-        throw new Error("Registered charity number must contain only letters and numbers (no spaces).");
+        throw new Error("Charity number must contain only letters and numbers (no spaces).");
       }
 
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
-      if (!token) throw new Error("Not logged in");
+      if (!token) {
+        navigate("/login");
+        return;
+      }
 
       const res = await fetch("/api/charity/setup", {
         method: "POST",
@@ -70,17 +61,13 @@ export default function CharitySetup() {
         throw new Error(json?.error || "Failed to set up charity");
       }
 
-      window.location.href = "/dashboard";
+      navigate("/dashboard");
     } catch (e: any) {
       setError(e?.message ?? "Error");
     } finally {
       setLoading(false);
     }
   };
-
-  if (checking) {
-    return <div className="min-h-screen flex items-center justify-center">Loading…</div>;
-  }
 
   return (
     <div className="min-h-screen bg-brand-surface flex items-center justify-center px-4">
@@ -132,7 +119,7 @@ export default function CharitySetup() {
           disabled={loading}
         />
         <div className="text-xs text-gray-500 mt-2 mb-4">
-          This will be used as the HMRC CHARID in Gift Aid submissions. Letters/numbers only.
+          Letters and numbers only — this becomes your HMRC CHARID for Gift Aid submissions.
         </div>
 
         <button
