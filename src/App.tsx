@@ -5,6 +5,7 @@ import Dashboard from './pages/dashboard'
 import Submissions from './pages/submissions'
 import Admin from './pages/admin'
 import CharitySetup from './pages/charitySetup'
+import AdminCharityDetail from './pages/adminCharityDetail'
 
 function App() {
   return (
@@ -14,7 +15,8 @@ function App() {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/submissions" element={<Submissions />} />
       <Route path="/admin" element={<Admin />} />
-      <Route path="/charity-Setup" element={<CharitySetup />} />
+      <Route path="/admin/charities/:id" element={<AdminCharityDetail />} />
+      <Route path="/charity-setup" element={<CharitySetup />} />
       <Route path="/" element={<Navigate to="/login" />} />
       <Route path="*" element={<Navigate to="/login" />} />
     </Routes>
