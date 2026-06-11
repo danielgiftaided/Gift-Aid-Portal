@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -24,7 +25,6 @@ export default function Login() {
       const token = sessionData.session?.access_token;
       if (!token) throw new Error("Login succeeded but no session token found.");
 
-      // cache: 'no-store' prevents the browser returning a stale 304 response
       const meResp = await fetch("/api/user/me", {
         headers: { Authorization: `Bearer ${token}` },
         cache: "no-store",
@@ -35,21 +35,22 @@ export default function Login() {
         throw new Error(meJson?.error || "Failed to identify user");
       }
 
+      // Use React Router navigate() — keeps session in memory, no page reload
       if (meJson.role === "operator") {
-        window.location.href = "/admin";
+        navigate("/admin");
         return;
       }
 
       if (meJson.role === "charity_user") {
         if (!meJson.charityId) {
-          window.location.href = "/charity-setup";
+          navigate("/charity-setup");
           return;
         }
-        window.location.href = "/dashboard";
+        navigate("/dashboard");
         return;
       }
 
-      window.location.href = "/dashboard";
+      navigate("/dashboard");
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
       setLoading(false);
