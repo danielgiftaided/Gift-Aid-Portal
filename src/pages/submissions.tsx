@@ -24,7 +24,6 @@ export default function Submissions() {
 
   const checkUserAndLoadSubmissions = async () => {
     try {
-      // getSession() reads from localStorage — reliable immediately after navigation
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session) {
@@ -119,7 +118,9 @@ export default function Submissions() {
                         year: 'numeric', month: 'long', day: 'numeric'
                       })}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">{submission.tax_year}</td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                      {submission.tax_year}
+                    </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-600">
                       £{parseFloat(String(submission.amount_claimed || 0)).toLocaleString('en-GB', {
                         minimumFractionDigits: 2, maximumFractionDigits: 2
@@ -134,7 +135,7 @@ export default function Submissions() {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                      {submission.hmrc_reference || '-'}
+                      {submission.hmrc_reference || '—'}
                     </td>
                   </tr>
                 ))}
