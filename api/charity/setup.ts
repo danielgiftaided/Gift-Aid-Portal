@@ -1,142 +1,118 @@
-import { useEffect, useState } from "react";
-import { supabase } from "../lib/supabase";
-import { useNavigate } from "react-router-dom";
+import type { VercelRequest, VercelResponse } from "@vercel/node";
+import { supabaseAdmin } from "../_utils/supabase.js";
+import { requireUser } from "../_utils/requireUser.js";
 
-export default function CharitySetup() {
-  const [name, setName] = useState("");
-  const [contactEmail, setContactEmail] = useState("");
-  const [charityNumber, setCharityNumber] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const navigate = useNavigate();
+function send(res: VercelResponse, status: number, body: object) {
+  return res.status(status).json(body);
+}
 
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user?.email) {
-        setContactEmail(session.user.email);
-      }
-    });
-  }, []);
+function parseBody(req: VercelRequest) {
+  const b = (req as any).body;
+  if (!b) return {};
+  if (typeof b === "object") return b;
+  if (typeof b === "string") {
+    try { return JSON.parse(b); } catch { return {}; }
+  }
+  return {};
+}
 
-  const submit = async () => {
-    try {
-      setLoading(true);
-      setError(null);
+function isAlphanumeric(str: string): boolean {
+  for (let i = 0; i < str.length; i++) {
+    const c = str.charCodeAt(i);
+    const isUpper = c >= 65 && c <= 90;
+    const isLower = c >= 97 && c <= 122;
+    const isDigit = c >= 48 && c <= 57;
+    if (!isUpper && !isLower && !isDigit) return false;
+  }
+  return true;
+}
 
-      const cleanName = name.trim();
-      const cleanEmail = contactEmail.trim();
-      const cleanCharityNumber = charityNumber.trim();
-
-      if (!cleanName) throw new Error("Charity name is required");
-      if (!cleanEmail) throw new Error("Contact email is required");
-      if (!cleanCharityNumber) throw new Error("Registered charity number is required");
-
-      if (!/^[A-Za-z0-9]+$/.test(cleanCharityNumber)) {
-        throw new Error("Charity number must contain only letters and numbers (no spaces).");
-      }
-
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) {
-        navigate("/login");
-        return;
-      }
-
-      const res = await fetch("/api/charity/setup", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          name: cleanName,
-          contact_email: cleanEmail,
-          charity_number: cleanCharityNumber,
-        }),
-      });
-
-      // Read as text first so we can diagnose non-JSON responses
-      const text = await res.text();
-      let json: any;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        throw new Error(`Server returned unexpected response (HTTP ${res.status}): ${text.substring(0, 200)}`);
-      }
-
-      if (!res.ok || !json.ok) {
-        throw new Error(json?.error || "Failed to set up charity");
-      }
-
-      navigate("/dashboard");
-    } catch (e: any) {
-      setError(e?.message ?? "Error");
-    } finally {
-      setLoading(false);
+export default async function handler(req: VercelRequest, res: VercelResponse) {
+  try {
+    if (req.method !== "POST") {
+      return send(res, 405, { ok: false, error: "Method not allowed" });
     }
-  };
 
-  return (
-    <div className="min-h-screen bg-brand-surface flex items-center justify-center px-4">
-      <div className="max-w-md w-full bg-white/80 rounded-lg shadow p-6">
-        <h1 className="text-2xl font-bold mb-2 text-brand-primary">Set up your charity</h1>
-        <p className="text-gray-600 mb-4">
-          Enter your charity details to create your portal workspace.
-        </p>
+    const user = await requireUser(req);
+    const userId = user?.id;
+    if (!userId) {
+      return send(res, 401, { ok: false, error: "Invalid session user" });
+    }
 
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4 text-xs break-all">
-            {error}
-          </div>
-        )}
+    const body = parseBody(req);
+    const name = String(body.name || "").trim();
+    const contact_email = String(body.contact_email || "").trim();
+    const charity_number = String(body.charity_number || "").trim().toUpperCase();
 
-        <label className="block text-sm font-medium mb-1">
-          Charity name <span className="text-red-600">*</span>
-        </label>
-        <input
-          className="w-full border rounded px-3 py-2 mb-3"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          placeholder="e.g. Helping Hands"
-          autoComplete="organization"
-          disabled={loading}
-        />
+    if (!name) return send(res, 400, { ok: false, error: "Charity name is required" });
+    if (!contact_email) return send(res, 400, { ok: false, error: "Contact email is required" });
+    if (!charity_number) return send(res, 400, { ok: false, error: "Charity number is required" });
+    if (charity_number.length < 3) return send(res, 400, { ok: false, error: "Charity number looks too short" });
+    if (charity_number.length > 30) return send(res, 400, { ok: false, error: "Charity number looks too long" });
+    if (!isAlphanumeric(charity_number)) {
+      return send(res, 400, { ok: false, error: "Charity number must be letters and numbers only (no spaces or symbols)" });
+    }
 
-        <label className="block text-sm font-medium mb-1">
-          Contact email <span className="text-red-600">*</span>
-        </label>
-        <input
-          className="w-full border rounded px-3 py-2 mb-3"
-          value={contactEmail}
-          onChange={(e) => setContactEmail(e.target.value)}
-          placeholder="contact@charity.org"
-          autoComplete="email"
-          disabled={loading}
-        />
+    // Check if user already has a charity linked
+    const { data: existingUser, error: userErr } = await supabaseAdmin
+      .from("users")
+      .select("id, charity_id")
+      .eq("id", userId)
+      .maybeSingle();
 
-        <label className="block text-sm font-medium mb-1">
-          Registered charity number <span className="text-red-600">*</span>
-        </label>
-        <input
-          className="w-full border rounded px-3 py-2"
-          value={charityNumber}
-          onChange={(e) => setCharityNumber(e.target.value)}
-          placeholder="e.g. 328158 or AA12345"
-          autoComplete="off"
-          disabled={loading}
-        />
-        <div className="text-xs text-gray-500 mt-2 mb-4">
-          Letters and numbers only — this becomes your HMRC CHARID for Gift Aid submissions.
-        </div>
+    if (userErr) return send(res, 500, { ok: false, error: userErr.message });
 
-        <button
-          onClick={submit}
-          disabled={loading}
-          className="w-full bg-brand-accent text-white rounded px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50"
-        >
-          {loading ? "Creating…" : "Create charity"}
-        </button>
-      </div>
-    </div>
-  );
+    if (!existingUser) {
+      return send(res, 500, { ok: false, error: "User row not found. Please contact support." });
+    }
+
+    if (existingUser.charity_id) {
+      return send(res, 200, { ok: true, charity_id: existingUser.charity_id, alreadySetup: true });
+    }
+
+    // Check if charity number already exists
+    const { data: existingCharity, error: checkErr } = await supabaseAdmin
+      .from("charities")
+      .select("id")
+      .eq("charity_id", charity_number)
+      .maybeSingle();
+
+    if (checkErr) return send(res, 500, { ok: false, error: checkErr.message });
+
+    let charityId = existingCharity?.id ?? null;
+
+    // Create new charity if not found
+    if (!charityId) {
+      const { data: created, error: createErr } = await supabaseAdmin
+        .from("charities")
+        .insert({
+          name,
+          contact_email,
+          charity_id: charity_number,
+          charity_number: charity_number,
+          created_by: userId,
+          self_submit_enabled: false,
+        })
+        .select("id")
+        .single();
+
+      if (createErr) return send(res, 500, { ok: false, error: createErr.message });
+      if (!created?.id) return send(res, 500, { ok: false, error: "Charity created but no id returned" });
+
+      charityId = created.id;
+    }
+
+    // Link user to charity
+    const { error: linkErr } = await supabaseAdmin
+      .from("users")
+      .update({ charity_id: charityId })
+      .eq("id", userId);
+
+    if (linkErr) return send(res, 500, { ok: false, error: linkErr.message });
+
+    return send(res, 200, { ok: true, charity_id: charityId, alreadySetup: false });
+
+  } catch (e: any) {
+    return send(res, 500, { ok: false, error: e?.message ?? "Server error" });
+  }
 }
