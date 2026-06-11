@@ -112,7 +112,11 @@ export default function Submissions() {
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {submissions.map((submission) => (
-                  <tr key={submission.id} className="hover:bg-gray-50">
+                  <tr
+                    key={submission.id}
+                    onClick={() => navigate(`/submissions/${submission.id}`)}
+                    className="hover:bg-blue-50 cursor-pointer"
+                  >
                     <td className="px-6 py-4 whitespace-nowrap text-sm">
                       {new Date(submission.submission_date).toLocaleDateString('en-GB', {
                         year: 'numeric', month: 'long', day: 'numeric'
