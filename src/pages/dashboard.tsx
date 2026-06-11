@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useNavigate, useLocation } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 
 interface Submission {
   id: string
@@ -12,12 +12,8 @@ interface Submission {
 
 export default function Dashboard() {
   const navigate = useNavigate()
-  const location = useLocation()
-
-  // Use charity name from navigation state (passed from login) as initial value
-  const [charityName, setCharityName] = useState<string>(
-    (location.state as any)?.charityName ?? ''
-  )
+  const [charityName, setCharityName] = useState<string>('')
+  const [charityId, setCharityId] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -34,28 +30,27 @@ export default function Dashboard() {
         return
       }
 
-      const { data: userData } = await supabase
-        .from('users')
-        .select('charity_id')
-        .eq('id', session.user.id)
-        .single()
+      // Call /api/user/me — uses service role key so it reliably returns charityName
+      const meResp = await fetch('/api/user/me', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store',
+      })
+      const meJson = await meResp.json()
 
-      if (userData?.charity_id) {
-        // Fetch charity name if not already set from navigation state
-        if (!charityName) {
-          const { data: charityData } = await supabase
-            .from('charities')
-            .select('name')
-            .eq('id', userData.charity_id)
-            .single()
+      if (!meResp.ok || !meJson.ok) {
+        navigate('/login')
+        return
+      }
 
-          if (charityData?.name) setCharityName(charityData.name)
-        }
+      if (meJson.charityName) setCharityName(meJson.charityName)
+      if (meJson.charityId) setCharityId(meJson.charityId)
 
+      // Load submissions if charity is linked
+      if (meJson.charityId) {
         const { data: submissionsData } = await supabase
           .from('submissions')
           .select('id, submission_date, status, amount_claimed, number_of_donations')
-          .eq('charity_id', userData.charity_id)
+          .eq('charity_id', meJson.charityId)
           .order('submission_date', { ascending: false })
           .limit(5)
 
@@ -103,7 +98,7 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-2">
-            Welcome, {charityName || 'your charity'}
+            Welcome, {charityName || '…'}
           </h2>
           <p className="text-gray-600">View your Gift Aid submission history and status</p>
         </div>
@@ -146,7 +141,9 @@ export default function Dashboard() {
               <tbody className="bg-white divide-y divide-gray-200">
                 {submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">No submissions yet</td>
+                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                      No submissions yet
+                    </td>
                   </tr>
                 ) : (
                   submissions.map((submission) => (
