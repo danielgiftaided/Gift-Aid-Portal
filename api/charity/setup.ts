@@ -11,7 +11,6 @@ export default function CharitySetup() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Pre-fill email from session if available — no redirect on failure
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user?.email) {
         setContactEmail(session.user.email);
@@ -56,7 +55,15 @@ export default function CharitySetup() {
         }),
       });
 
-      const json = await res.json();
+      // Read as text first so we can diagnose non-JSON responses
+      const text = await res.text();
+      let json: any;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new Error(`Server returned unexpected response (HTTP ${res.status}): ${text.substring(0, 200)}`);
+      }
+
       if (!res.ok || !json.ok) {
         throw new Error(json?.error || "Failed to set up charity");
       }
@@ -78,7 +85,7 @@ export default function CharitySetup() {
         </p>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4 text-xs break-all">
             {error}
           </div>
         )}
