@@ -36,6 +36,52 @@ interface ParseError {
   message: string;
 }
 
+function getTaxYearForDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  // UK tax year starts 6 April
+  if (month > 4 || (month === 4 && day >= 6)) {
+    return `${year}/${String(year + 1).slice(2)}`;
+  }
+  return `${year - 1}/${String(year).slice(2)}`;
+}
+
+function parseDonationDate(str: string): Date | null {
+  // DD/MM/YYYY
+  const dmy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (dmy) return new Date(parseInt(dmy[3]), parseInt(dmy[2]) - 1, parseInt(dmy[1]));
+  // YYYY-MM-DD
+  const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (ymd) return new Date(parseInt(ymd[1]), parseInt(ymd[2]) - 1, parseInt(ymd[3]));
+  // fallback
+  const d = new Date(str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function getTaxYearFromDonations(rows: DonorRow[]): string {
+  const counts: Record<string, number> = {};
+  for (const row of rows) {
+    const date = parseDonationDate(row.donationDate);
+    if (date) {
+      const ty = getTaxYearForDate(date);
+      counts[ty] = (counts[ty] || 0) + 1;
+    }
+  }
+  // Use the most common tax year across all donations
+  let best = "";
+  let max = 0;
+  for (const [ty, count] of Object.entries(counts)) {
+    if (count > max) { max = count; best = ty; }
+  }
+  // Fallback: current tax year if no dates could be parsed
+  if (!best) {
+    const now = new Date();
+    best = getTaxYearForDate(now);
+  }
+  return best;
+}
+
 function getCurrentTaxYear(): string {
   const now = new Date();
   const year = now.getFullYear();
@@ -217,11 +263,12 @@ export default function AdminCharityDetail() {
 
       const totalDonations = parsedRows.reduce((s, r) => s + r.amount, 0);
       const giftAidAmount = Math.round(totalDonations * 0.25 * 100) / 100;
+      const taxYear = getTaxYearFromDonations(parsedRows);
 
       const { error: insertErr } = await supabase.from("submissions").insert({
         charity_id: id,
         submission_date: new Date().toISOString().split("T")[0],
-        tax_year: getCurrentTaxYear(),
+        tax_year: taxYear,
         amount_claimed: giftAidAmount,
         number_of_donations: parsedRows.length,
         status: "pending",
