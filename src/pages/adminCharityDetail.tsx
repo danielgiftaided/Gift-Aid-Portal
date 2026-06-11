@@ -267,16 +267,39 @@ export default function AdminCharityDetail() {
       const giftAidAmount = Math.round(totalDonations * 0.25 * 100) / 100;
       const taxYear = getTaxYearFromDonations(parsedRows);
 
-      const { error: insertErr } = await supabase.from("submissions").insert({
-        charity_id: id,
-        submission_date: new Date().toISOString().split("T")[0],
-        tax_year: taxYear,
-        amount_claimed: giftAidAmount,
-        number_of_donations: parsedRows.length,
-        status: "pending",
-      });
+      const { data: newSubmission, error: insertErr } = await supabase
+        .from("submissions")
+        .insert({
+          charity_id: id,
+          submission_date: new Date().toISOString().split("T")[0],
+          tax_year: taxYear,
+          amount_claimed: giftAidAmount,
+          number_of_donations: parsedRows.length,
+          status: "pending",
+        })
+        .select("id")
+        .single();
 
       if (insertErr) throw new Error(insertErr.message);
+
+      // Save individual donation rows
+      const donationRows = parsedRows.map(r => ({
+        submission_id: newSubmission.id,
+        charity_id: id,
+        title: r.title || null,
+        first_name: r.firstName,
+        last_name: r.lastName,
+        address: r.address,
+        postcode: r.postcode,
+        donation_date: r.donationDate,
+        amount: r.amount,
+      }));
+
+      const { error: donationsErr } = await supabase
+        .from("donations")
+        .insert(donationRows);
+
+      if (donationsErr) throw new Error(donationsErr.message);
 
       setSubmitSuccess(true);
       setParsedRows([]);
