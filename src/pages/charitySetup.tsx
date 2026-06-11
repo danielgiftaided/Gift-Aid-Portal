@@ -1,27 +1,22 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
+import { useNavigate } from "react-router-dom";
 
 export default function CharitySetup() {
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [charityNumber, setCharityNumber] = useState("");
-
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    (async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-
-      if (!user) {
-        window.location.href = "/login";
-        return;
+    // Pre-fill email from session if available — no redirect on failure
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user?.email) {
+        setContactEmail(session.user.email);
       }
-
-      setContactEmail(user.email ?? "");
-    })();
+    });
   }, []);
 
   const submit = async () => {
@@ -37,14 +32,16 @@ export default function CharitySetup() {
       if (!cleanEmail) throw new Error("Contact email is required");
       if (!cleanCharityNumber) throw new Error("Registered charity number is required");
 
-      // Letters / numbers only (no spaces). HMRC sample CHARID is alphanumeric.
       if (!/^[A-Za-z0-9]+$/.test(cleanCharityNumber)) {
-        throw new Error("Registered charity number must contain only letters and numbers (no spaces).");
+        throw new Error("Charity number must contain only letters and numbers (no spaces).");
       }
 
       const { data } = await supabase.auth.getSession();
       const token = data.session?.access_token;
-      if (!token) throw new Error("Not logged in");
+      if (!token) {
+        navigate("/login");
+        return;
+      }
 
       const res = await fetch("/api/charity/setup", {
         method: "POST",
@@ -55,8 +52,6 @@ export default function CharitySetup() {
         body: JSON.stringify({
           name: cleanName,
           contact_email: cleanEmail,
-          // ✅ Single source of truth:
-          // Charity Number = HMRC CHARID
           charity_number: cleanCharityNumber,
         }),
       });
@@ -66,7 +61,7 @@ export default function CharitySetup() {
         throw new Error(json?.error || "Failed to set up charity");
       }
 
-      window.location.href = "/dashboard";
+      navigate("/dashboard");
     } catch (e: any) {
       setError(e?.message ?? "Error");
     } finally {
@@ -88,7 +83,6 @@ export default function CharitySetup() {
           </div>
         )}
 
-        {/* Charity name */}
         <label className="block text-sm font-medium mb-1">
           Charity name <span className="text-red-600">*</span>
         </label>
@@ -101,7 +95,6 @@ export default function CharitySetup() {
           disabled={loading}
         />
 
-        {/* Contact email */}
         <label className="block text-sm font-medium mb-1">
           Contact email <span className="text-red-600">*</span>
         </label>
@@ -114,7 +107,6 @@ export default function CharitySetup() {
           disabled={loading}
         />
 
-        {/* Registered charity number (also HMRC CHARID) */}
         <label className="block text-sm font-medium mb-1">
           Registered charity number <span className="text-red-600">*</span>
         </label>
@@ -127,8 +119,7 @@ export default function CharitySetup() {
           disabled={loading}
         />
         <div className="text-xs text-gray-500 mt-2 mb-4">
-          This will be used as the HMRC CHARID in Gift Aid submissions. Letters/numbers only.
-          Charity users cannot edit this later — only an operator can.
+          Letters and numbers only — this becomes your HMRC CHARID for Gift Aid submissions.
         </div>
 
         <button
