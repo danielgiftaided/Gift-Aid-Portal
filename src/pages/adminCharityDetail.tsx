@@ -208,6 +208,8 @@ export default function AdminCharityDetail() {
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     if (id) loadData();
@@ -289,6 +291,29 @@ export default function AdminCharityDetail() {
     }
   };
 
+  const handleUpdateStatus = async (submissionId: string, newStatus: string) => {
+    setUpdatingId(submissionId);
+    const { error } = await supabase
+      .from("submissions")
+      .update({ status: newStatus })
+      .eq("id", submissionId);
+    if (error) setPageError(error.message);
+    else setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: newStatus } : s));
+    setUpdatingId(null);
+  };
+
+  const handleDelete = async (submissionId: string) => {
+    if (!window.confirm("Are you sure you want to delete this submission? This cannot be undone.")) return;
+    setDeletingId(submissionId);
+    const { error } = await supabase
+      .from("submissions")
+      .delete()
+      .eq("id", submissionId);
+    if (error) setPageError(error.message);
+    else setSubmissions(prev => prev.filter(s => s.id !== submissionId));
+    setDeletingId(null);
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "approved": return "bg-green-100 text-green-800";
@@ -353,7 +378,7 @@ export default function AdminCharityDetail() {
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  {["Date", "Tax Year", "Amount", "Donations", "Status", "HMRC Ref"].map(h => (
+                  {["Date", "Tax Year", "Amount", "Donations", "Status", "HMRC Ref", "Actions"].map(h => (
                     <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
                   ))}
                 </tr>
@@ -361,7 +386,7 @@ export default function AdminCharityDetail() {
               <tbody className="divide-y divide-gray-200">
                 {submissions.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="px-4 py-6 text-center text-gray-500">No submissions yet</td>
+                    <td colSpan={7} className="px-4 py-6 text-center text-gray-500">No submissions yet</td>
                   </tr>
                 ) : submissions.map(s => (
                   <tr key={s.id} className="hover:bg-gray-50">
@@ -374,12 +399,29 @@ export default function AdminCharityDetail() {
                     </td>
                     <td className="px-4 py-3 text-sm whitespace-nowrap">{s.number_of_donations}</td>
                     <td className="px-4 py-3 whitespace-nowrap">
-                      <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(s.status)}`}>
-                        {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
-                      </span>
+                      <select
+                        value={s.status}
+                        disabled={updatingId === s.id}
+                        onChange={(e) => handleUpdateStatus(s.id, e.target.value)}
+                        className={`text-xs font-semibold rounded px-2 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-brand-primary ${getStatusColor(s.status)}`}
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="submitted">Submitted</option>
+                        <option value="approved">Approved</option>
+                        <option value="rejected">Rejected</option>
+                      </select>
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-500 font-mono whitespace-nowrap">
                       {s.hmrc_reference || "—"}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <button
+                        onClick={() => handleDelete(s.id)}
+                        disabled={deletingId === s.id}
+                        className="text-xs text-red-600 hover:text-red-800 font-medium disabled:opacity-40"
+                      >
+                        {deletingId === s.id ? "Deleting…" : "Delete"}
+                      </button>
                     </td>
                   </tr>
                 ))}
