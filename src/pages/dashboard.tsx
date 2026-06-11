@@ -1,12 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useNavigate } from 'react-router-dom'
-
-interface Charity {
-  id: string
-  name: string
-  contact_email: string
-}
+import { useNavigate, useLocation } from 'react-router-dom'
 
 interface Submission {
   id: string
@@ -17,18 +11,22 @@ interface Submission {
 }
 
 export default function Dashboard() {
-  const [charity, setCharity] = useState<Charity | null>(null)
+  const navigate = useNavigate()
+  const location = useLocation()
+
+  // Use charity name from navigation state (passed from login) as initial value
+  const [charityName, setCharityName] = useState<string>(
+    (location.state as any)?.charityName ?? ''
+  )
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
-  const navigate = useNavigate()
 
   useEffect(() => {
-    checkUserAndLoadData()
+    loadData()
   }, [])
 
-  const checkUserAndLoadData = async () => {
+  const loadData = async () => {
     try {
-      // getSession() reads from localStorage — reliable immediately after navigation
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session) {
@@ -36,22 +34,23 @@ export default function Dashboard() {
         return
       }
 
-      const user = session.user
-
       const { data: userData } = await supabase
         .from('users')
         .select('charity_id')
-        .eq('id', user.id)
+        .eq('id', session.user.id)
         .single()
 
       if (userData?.charity_id) {
-        const { data: charityData } = await supabase
-          .from('charities')
-          .select('*')
-          .eq('id', userData.charity_id)
-          .single()
+        // Fetch charity name if not already set from navigation state
+        if (!charityName) {
+          const { data: charityData } = await supabase
+            .from('charities')
+            .select('name')
+            .eq('id', userData.charity_id)
+            .single()
 
-        setCharity(charityData)
+          if (charityData?.name) setCharityName(charityData.name)
+        }
 
         const { data: submissionsData } = await supabase
           .from('submissions')
@@ -104,7 +103,7 @@ export default function Dashboard() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <div className="bg-white rounded-lg shadow p-6 mb-6">
           <h2 className="text-xl font-semibold mb-2">
-            Welcome, {charity?.name || 'Charity'}
+            Welcome, {charityName || 'your charity'}
           </h2>
           <p className="text-gray-600">View your Gift Aid submission history and status</p>
         </div>
