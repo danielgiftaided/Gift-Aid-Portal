@@ -35,7 +35,6 @@ export default function Login() {
         throw new Error(meJson?.error || "Failed to identify user");
       }
 
-      // Use React Router navigate() — keeps session in memory, no page reload
       if (meJson.role === "operator") {
         navigate("/admin");
         return;
@@ -46,7 +45,8 @@ export default function Login() {
           navigate("/charity-setup");
           return;
         }
-        navigate("/dashboard");
+        // Pass charityName via navigation state so dashboard can show it immediately
+        navigate("/dashboard", { state: { charityName: meJson.charityName } });
         return;
       }
 
