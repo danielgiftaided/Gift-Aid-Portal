@@ -83,6 +83,13 @@ export default function Submissions() {
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <button
+          onClick={() => navigate('/dashboard')}
+          className="text-sm text-blue-600 hover:underline mb-6 inline-block"
+        >
+          ← Back to dashboard
+        </button>
+
         <div className="flex items-center justify-between mb-6">
           <div>
             <h2 className="text-3xl font-bold mb-1">Your Gift Aid Submissions</h2>
@@ -102,7 +109,7 @@ export default function Submissions() {
                 <tr>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Submission Date</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax Year</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount Claimed</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gift Aid Claimed</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Donations</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">HMRC Reference</th>
