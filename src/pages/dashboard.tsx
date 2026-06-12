@@ -4,20 +4,32 @@ import { useNavigate, useLocation } from 'react-router-dom'
 
 interface Submission { id: string; submission_date: string; status: string; amount_claimed: number; number_of_donations: number }
 
-function PageHeader({ title, subtitle }: { title: string; subtitle: string }) {
+function HeroShapes() {
   return (
-    <div className="relative bg-brand-surface border-b border-gray-100 overflow-hidden">
-      <div className="absolute top-0 right-0 pointer-events-none select-none">
-        <div className="absolute top-0 right-0 w-32 h-20 bg-brand-primary"></div>
-        <div className="absolute top-20 right-0 w-24 h-16 bg-brand-accent"></div>
-        <div className="absolute top-2 right-28 w-16 h-16 bg-gray-300/40 rounded-full"></div>
-        <div className="absolute top-20 right-24 w-10 h-10 bg-gray-300/30 rounded-full"></div>
-      </div>
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
-        <h1 className="text-2xl font-bold text-brand-primary">{title}</h1>
-        <p className="text-gray-400 text-sm mt-1">{subtitle}</p>
-      </div>
-    </div>
+    <svg
+      className="absolute top-0 right-0 h-full"
+      style={{ width: '340px' }}
+      viewBox="0 0 340 220"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      aria-hidden="true"
+      preserveAspectRatio="xMaxYMid slice"
+    >
+      {/* Large grey circle — behind everything */}
+      <circle cx="180" cy="60" r="110" fill="#D1D5DB" fillOpacity="0.35" />
+
+      {/* Navy rectangle — top right */}
+      <rect x="180" y="0" width="160" height="145" fill="#304674" />
+
+      {/* Teal rectangle — overlapping, bottom right */}
+      <rect x="220" y="130" width="120" height="90" fill="#0C735C" />
+
+      {/* Small grey circle — bottom left of shapes */}
+      <circle cx="185" cy="185" r="42" fill="#D1D5DB" fillOpacity="0.4" />
+
+      {/* Tiny accent circle */}
+      <circle cx="230" cy="125" r="18" fill="#FCF8EF" fillOpacity="0.2" />
+    </svg>
   )
 }
 
@@ -39,7 +51,11 @@ export default function Dashboard() {
       if (!meResp.ok || !meJson.ok) { navigate('/login'); return }
       if (meJson.charityName) setCharityName(meJson.charityName)
       if (meJson.charityId) {
-        const { data } = await supabase.from('submissions').select('id, submission_date, status, amount_claimed, number_of_donations').eq('charity_id', meJson.charityId).order('submission_date', { ascending: false }).limit(5)
+        const { data } = await supabase.from('submissions')
+          .select('id, submission_date, status, amount_claimed, number_of_donations')
+          .eq('charity_id', meJson.charityId)
+          .order('submission_date', { ascending: false })
+          .limit(5)
         setSubmissions(data || [])
       }
     } catch (e) { console.error(e) } finally { setLoading(false) }
@@ -52,28 +68,52 @@ export default function Dashboard() {
     return 'bg-yellow-100 text-yellow-700'
   }
 
-  if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
+  if (loading) return (
+    <div className="min-h-screen bg-brand-surface flex items-center justify-center">
+      <p className="text-brand-accent font-medium">Loading…</p>
+    </div>
+  )
 
   const totalGiftAid = submissions.reduce((s, r) => s + (parseFloat(String(r.amount_claimed)) || 0), 0)
 
   return (
     <div className="min-h-screen bg-brand-surface">
-      {/* Nav — cream with teal brand name */}
+
+      {/* Nav — white with teal brand name */}
       <nav className="bg-white border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <span className="text-lg font-bold text-brand-accent tracking-tight">Gift Aided Portal</span>
-          <div className="flex items-center gap-4">
-            <button onClick={() => navigate('/profile')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">My Profile</button>
-            <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
+          <div className="flex items-center gap-5">
+            <button onClick={() => navigate('/profile')}
+              className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">
+              My Profile
+            </button>
+            <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }}
+              className="text-sm text-gray-400 hover:text-gray-600 transition-colors">
+              Log Out
+            </button>
           </div>
         </div>
       </nav>
 
-      {/* Page header with geometric blocks */}
-      <PageHeader title={`Welcome, ${charityName || '…'}`} subtitle="View your Gift Aid submission history and status" />
+      {/* Hero header — cream background with geometric shapes on the right */}
+      <div className="relative overflow-hidden bg-brand-surface" style={{ minHeight: '220px' }}>
+        <HeroShapes />
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
+          <p className="text-brand-accent text-sm font-semibold uppercase tracking-widest mb-2">Gift Aid Management</p>
+          <h1 className="text-4xl font-bold text-brand-primary leading-tight">
+            Welcome,<br />
+            <span className="text-brand-accent">{charityName || '…'}</span>
+          </h1>
+          <p className="text-gray-400 text-sm mt-3 max-w-md">
+            View your Gift Aid submission history and track your claims in one place.
+          </p>
+        </div>
+      </div>
 
-      {/* Content */}
+      {/* Content — cream background */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+
         {/* Stat cards */}
         {submissions.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
@@ -84,14 +124,14 @@ export default function Dashboard() {
               { label: 'Approved', value: String(submissions.filter(s => s.status === 'approved').length), color: 'text-green-600' },
             ].map(c => (
               <div key={c.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
-                <div className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
+                <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
                 <div className={`text-2xl font-bold ${c.color}`}>{c.value}</div>
               </div>
             ))}
           </div>
         )}
 
-        {/* Recent submissions */}
+        {/* Submissions table */}
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
             <h2 className="font-semibold text-brand-primary">Recent Submissions</h2>
@@ -109,20 +149,29 @@ export default function Dashboard() {
                 {submissions.length === 0 ? (
                   <tr><td colSpan={4} className="px-6 py-10 text-center text-gray-300">No submissions yet</td></tr>
                 ) : submissions.map(s => (
-                  <tr key={s.id} className="hover:bg-brand-surface/40 transition-colors">
+                  <tr key={s.id} className="hover:bg-brand-surface/50 transition-colors">
                     <td className="px-6 py-4 text-sm text-gray-600">{new Date(s.submission_date).toLocaleDateString('en-GB')}</td>
-                    <td className="px-6 py-4 text-sm font-bold text-brand-accent">£{parseFloat(String(s.amount_claimed || 0)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</td>
+                    <td className="px-6 py-4 text-sm font-bold text-brand-accent">
+                      £{parseFloat(String(s.amount_claimed || 0)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}
+                    </td>
                     <td className="px-6 py-4 text-sm text-gray-500">{s.number_of_donations}</td>
-                    <td className="px-6 py-4"><span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${statusColor(s.status)}`}>{s.status.charAt(0).toUpperCase() + s.status.slice(1)}</span></td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2.5 py-1 text-xs font-semibold rounded-full ${statusColor(s.status)}`}>
+                        {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
+                      </span>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
           <div className="px-6 py-4 border-t border-gray-50">
-            <button onClick={() => navigate('/submissions')} className="text-sm font-semibold text-brand-accent hover:underline">View all submissions →</button>
+            <button onClick={() => navigate('/submissions')} className="text-sm font-semibold text-brand-accent hover:underline">
+              View all submissions →
+            </button>
           </div>
         </div>
+
       </div>
     </div>
   )
