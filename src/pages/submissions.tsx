@@ -6,44 +6,58 @@ interface Submission {
   id: string
   submission_date: string
   status: string
-  hmrc_reference: string | null
   amount_claimed: number
   number_of_donations: number
-  tax_year: string
-  notes: string | null
 }
 
-export default function Submissions() {
+export default function Dashboard() {
+  const navigate = useNavigate()
+  const [charityName, setCharityName] = useState<string>('')
+  const [charityId, setCharityId] = useState<string | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
-  const navigate = useNavigate()
 
   useEffect(() => {
-    checkUserAndLoadSubmissions()
+    loadData()
   }, [])
 
-  const checkUserAndLoadSubmissions = async () => {
+  const loadData = async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { navigate('/login'); return }
 
-      const { data: userData } = await supabase
-        .from('users')
-        .select('charity_id')
-        .eq('id', session.user.id)
-        .single()
+      if (!session) {
+        navigate('/login')
+        return
+      }
 
-      if (userData?.charity_id) {
+      // Call /api/user/me — uses service role key so it reliably returns charityName
+      const meResp = await fetch('/api/user/me', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store',
+      })
+      const meJson = await meResp.json()
+
+      if (!meResp.ok || !meJson.ok) {
+        navigate('/login')
+        return
+      }
+
+      if (meJson.charityName) setCharityName(meJson.charityName)
+      if (meJson.charityId) setCharityId(meJson.charityId)
+
+      // Load submissions if charity is linked
+      if (meJson.charityId) {
         const { data: submissionsData } = await supabase
           .from('submissions')
-          .select('*')
-          .eq('charity_id', userData.charity_id)
+          .select('id, submission_date, status, amount_claimed, number_of_donations')
+          .eq('charity_id', meJson.charityId)
           .order('submission_date', { ascending: false })
+          .limit(5)
 
         setSubmissions(submissionsData || [])
       }
     } catch (error) {
-      console.error('Error loading submissions:', error)
+      console.error('Error loading data:', error)
     } finally {
       setLoading(false)
     }
@@ -59,7 +73,6 @@ export default function Submissions() {
       case 'approved': return 'bg-green-100 text-green-800'
       case 'rejected': return 'bg-red-100 text-red-800'
       case 'submitted': return 'bg-blue-100 text-blue-800'
-      case 'pending': return 'bg-yellow-100 text-yellow-800'
       default: return 'bg-gray-100 text-gray-800'
     }
   }
@@ -72,86 +85,112 @@ export default function Submissions() {
     <div className="min-h-screen bg-gray-50">
       <div className="bg-white shadow">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold">Gift Aid Portal</h1>
-          <button
-            onClick={handleLogout}
-            className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
-          >
-            Log Out
-          </button>
+          <h1 className="text-2xl font-bold">Gift Aided Portal</h1>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => navigate('/profile')}
+              className="px-4 py-2 text-sm text-gray-600 hover:text-gray-900 border border-gray-200 rounded-lg hover:bg-gray-50"
+            >
+              My Profile
+            </button>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 text-sm text-gray-700 hover:text-gray-900"
+            >
+              Log Out
+            </button>
+          </div>
         </div>
       </div>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <button
-          onClick={() => navigate('/dashboard')}
-          className="text-sm text-blue-600 hover:underline mb-6 inline-block"
-        >
-          ← Back to dashboard
-        </button>
-
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h2 className="text-3xl font-bold mb-1">Your Gift Aid Submissions</h2>
-            <p className="text-gray-600">View all submissions you've made to HMRC</p>
-          </div>
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h2 className="text-xl font-semibold mb-2">
+            Welcome, {charityName || '…'}
+          </h2>
+          <p className="text-gray-600">View your Gift Aid submission history and status</p>
         </div>
 
-        {submissions.length === 0 ? (
-          <div className="bg-white rounded-lg shadow p-12 text-center">
-            <p className="text-gray-500 text-lg">No submissions found</p>
-            <p className="text-gray-400 mt-2">Submissions will appear here as you make them</p>
+        {submissions.length > 0 && (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600">Total Donations</div>
+              <div className="text-3xl font-bold text-gray-900">
+                £{submissions.reduce((sum, s) => sum + ((parseFloat(String(s.amount_claimed)) || 0) * 4), 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600">Total Gift Aid</div>
+              <div className="text-3xl font-bold text-blue-600">
+                £{submissions.reduce((sum, s) => sum + (parseFloat(String(s.amount_claimed)) || 0), 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600">Total Submissions</div>
+              <div className="text-3xl font-bold text-gray-900">{submissions.length}</div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600">Approved</div>
+              <div className="text-3xl font-bold text-green-600">
+                {submissions.filter(s => s.status === 'approved').length}
+              </div>
+            </div>
           </div>
-        ) : (
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+        )}
+
+        <div className="bg-white rounded-lg shadow">
+          <div className="px-6 py-4 border-b border-gray-200">
+            <h3 className="text-lg font-semibold">Recent Submissions</h3>
+          </div>
+          <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Submission Date</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Tax Year</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Gift Aid Claimed</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Date</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Amount</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Donations</th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">HMRC Reference</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {submissions.map((submission) => (
-                  <tr
-                    key={submission.id}
-                    onClick={() => navigate(`/submissions/${submission.id}`)}
-                    className="hover:bg-blue-50 cursor-pointer"
-                  >
-                    <td className="px-6 py-4 whitespace-nowrap text-sm">
-                      {new Date(submission.submission_date).toLocaleDateString('en-GB', {
-                        year: 'numeric', month: 'long', day: 'numeric'
-                      })}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                      {submission.tax_year}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm font-bold text-blue-600">
-                      £{parseFloat(String(submission.amount_claimed || 0)).toLocaleString('en-GB', {
-                        minimumFractionDigits: 2, maximumFractionDigits: 2
-                      })}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">
-                      {submission.number_of_donations} donations
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-3 py-1 text-xs font-semibold rounded-full ${getStatusColor(submission.status)}`}>
-                        {submission.status.charAt(0).toUpperCase() + submission.status.slice(1)}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                      {submission.hmrc_reference || '—'}
+                {submissions.length === 0 ? (
+                  <tr>
+                    <td colSpan={4} className="px-6 py-4 text-center text-gray-500">
+                      No submissions yet
                     </td>
                   </tr>
-                ))}
+                ) : (
+                  submissions.map((submission) => (
+                    <tr key={submission.id}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {new Date(submission.submission_date).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        £{parseFloat(String(submission.amount_claimed || 0)).toLocaleString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
+                        {submission.number_of_donations}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusColor(submission.status)}`}>
+                          {submission.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
-        )}
+          <div className="px-6 py-4 bg-gray-50 border-t border-gray-200">
+            <button
+              onClick={() => navigate('/submissions')}
+              className="text-blue-600 hover:text-blue-700 font-medium"
+            >
+              View all submissions →
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
