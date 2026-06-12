@@ -371,9 +371,16 @@ export default function AdminCharityDetail() {
 
         {/* Summary cards */}
         {submissions.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
             <div className="bg-white/80 rounded-lg shadow p-4">
-              <div className="text-sm text-gray-500">Total Claimed</div>
+              <div className="text-sm text-gray-500">Total Donations</div>
+              <div className="text-2xl font-bold text-gray-900">
+                £{submissions.reduce((s, r) => s + ((parseFloat(String(r.amount_claimed)) || 0) * 4), 0)
+                  .toLocaleString("en-GB", { minimumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="bg-white/80 rounded-lg shadow p-4">
+              <div className="text-sm text-gray-500">Total Gift Aid</div>
               <div className="text-2xl font-bold text-blue-600">
                 £{submissions.reduce((s, r) => s + (parseFloat(String(r.amount_claimed)) || 0), 0)
                   .toLocaleString("en-GB", { minimumFractionDigits: 2 })}
