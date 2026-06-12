@@ -9,6 +9,7 @@ import SubmissionDetail from './pages/submissionDetail'
 import Admin from './pages/admin'
 import CharitySetup from './pages/charitySetup'
 import AdminCharityDetail from './pages/adminCharityDetail'
+import CharityProfile from './pages/charityProfile'
 
 function App() {
   return (
@@ -20,6 +21,7 @@ function App() {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/submissions" element={<Submissions />} />
       <Route path="/submissions/:id" element={<SubmissionDetail />} />
+      <Route path="/profile" element={<CharityProfile />} />
       <Route path="/admin" element={<Admin />} />
       <Route path="/admin/charities/:id" element={<AdminCharityDetail />} />
       <Route path="/charity-setup" element={<CharitySetup />} />
