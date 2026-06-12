@@ -147,30 +147,6 @@ export default function Submissions() {
             </table>
           </div>
         )}
-
-        {submissions.length > 0 && (
-          <div className="mt-6 bg-blue-50 border border-blue-200 rounded-lg p-6">
-            <h3 className="font-semibold text-blue-900 mb-2">Summary</h3>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <p className="text-sm text-blue-600">Total Claims</p>
-                <p className="text-2xl font-bold text-blue-900">
-                  £{submissions.reduce((sum, s) => sum + (parseFloat(String(s.amount_claimed)) || 0), 0).toLocaleString('en-GB')}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-blue-600">Total Submissions</p>
-                <p className="text-2xl font-bold text-blue-900">{submissions.length}</p>
-              </div>
-              <div>
-                <p className="text-sm text-blue-600">Approved Claims</p>
-                <p className="text-2xl font-bold text-blue-900">
-                  {submissions.filter(s => s.status === 'approved').length}
-                </p>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   )
