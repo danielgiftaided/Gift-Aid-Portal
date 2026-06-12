@@ -419,7 +419,11 @@ export default function AdminCharityDetail() {
                     <td colSpan={7} className="px-4 py-6 text-center text-gray-500">No submissions yet</td>
                   </tr>
                 ) : submissions.map(s => (
-                  <tr key={s.id} className="hover:bg-gray-50">
+                  <tr
+                    key={s.id}
+                    className="hover:bg-blue-50 cursor-pointer"
+                    onClick={() => navigate(`/submissions/${s.id}`, { state: { backUrl: `/admin/charities/${id}` } })}
+                  >
                     <td className="px-4 py-3 text-sm whitespace-nowrap">
                       {new Date(s.submission_date).toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "numeric" })}
                     </td>
