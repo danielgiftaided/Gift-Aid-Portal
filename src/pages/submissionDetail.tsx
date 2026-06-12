@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 
 interface Submission {
   id: string
@@ -37,6 +37,8 @@ function getStatusColor(status: string) {
 export default function SubmissionDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const location = useLocation()
+  const backUrl = (location.state as any)?.backUrl ?? '/submissions'
 
   const [submission, setSubmission] = useState<Submission | null>(null)
   const [donations, setDonations] = useState<Donation[]>([])
@@ -76,6 +78,34 @@ export default function SubmissionDetail() {
     }
   }
 
+  const downloadCSV = () => {
+    if (donations.length === 0) return
+
+    const headers = ['Title', 'First Name', 'Last Name', 'Address', 'Postcode', 'Donation Date', 'Amount (£)']
+
+    const rows = donations.map(d => [
+      d.title || '',
+      d.first_name,
+      d.last_name,
+      d.address,
+      d.postcode,
+      d.donation_date,
+      parseFloat(String(d.amount)).toFixed(2),
+    ])
+
+    const csvContent = [headers, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `submission-${submission?.tax_year?.replace('/', '-')}-${submission?.submission_date}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   const handleLogout = async () => {
     await supabase.auth.signOut()
     navigate('/login')
@@ -102,10 +132,10 @@ export default function SubmissionDetail() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         <button
-          onClick={() => navigate('/submissions')}
+          onClick={() => navigate(backUrl)}
           className="text-sm text-blue-600 hover:underline mb-6 inline-block"
         >
-          ← Back to submissions
+          ← Back
         </button>
 
         {error && (
@@ -166,7 +196,7 @@ export default function SubmissionDetail() {
 
         {/* Donation rows */}
         <div className="bg-white rounded-lg shadow">
-          <div className="px-6 py-4 border-b border-gray-200">
+          <div className="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
             <h3 className="text-lg font-semibold">
               Donation Records
               {donations.length > 0 && (
@@ -175,6 +205,17 @@ export default function SubmissionDetail() {
                 </span>
               )}
             </h3>
+            <button
+              onClick={downloadCSV}
+              disabled={donations.length === 0}
+              title={donations.length === 0 ? 'No donation records available to export' : 'Export donor rows as CSV'}
+              className="flex items-center gap-2 px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm font-medium text-gray-700 hover:bg-gray-50 shadow-sm disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Export CSV
+            </button>
           </div>
 
           {donations.length === 0 ? (
