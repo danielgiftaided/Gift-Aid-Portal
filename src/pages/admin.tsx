@@ -1,101 +1,86 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
-type Charity = {
-  id: string;
-  name: string;
-  contact_email: string;
-  self_submit_enabled: boolean;
-};
+type Charity = { id: string; name: string; contact_email: string; self_submit_enabled: boolean };
 
 export default function Admin() {
   const [charities, setCharities] = useState<Charity[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
 
   useEffect(() => {
     (async () => {
       try {
-        setError(null);
-        setLoading(true);
-
         const { data } = await supabase.auth.getSession();
         const token = data.session?.access_token;
-
-        if (!token) {
-          throw new Error("Not logged in. Please log in again.");
-        }
-
-        const res = await fetch("/api/admin/charities/list?limit=100&offset=0", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-
+        if (!token) throw new Error("Not logged in.");
+        const res = await fetch("/api/admin/charities/list?limit=100&offset=0", { headers: { Authorization: `Bearer ${token}` } });
         const json = await res.json();
-
-        if (!res.ok || !json.ok) {
-          throw new Error(json?.error || "Failed to load charities");
-        }
-
+        if (!res.ok || !json.ok) throw new Error(json?.error || "Failed to load charities");
         setCharities(json.charities || []);
-      } catch (e: any) {
-        setError(e?.message || "Error loading admin data");
-        setCharities([]);
-      } finally {
-        setLoading(false);
-      }
+      } catch (e: any) { setError(e?.message); } finally { setLoading(false); }
     })();
   }, []);
 
   return (
     <div className="min-h-screen bg-brand-surface">
-      <div className="max-w-4xl mx-auto p-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-brand-primary">Gift Aided Admin</h1>
-            <p className="text-gray-600">Operator tools for managing charities and claims.</p>
+      {/* Block 1 — Navy nav */}
+      <nav className="bg-brand-primary">
+        <div className="max-w-4xl mx-auto px-6 py-4 flex justify-between items-center">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-brand-accent rounded-md flex items-center justify-center">
+              <span className="text-white font-bold text-xs">GA</span>
+            </div>
+            <span className="text-white font-bold text-lg tracking-tight">Gift Aided Portal</span>
           </div>
+          <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }}
+            className="text-sm text-white/70 hover:text-white transition-colors">Log Out</button>
+        </div>
+      </nav>
 
-          <Link
-            to="/admin/claims"
-            className="inline-block px-3 py-2 text-sm rounded bg-brand-primary text-white hover:opacity-90"
-          >
+      {/* Block 2 — Teal banner */}
+      <div className="bg-brand-accent">
+        <div className="max-w-4xl mx-auto px-6 py-6 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-white">Admin Dashboard</h1>
+            <p className="text-white/75 text-sm mt-1">Manage charities and Gift Aid submissions</p>
+          </div>
+          <Link to="/admin/claims"
+            className="px-4 py-2 text-sm font-semibold rounded-lg bg-white/15 text-white border border-white/30 hover:bg-white/25 transition-colors">
             Manage Claims
           </Link>
         </div>
+      </div>
 
+      {/* Block 3 — Cream content */}
+      <div className="max-w-4xl mx-auto px-6 py-8">
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
-            {error}
-          </div>
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>
         )}
 
-        <div className="bg-white/80 rounded-lg shadow p-4">
-          <div className="flex items-center justify-between mb-3">
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between bg-brand-primary/5">
             <h2 className="font-semibold text-brand-primary">Charities</h2>
-            <span className="text-xs text-gray-500">
-              {loading ? "Loading…" : `${charities.length} total`}
-            </span>
+            <span className="text-xs text-gray-400">{loading ? 'Loading…' : `${charities.length} total`}</span>
           </div>
 
           {loading ? (
-            <div className="text-gray-500">Loading charities…</div>
+            <div className="px-6 py-10 text-center text-gray-400">Loading charities…</div>
           ) : charities.length === 0 ? (
-            <div className="text-gray-500">No charities found.</div>
+            <div className="px-6 py-10 text-center text-gray-400">No charities found.</div>
           ) : (
-            <ul className="divide-y">
-              {charities.map((c) => (
-                <li key={c.id} className="py-3">
-                  <div className="flex items-center justify-between gap-3">
+            <ul className="divide-y divide-gray-50">
+              {charities.map(c => (
+                <li key={c.id}>
+                  <div className="px-6 py-4 flex items-center justify-between hover:bg-brand-surface/40 transition-colors">
                     <div>
-                      <div className="font-medium text-brand-primary">{c.name}</div>
-                      <div className="text-sm text-gray-600">{c.contact_email}</div>
+                      <div className="font-semibold text-brand-primary">{c.name}</div>
+                      <div className="text-sm text-gray-500 mt-0.5">{c.contact_email}</div>
                     </div>
-
-                    <Link
-                      to={`/admin/charities/${c.id}`}
-                      className="px-3 py-2 text-sm rounded border border-brand-primary/20 text-brand-primary hover:bg-brand-primary/10"
-                    >
+                    <Link to={`/admin/charities/${c.id}`}
+                      className="px-4 py-1.5 text-sm font-medium rounded-lg border border-brand-primary/20 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors">
                       View
                     </Link>
                   </div>
