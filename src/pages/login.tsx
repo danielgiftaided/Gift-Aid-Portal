@@ -65,7 +65,7 @@ export default function Login() {
     <div className="min-h-screen flex items-center justify-center bg-brand-surface px-4">
       <div className="max-w-md w-full bg-white/80 rounded-lg shadow p-6">
         <h1 className="text-2xl font-bold mb-2 text-center text-brand-primary">
-          Gift Aid Portal
+          Gift Aided Portal
         </h1>
         <p className="text-sm text-gray-600 text-center mb-6">Sign in to continue</p>
 
