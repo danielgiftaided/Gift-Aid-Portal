@@ -104,11 +104,17 @@ export default function Dashboard() {
         </div>
 
         {submissions.length > 0 && (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             <div className="bg-white rounded-lg shadow p-6">
-              <div className="text-sm text-gray-600">Total Claimed</div>
+              <div className="text-sm text-gray-600">Total Donations</div>
+              <div className="text-3xl font-bold text-gray-900">
+                £{submissions.reduce((sum, s) => sum + ((parseFloat(String(s.amount_claimed)) || 0) * 4), 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </div>
+            </div>
+            <div className="bg-white rounded-lg shadow p-6">
+              <div className="text-sm text-gray-600">Total Gift Aid</div>
               <div className="text-3xl font-bold text-blue-600">
-                £{submissions.reduce((sum, s) => sum + (parseFloat(String(s.amount_claimed)) || 0), 0).toLocaleString()}
+                £{submissions.reduce((sum, s) => sum + (parseFloat(String(s.amount_claimed)) || 0), 0).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </div>
             </div>
             <div className="bg-white rounded-lg shadow p-6">
