@@ -6,31 +6,13 @@ interface Submission { id: string; submission_date: string; status: string; amou
 
 function HeroShapes() {
   return (
-    <svg
-      aria-hidden="true"
-      className="absolute top-0 right-0 h-full pointer-events-none select-none"
-      style={{ width: '320px' }}
-      viewBox="0 0 320 260"
-      fill="none"
-      xmlns="http://www.w3.org/2000/svg"
-      preserveAspectRatio="xMaxYMid slice"
-    >
-      {/* Large grey circle — upper, behind the coloured shapes */}
-      <circle cx="100" cy="88" r="78" fill="#D1D5DB" fillOpacity="0.55" />
-
-      {/* Small grey circle — lower, behind the coloured shapes */}
-      <circle cx="108" cy="200" r="54" fill="#D1D5DB" fillOpacity="0.50" />
-
-      {/* Navy shape — rectangle with rounded top-left corner only */}
-      {/* M (x+r) 0  →  L right 0  →  L right bottom  →  L left bottom  →  L left r  →  Q left 0 (x+r) 0 */}
-      <path
-        d="M 218 0 L 320 0 L 320 152 L 148 152 L 148 72 Q 148 0 218 0 Z"
-        fill="#304674"
-      />
-
-      {/* Teal rectangle — below the navy with a small gap, straight corners */}
-      <rect x="166" y="162" width="154" height="98" fill="#0C735C" />
-    </svg>
+    <div className="absolute right-0 top-0 h-full overflow-visible" style={{ width: '420px' }}>
+      {/* Exact CSS from giftaided.com */}
+      <div style={{ position: 'absolute', left: '242px', top: '30px',  width: '136px', height: '142px', background: '#304675', borderTopRightRadius: '100%' }} />
+      <div style={{ position: 'absolute', left: '242px', top: '187px', width: '136px', height: '266px', background: '#0c745d' }} />
+      <div style={{ position: 'absolute', left: '134px', top: '76px',  width: '97px',  height: '96px',  background: '#e8e4db', borderRadius: '50%' }} />
+      <div style={{ position: 'absolute', left: '242px', top: '468px', width: '97px',  height: '97px',  background: '#e8e4db', borderRadius: '50%' }} />
+    </div>
   )
 }
 
@@ -97,10 +79,10 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* Hero section — cream background with geometric shapes on the right */}
-      <div className="relative overflow-hidden bg-brand-surface" style={{ minHeight: '260px' }}>
+      {/* Hero section — cream background with exact shapes from giftaided.com on the right */}
+      <div className="relative overflow-hidden bg-brand-surface" style={{ minHeight: '480px' }}>
         <HeroShapes />
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center" style={{ minHeight: '260px' }}>
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center" style={{ minHeight: '480px' }}>
           <div className="max-w-lg">
             <p className="text-brand-accent text-xs font-bold uppercase tracking-widest mb-3">Gift Aid Management</p>
             <h1 className="text-4xl font-bold text-brand-primary leading-snug">
