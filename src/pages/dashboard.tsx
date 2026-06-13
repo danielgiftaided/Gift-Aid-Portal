@@ -7,28 +7,29 @@ interface Submission { id: string; submission_date: string; status: string; amou
 function HeroShapes() {
   return (
     <svg
-      className="absolute top-0 right-0 h-full"
-      style={{ width: '340px' }}
-      viewBox="0 0 340 220"
+      aria-hidden="true"
+      className="absolute top-0 right-0 h-full pointer-events-none select-none"
+      style={{ width: '320px' }}
+      viewBox="0 0 320 260"
       fill="none"
       xmlns="http://www.w3.org/2000/svg"
-      aria-hidden="true"
       preserveAspectRatio="xMaxYMid slice"
     >
-      {/* Large grey circle — behind everything */}
-      <circle cx="180" cy="60" r="110" fill="#D1D5DB" fillOpacity="0.35" />
+      {/* Large grey circle — upper, behind the coloured shapes */}
+      <circle cx="100" cy="88" r="78" fill="#D1D5DB" fillOpacity="0.55" />
 
-      {/* Navy rectangle — top right */}
-      <rect x="180" y="0" width="160" height="145" fill="#304674" />
+      {/* Small grey circle — lower, behind the coloured shapes */}
+      <circle cx="108" cy="200" r="54" fill="#D1D5DB" fillOpacity="0.50" />
 
-      {/* Teal rectangle — overlapping, bottom right */}
-      <rect x="220" y="130" width="120" height="90" fill="#0C735C" />
+      {/* Navy shape — rectangle with rounded top-left corner only */}
+      {/* M (x+r) 0  →  L right 0  →  L right bottom  →  L left bottom  →  L left r  →  Q left 0 (x+r) 0 */}
+      <path
+        d="M 218 0 L 320 0 L 320 152 L 148 152 L 148 72 Q 148 0 218 0 Z"
+        fill="#304674"
+      />
 
-      {/* Small grey circle — bottom left of shapes */}
-      <circle cx="185" cy="185" r="42" fill="#D1D5DB" fillOpacity="0.4" />
-
-      {/* Tiny accent circle */}
-      <circle cx="230" cy="125" r="18" fill="#FCF8EF" fillOpacity="0.2" />
+      {/* Teal rectangle — below the navy with a small gap, straight corners */}
+      <rect x="166" y="162" width="154" height="98" fill="#0C735C" />
     </svg>
   )
 }
@@ -79,7 +80,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-brand-surface">
 
-      {/* Nav — white with teal brand name */}
+      {/* Nav — white bar, teal brand name */}
       <nav className="bg-white border-b border-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <span className="text-lg font-bold text-brand-accent tracking-tight">Gift Aided Portal</span>
@@ -96,22 +97,24 @@ export default function Dashboard() {
         </div>
       </nav>
 
-      {/* Hero header — cream background with geometric shapes on the right */}
-      <div className="relative overflow-hidden bg-brand-surface" style={{ minHeight: '220px' }}>
+      {/* Hero section — cream background with geometric shapes on the right */}
+      <div className="relative overflow-hidden bg-brand-surface" style={{ minHeight: '260px' }}>
         <HeroShapes />
-        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-14">
-          <p className="text-brand-accent text-sm font-semibold uppercase tracking-widest mb-2">Gift Aid Management</p>
-          <h1 className="text-4xl font-bold text-brand-primary leading-tight">
-            Welcome,<br />
-            <span className="text-brand-accent">{charityName || '…'}</span>
-          </h1>
-          <p className="text-gray-400 text-sm mt-3 max-w-md">
-            View your Gift Aid submission history and track your claims in one place.
-          </p>
+        <div className="relative z-10 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex items-center" style={{ minHeight: '260px' }}>
+          <div className="max-w-lg">
+            <p className="text-brand-accent text-xs font-bold uppercase tracking-widest mb-3">Gift Aid Management</p>
+            <h1 className="text-4xl font-bold text-brand-primary leading-snug">
+              Welcome,{' '}
+              <span className="text-brand-accent">{charityName || '…'}</span>
+            </h1>
+            <p className="text-gray-400 text-sm mt-3 leading-relaxed">
+              View your Gift Aid submission history and track your claims.
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Content — cream background */}
+      {/* Content */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
         {/* Stat cards */}
@@ -171,7 +174,6 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
-
       </div>
     </div>
   )
