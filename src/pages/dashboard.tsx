@@ -111,7 +111,7 @@ export default function Dashboard() {
                 { label: 'Total Submissions', value: String(submissions.length), color: 'text-brand-primary' },
                 { label: 'Approved', value: String(submissions.filter(s => s.status === 'approved').length), color: 'text-green-600' },
               ].map(c => (
-                <div key={c.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+                <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
                   <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
                   <div className={`text-2xl font-bold ${c.color}`}>{c.value}</div>
                 </div>
