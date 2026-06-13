@@ -73,7 +73,7 @@ export default function Dashboard() {
         <nav className="bg-white border-b border-gray-100">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
             <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, color: '#0c745d', fontSize: '1.6rem', lineHeight: 1 }}>
-              gift aided.
+              gift aided <span style={{ fontWeight: 400 }}>Portal</span>
             </span>
             <div className="flex items-center gap-5">
               <button onClick={() => navigate('/profile')}
