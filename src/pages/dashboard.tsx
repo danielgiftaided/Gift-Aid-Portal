@@ -63,7 +63,7 @@ export default function Dashboard() {
         {/* Grey top — circle with tip at bottom-right */}
         <div style={{ position: 'absolute', left: '134px', top: '76px', width: '97px', height: '96px', background: '#e8e4db', borderRadius: '50% 50% 0 50%' }} />
         {/* Grey bottom — circle with tip at bottom-right */}
-        <div style={{ position: 'absolute', left: '242px', top: '468px', width: '97px', height: '97px', background: '#e8e4db', borderRadius: '50% 50% 0 50%' }} />
+        <div style={{ position: 'absolute', left: '242px', top: '468px', width: '97px', height: '97px', background: '#e8e4db', borderRadius: '0 50% 50% 50%' }} />
       </div>
 
       {/* ── All content — z-index 10, above shapes ── */}
