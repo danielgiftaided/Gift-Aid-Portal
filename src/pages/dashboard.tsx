@@ -72,7 +72,9 @@ export default function Dashboard() {
         {/* Nav */}
         <nav className="bg-white border-b border-gray-100">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
-            <span className="text-lg font-bold text-brand-accent tracking-tight">Gift Aided Portal</span>
+            <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, color: '#0c745d', fontSize: '1.6rem', lineHeight: 1 }}>
+              gift aided.
+            </span>
             <div className="flex items-center gap-5">
               <button onClick={() => navigate('/profile')}
                 className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">
@@ -86,11 +88,8 @@ export default function Dashboard() {
           </div>
         </nav>
 
-        {/* Hero text — sits over the shapes on the cream background */}
+        {/* Hero text */}
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-14 pb-10">
-          <p className="text-brand-accent text-xs font-bold uppercase tracking-widest mb-3">
-            Gift Aid Management
-          </p>
           <h1 className="text-4xl font-bold text-brand-primary leading-snug">
             Welcome,{' '}
             <span className="text-brand-accent">{charityName || '…'}</span>
