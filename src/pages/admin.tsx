@@ -78,14 +78,9 @@ export default function Admin() {
           </div>
         </nav>
 
-        <div className="max-w-4xl mx-auto px-6 pt-12 pb-4 flex items-start justify-between">
-          <div>
-            <h1 className="text-3xl font-bold text-brand-primary">Admin Dashboard</h1>
-            <p className="text-gray-400 text-sm mt-1">Manage charities and Gift Aid submissions</p>
-          </div>
-          <Link to="/admin/claims" className="px-4 py-2 text-sm font-semibold rounded-lg bg-brand-accent text-white hover:opacity-90 transition-opacity">
-            Manage Claims
-          </Link>
+        <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
+          <h1 className="text-3xl font-bold text-brand-primary">Admin Dashboard</h1>
+          <p className="text-gray-400 text-sm mt-1">Manage charities and Gift Aid submissions</p>
         </div>
 
         <div className="max-w-4xl mx-auto px-6 pb-12">
