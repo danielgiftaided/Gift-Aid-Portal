@@ -27,6 +27,10 @@ export default function Admin() {
   const [charities, setCharities] = useState<Charity[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviting, setInviting] = useState(false);
+  const [inviteSuccess, setInviteSuccess] = useState(false);
+  const [inviteError, setInviteError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -42,6 +46,26 @@ export default function Admin() {
       } catch (e: any) { setError(e?.message); } finally { setLoading(false); }
     })();
   }, []);
+
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setInviting(true); setInviteError(null); setInviteSuccess(false);
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) throw new Error('Not logged in');
+      const res = await fetch('/api/admin/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ email: inviteEmail }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) throw new Error(json?.error || 'Failed to send invite');
+      setInviteSuccess(true);
+      setInviteEmail('');
+      setTimeout(() => setInviteSuccess(false), 5000);
+    } catch (e: any) { setInviteError(e.message); } finally { setInviting(false); }
+  };
 
   return (
     <div className="min-h-screen bg-brand-surface relative overflow-hidden">
@@ -66,6 +90,27 @@ export default function Admin() {
 
         <div className="max-w-4xl mx-auto px-6 pb-12">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
+
+          {/* Invite a new charity user */}
+          <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6 mb-6">
+            <h2 className="font-semibold text-brand-primary mb-1">Invite a Charity User</h2>
+            <p className="text-xs text-gray-400 mb-4">They'll receive an email with a link to set their password and create their charity profile.</p>
+            <form onSubmit={handleInvite} className="flex gap-3 items-start">
+              <input
+                type="email" required placeholder="charity@example.com"
+                value={inviteEmail} onChange={e => setInviteEmail(e.target.value)}
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent"
+              />
+              <button
+                type="submit" disabled={inviting || !inviteEmail}
+                className="bg-brand-accent text-white rounded-lg px-5 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+              >
+                {inviting ? 'Sending…' : 'Send Invite'}
+              </button>
+            </form>
+            {inviteSuccess && <p className="text-sm text-green-600 mt-3">✓ Invite sent successfully</p>}
+            {inviteError && <p className="text-sm text-red-500 mt-3">{inviteError}</p>}
+          </div>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
               <h2 className="font-semibold text-brand-primary">Charities</h2>
