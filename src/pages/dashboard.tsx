@@ -76,6 +76,10 @@ export default function Dashboard() {
               gift aided <span style={{ fontWeight: 400 }}>Portal</span>
             </span>
             <div className="flex items-center gap-5">
+              <button onClick={() => navigate('/insights')}
+                className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">
+                Insights
+              </button>
               <button onClick={() => navigate('/profile')}
                 className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">
                 My Profile
