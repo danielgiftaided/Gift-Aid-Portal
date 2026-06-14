@@ -6,6 +6,7 @@ import ResetPassword from './pages/resetPassword'
 import Dashboard from './pages/dashboard'
 import Submissions from './pages/submissions'
 import SubmissionDetail from './pages/submissionDetail'
+import Insights from './pages/insights'
 import Admin from './pages/admin'
 import CharitySetup from './pages/charitySetup'
 import AdminCharityDetail from './pages/adminCharityDetail'
@@ -21,6 +22,7 @@ function App() {
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/submissions" element={<Submissions />} />
       <Route path="/submissions/:id" element={<SubmissionDetail />} />
+      <Route path="/insights" element={<Insights />} />
       <Route path="/profile" element={<CharityProfile />} />
       <Route path="/admin" element={<Admin />} />
       <Route path="/admin/charities/:id" element={<AdminCharityDetail />} />
