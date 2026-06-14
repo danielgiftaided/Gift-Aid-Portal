@@ -1,19 +1,12 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  LineChart, Line, ResponsiveContainer, Legend
-} from 'recharts'
 
 interface Submission {
   id: string; submission_date: string; status: string
   amount_claimed: number; number_of_donations: number; tax_year: string
 }
-
-interface Donation {
-  amount: number; submission_id: string
-}
+interface Donation { amount: number; submission_id: string }
 
 function Logo() {
   return (
@@ -34,23 +27,33 @@ function PageShapes() {
   )
 }
 
-const TEAL = '#0c745d'
-const NAVY = '#304675'
-const CREAM = '#e8e4db'
-
-function formatGBP(val: number) {
+function fmt(val: number) {
   return `£${val.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-function CustomTooltipGBP({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
+// Simple CSS bar chart — no external library needed
+function CSSBarChart({ data, valueKey, labelKey, color }: {
+  data: Record<string, any>[]
+  valueKey: string
+  labelKey: string
+  color: string
+}) {
+  const max = Math.max(...data.map(d => d[valueKey]), 1)
   return (
-    <div className="bg-white border border-gray-100 shadow-lg rounded-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-brand-primary mb-1">{label}</p>
-      {payload.map((p: any) => (
-        <p key={p.name} style={{ color: p.color }}>
-          {p.name}: {formatGBP(p.value)}
-        </p>
+    <div className="space-y-3">
+      {data.map((d, i) => (
+        <div key={i}>
+          <div className="flex justify-between text-xs text-gray-500 mb-1">
+            <span className="font-medium">{d[labelKey]}</span>
+            <span className="font-bold" style={{ color }}>{fmt(d[valueKey])}</span>
+          </div>
+          <div className="w-full bg-gray-100 rounded-full h-6 overflow-hidden">
+            <div
+              className="h-6 rounded-full transition-all duration-500"
+              style={{ width: `${Math.max((d[valueKey] / max) * 100, 2)}%`, background: color }}
+            />
+          </div>
+        </div>
       ))}
     </div>
   )
@@ -61,6 +64,7 @@ export default function Insights() {
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [donations, setDonations] = useState<Donation[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => { loadData() }, [])
 
@@ -68,19 +72,24 @@ export default function Insights() {
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { navigate('/login'); return }
-      const meResp = await fetch('/api/user/me', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' })
+
+      const meResp = await fetch('/api/user/me', {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        cache: 'no-store',
+      })
       const meJson = await meResp.json()
       if (!meResp.ok || !meJson.ok) { navigate('/login'); return }
+
       if (meJson.charityId) {
-        const { data } = await supabase
+        const { data: subData, error: subErr } = await supabase
           .from('submissions')
           .select('id, submission_date, status, amount_claimed, number_of_donations, tax_year')
           .eq('charity_id', meJson.charityId)
           .order('submission_date', { ascending: true })
-        const subs = data || []
+        if (subErr) throw new Error(subErr.message)
+        const subs = subData || []
         setSubmissions(subs)
 
-        // Fetch individual donation rows to calculate per-donor averages
         if (subs.length > 0) {
           const { data: donData } = await supabase
             .from('donations')
@@ -89,27 +98,35 @@ export default function Insights() {
           setDonations(donData || [])
         }
       }
-    } catch (e) { console.error(e) } finally { setLoading(false) }
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  // ── Chart 1: Gift Aid claimed by tax year ──
+  // ── Chart 1: Gift Aid by tax year ──
   const byTaxYear = Object.values(
     submissions.reduce((acc, s) => {
-      const key = s.tax_year
-      if (!acc[key]) acc[key] = { taxYear: key, giftAid: 0, donations: 0 }
-      acc[key].giftAid += parseFloat(String(s.amount_claimed || 0))
-      acc[key].donations += s.number_of_donations
+      const k = s.tax_year || 'Unknown'
+      if (!acc[k]) acc[k] = { taxYear: k, giftAid: 0 }
+      acc[k].giftAid += parseFloat(String(s.amount_claimed || 0))
       return acc
-    }, {} as Record<string, { taxYear: string; giftAid: number; donations: number }>)
+    }, {} as Record<string, { taxYear: string; giftAid: number }>)
   ).sort((a, b) => a.taxYear.localeCompare(b.taxYear))
 
-  // ── Chart 6: Average Gift Aid per submission over time ──
-  const avgData = submissions.map((s, i) => {
-    const runningTotal = submissions.slice(0, i + 1).reduce((sum, x) => sum + parseFloat(String(x.amount_claimed || 0)), 0)
+  // ── Chart 6: Avg Gift Aid per submission ──
+  const overallAvg = submissions.length
+    ? submissions.reduce((s, r) => s + parseFloat(String(r.amount_claimed || 0)), 0) / submissions.length
+    : 0
+
+  const avgPerSubmission = submissions.map((s, i) => {
+    const runningTotal = submissions.slice(0, i + 1)
+      .reduce((sum, x) => sum + parseFloat(String(x.amount_claimed || 0)), 0)
     return {
-      date: new Date(s.submission_date).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }),
-      thisSubmission: parseFloat(String(s.amount_claimed || 0)),
-      runningAverage: Math.round((runningTotal / (i + 1)) * 100) / 100,
+      label: new Date(s.submission_date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' }),
+      claimed: parseFloat(String(s.amount_claimed || 0)),
+      runningAvg: runningTotal / (i + 1),
     }
   })
 
@@ -118,34 +135,27 @@ export default function Insights() {
   const totalDonorCount = donations.length
   const avgGiftAidPerDonor = totalDonorCount > 0 ? (totalDonationAmount * 0.25) / totalDonorCount : 0
 
-  // Average Gift Aid per donor by tax year (using submission tax_year + donation amounts)
   const avgPerDonorByYear = byTaxYear.map(ty => {
     const subIds = submissions.filter(s => s.tax_year === ty.taxYear).map(s => s.id)
-    const yearDonations = donations.filter(d => subIds.includes(d.submission_id))
-    const yearTotal = yearDonations.reduce((s, d) => s + parseFloat(String(d.amount || 0)), 0)
-    const yearCount = yearDonations.length
+    const yearDons = donations.filter(d => subIds.includes(d.submission_id))
+    const yearTotal = yearDons.reduce((s, d) => s + parseFloat(String(d.amount || 0)), 0)
     return {
       taxYear: ty.taxYear,
-      avgGiftAid: yearCount > 0 ? Math.round((yearTotal * 0.25 / yearCount) * 100) / 100 : 0,
-      donorCount: yearCount,
+      avgGiftAid: yearDons.length > 0 ? yearTotal * 0.25 / yearDons.length : 0,
     }
-  })
-    ? submissions.reduce((s, r) => s + parseFloat(String(r.amount_claimed || 0)), 0) / submissions.length
-    : 0
+  }).filter(d => d.avgGiftAid > 0)
 
-  const statusColor = (s: string) => {
-    if (s === 'approved') return 'text-green-600'
-    if (s === 'rejected') return 'text-red-500'
-    if (s === 'submitted') return 'text-blue-500'
-    return 'text-yellow-500'
-  }
-
-  if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
+  if (loading) return (
+    <div className="min-h-screen bg-brand-surface flex items-center justify-center">
+      <p className="text-brand-accent font-medium">Loading…</p>
+    </div>
+  )
 
   return (
     <div className="min-h-screen bg-brand-surface relative overflow-hidden">
       <PageShapes />
       <div className="relative" style={{ zIndex: 10 }}>
+
         <nav className="bg-white border-b border-gray-100">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
             <Logo />
@@ -164,6 +174,8 @@ export default function Insights() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
           <button onClick={() => navigate('/dashboard')} className="text-sm font-medium text-brand-accent hover:underline mb-6 inline-block">← Back to dashboard</button>
 
+          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">{error}</div>}
+
           {submissions.length === 0 ? (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center">
               <p className="text-gray-300 text-lg">No submission data yet</p>
@@ -172,102 +184,66 @@ export default function Insights() {
           ) : (
             <div className="space-y-6">
 
-              {/* ── Chart 1: Gift Aid by Tax Year ── */}
-              <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
-                <h2 className="font-semibold text-brand-primary mb-1">Gift Aid Claimed by Tax Year</h2>
-                <p className="text-xs text-gray-400 mb-6">Total Gift Aid reclaimed from HMRC for each UK tax year</p>
-                <ResponsiveContainer width="100%" height={280}>
-                  <BarChart data={byTaxYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                    <YAxis tickFormatter={v => `£${(v/1000).toFixed(0)}k`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                    <Tooltip content={<CustomTooltipGBP />} />
-                    <Bar dataKey="giftAid" name="Gift Aid" fill={TEAL} radius={[4, 4, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-                {byTaxYear.length > 1 && (
-                  <div className="mt-4 flex gap-6 pt-4 border-t border-gray-50">
-                    {byTaxYear.map(d => (
-                      <div key={d.taxYear}>
-                        <p className="text-xs text-gray-400">{d.taxYear}</p>
-                        <p className="text-sm font-bold text-brand-accent">{formatGBP(d.giftAid)}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* ── Chart 6: Average Gift Aid per Submission ── */}
-              <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
-                <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                  <div>
-                    <h2 className="font-semibold text-brand-primary mb-1">Average Gift Aid per Submission</h2>
-                    <p className="text-xs text-gray-400">Each bar shows a submission's value; the line tracks the running average</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-gray-400">Overall average</p>
-                    <p className="text-2xl font-bold text-brand-accent">{formatGBP(overallAvg)}</p>
-                  </div>
-                </div>
-                <ResponsiveContainer width="100%" height={280}>
-                  <LineChart data={avgData} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                    <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                    <YAxis tickFormatter={v => `£${(v/1000).toFixed(1)}k`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                    <Tooltip content={<CustomTooltipGBP />} />
-                    <Legend wrapperStyle={{ fontSize: 12 }} />
-                    <Bar dataKey="thisSubmission" name="This submission" fill={CREAM} stroke={NAVY} strokeWidth={1} radius={[3, 3, 0, 0]} />
-                    <Line dataKey="runningAverage" name="Running average" type="monotone" stroke={TEAL} strokeWidth={2.5} dot={{ fill: TEAL, r: 4 }} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-
-              {/* ── Average Gift Aid per Donor ── */}
-              {donations.length > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
-                  <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                    <div>
-                      <h2 className="font-semibold text-brand-primary mb-1">Average Gift Aid per Donor</h2>
-                      <p className="text-xs text-gray-400">Average Gift Aid reclaimed per individual donor, broken down by tax year</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-400">Overall average</p>
-                      <p className="text-2xl font-bold text-brand-accent">{formatGBP(avgGiftAidPerDonor)}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">across {totalDonorCount} donor{totalDonorCount !== 1 ? 's' : ''}</p>
-                    </div>
-                  </div>
-                  {avgPerDonorByYear.length > 0 && avgPerDonorByYear.some(d => d.donorCount > 0) ? (
-                    <ResponsiveContainer width="100%" height={240}>
-                      <BarChart data={avgPerDonorByYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                        <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
-                        <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                        <YAxis tickFormatter={v => `£${v.toFixed(0)}`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                        <Tooltip content={
-                          <CustomTooltipGBP />
-                        } />
-                        <Bar dataKey="avgGiftAid" name="Avg Gift Aid per donor" fill={NAVY} radius={[4, 4, 0, 0]} />
-                      </BarChart>
-                    </ResponsiveContainer>
-                  ) : (
-                    <p className="text-sm text-gray-300 text-center py-8">Upload donation spreadsheets to see per-donor breakdown</p>
-                  )}
-                </div>
-              )}
-
               {/* Summary strip */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
                   { label: 'Tax years on record', value: String(byTaxYear.length) },
-                  { label: 'Total submissions', value: String(submissions.length) },
-                  { label: 'Avg Gift Aid per donor', value: totalDonorCount > 0 ? formatGBP(avgGiftAidPerDonor) : '—' },
-                  { label: 'Best tax year', value: byTaxYear.length ? byTaxYear.reduce((a, b) => b.giftAid > a.giftAid ? b : a).taxYear : '—' },
+                  { label: 'Total submissions',   value: String(submissions.length) },
+                  { label: 'Avg Gift Aid / submission', value: fmt(overallAvg) },
+                  { label: 'Avg Gift Aid / donor', value: totalDonorCount > 0 ? fmt(avgGiftAidPerDonor) : '—' },
                 ].map(c => (
-                  <div key={c.label} className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">{c.label}</div>
-                    <div className="text-xl font-bold text-brand-primary">{c.value}</div>
+                  <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
+                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
+                    <div className="text-2xl font-bold text-brand-primary">{c.value}</div>
                   </div>
                 ))}
               </div>
+
+              {/* Chart 1 — Gift Aid by tax year */}
+              <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                <h2 className="font-semibold text-brand-primary mb-1">Gift Aid Claimed by Tax Year</h2>
+                <p className="text-xs text-gray-400 mb-6">Total Gift Aid reclaimed from HMRC for each UK tax year</p>
+                <CSSBarChart data={byTaxYear} valueKey="giftAid" labelKey="taxYear" color="#0c745d" />
+              </div>
+
+              {/* Chart 6 — Avg Gift Aid per submission */}
+              <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+                  <div>
+                    <h2 className="font-semibold text-brand-primary mb-1">Gift Aid per Submission</h2>
+                    <p className="text-xs text-gray-400">Individual submission values and running average</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-400">Overall average</p>
+                    <p className="text-2xl font-bold text-brand-accent">{fmt(overallAvg)}</p>
+                  </div>
+                </div>
+                <CSSBarChart data={avgPerSubmission} valueKey="claimed" labelKey="label" color="#304675" />
+                {avgPerSubmission.length > 1 && (
+                  <div className="mt-6 pt-4 border-t border-gray-50">
+                    <p className="text-xs text-gray-400 mb-3">Running average</p>
+                    <CSSBarChart data={avgPerSubmission} valueKey="runningAvg" labelKey="label" color="#0c745d" />
+                  </div>
+                )}
+              </div>
+
+              {/* Average Gift Aid per donor */}
+              {avgPerDonorByYear.length > 0 && (
+                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+                    <div>
+                      <h2 className="font-semibold text-brand-primary mb-1">Average Gift Aid per Donor</h2>
+                      <p className="text-xs text-gray-400">Average Gift Aid per individual donor, by tax year</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-gray-400">Overall average</p>
+                      <p className="text-2xl font-bold text-brand-accent">{fmt(avgGiftAidPerDonor)}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{totalDonorCount} donor{totalDonorCount !== 1 ? 's' : ''}</p>
+                    </div>
+                  </div>
+                  <CSSBarChart data={avgPerDonorByYear} valueKey="avgGiftAid" labelKey="taxYear" color="#304675" />
+                </div>
+              )}
 
             </div>
           )}
