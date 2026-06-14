@@ -12,6 +12,8 @@ import CharitySetup from './pages/charitySetup'
 import AdminCharityDetail from './pages/adminCharityDetail'
 import CharityProfile from './pages/charityProfile'
 
+import AcceptInvite from './pages/acceptInvite'
+
 function App() {
   return (
     <Routes>
@@ -19,6 +21,7 @@ function App() {
       <Route path="/signup" element={<Signup />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/accept-invite" element={<AcceptInvite />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/submissions" element={<Submissions />} />
       <Route path="/submissions/:id" element={<SubmissionDetail />} />
