@@ -5,8 +5,20 @@ import * as XLSX from "xlsx";
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null }
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string }
-interface DonorRow { rowNum: number; title: string; firstName: string; lastName: string; address: string; postcode: string; donationDate: string; amount: number }
-interface ParseError { row: number; message: string }
+
+interface ParsedRow {
+  rowNum: number
+  title: string
+  firstName: string
+  lastName: string
+  address: string
+  postcode: string
+  donationDate: string
+  amount: number | null
+  giftAidOptIn: string          // raw value from column
+  status: 'valid' | 'incomplete' | 'opt_out'
+  missingFields: string[]
+}
 
 function Logo() {
   return (
@@ -27,75 +39,103 @@ function PageShapes() {
   )
 }
 
+// ── Helpers ──────────────────────────────────────────────
 function getTaxYearForDate(date: Date): string {
-  const year = date.getFullYear(); const month = date.getMonth() + 1; const day = date.getDate()
-  if (month > 4 || (month === 4 && day >= 6)) return `${year}/${String(year + 1).slice(2)}`
-  return `${year - 1}/${String(year).slice(2)}`
+  const y = date.getFullYear(), m = date.getMonth() + 1, d = date.getDate()
+  return (m > 4 || (m === 4 && d >= 6)) ? `${y}/${String(y + 1).slice(2)}` : `${y - 1}/${String(y).slice(2)}`
 }
+
 function parseDonationDate(str: string): Date | null {
+  if (!str) return null
   const dmy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
   if (dmy) return new Date(parseInt(dmy[3]), parseInt(dmy[2]) - 1, parseInt(dmy[1]))
   const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})$/)
   if (ymd) return new Date(parseInt(ymd[1]), parseInt(ymd[2]) - 1, parseInt(ymd[3]))
-  const d = new Date(str); return isNaN(d.getTime()) ? null : d
+  const d = new Date(str)
+  return isNaN(d.getTime()) ? null : d
 }
-function getTaxYearFromDonations(rows: DonorRow[]): string {
+
+function getTaxYearFromRows(rows: ParsedRow[]): string {
   const counts: Record<string, number> = {}
-  for (const row of rows) { const date = parseDonationDate(row.donationDate); if (date) { const ty = getTaxYearForDate(date); counts[ty] = (counts[ty] || 0) + 1 } }
-  let best = ""; let max = 0
-  for (const [ty, count] of Object.entries(counts)) { if (count > max) { max = count; best = ty } }
-  if (!best) { const now = new Date(); best = getTaxYearForDate(now) }
-  return best
+  for (const r of rows) {
+    const d = parseDonationDate(r.donationDate)
+    if (d) { const ty = getTaxYearForDate(d); counts[ty] = (counts[ty] || 0) + 1 }
+  }
+  if (!Object.keys(counts).length) return getTaxYearForDate(new Date())
+  return Object.entries(counts).reduce((a, b) => b[1] > a[1] ? b : a)[0]
 }
-function isAlphanumeric(str: string): boolean {
-  for (let i = 0; i < str.length; i++) { const c = str.charCodeAt(i); if (!((c>=65&&c<=90)||(c>=97&&c<=122)||(c>=48&&c<=57))) return false }
-  return true
+
+function categoriseRow(row: Omit<ParsedRow, 'status' | 'missingFields'>): Pick<ParsedRow, 'status' | 'missingFields'> {
+  const opt = row.giftAidOptIn.trim().toUpperCase()
+
+  if (opt === 'N') return { status: 'opt_out', missingFields: [] }
+
+  // Check mandatory fields
+  const missing: string[] = []
+  if (!row.firstName) missing.push('First Name')
+  if (!row.lastName)  missing.push('Last Name')
+  if (!row.address)   missing.push('Address')
+  if (!row.postcode)  missing.push('Postcode')
+  if (!row.donationDate) missing.push('Donation Date')
+  if (!row.amount || row.amount <= 0) missing.push('Amount')
+
+  if (missing.length > 0) return { status: 'incomplete', missingFields: missing }
+  return { status: 'valid', missingFields: [] }
 }
-function parseExcel(file: File): Promise<{ rows: DonorRow[]; errors: ParseError[] }> {
-  return new Promise((resolve) => {
+
+function parseExcel(file: File): Promise<ParsedRow[]> {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader()
     reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target!.result as ArrayBuffer)
-        const workbook = XLSX.read(data, { type: "array", cellDates: true })
-        const sheet = workbook.Sheets[workbook.SheetNames[0]]
-        const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: "dd/mm/yyyy" })
-        if (rawRows.length < 2) { resolve({ rows: [], errors: [{ row: 0, message: "The spreadsheet is empty or has no data rows." }] }); return }
-        const headers = (rawRows[0] as any[]).map((h) => String(h || "").toLowerCase().trim())
-        const col: Record<string, number> = {}
+        const wb = XLSX.read(data, { type: 'array', cellDates: true })
+        const sheet = wb.Sheets[wb.SheetNames[0]]
+        const rawRows: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, dateNF: 'dd/mm/yyyy' })
+
+        if (rawRows.length < 2) { resolve([]); return }
+
+        const headers = (rawRows[0] as any[]).map(h => String(h || '').toLowerCase().trim())
+        const col: Record<string, number | undefined> = {}
+
         headers.forEach((h, i) => {
-          if (h === "title") col.title = i
-          if (["first name","firstname","first_name"].includes(h)) col.firstName = i
-          if (["last name","lastname","last_name","surname"].includes(h)) col.lastName = i
-          if (h === "address") col.address = i
-          if (["postcode","post code","post_code"].includes(h)) col.postcode = i
-          if (["donation date","donationdate","donation_date","date"].includes(h)) col.donationDate = i
-          if (["amount","donation amount","donation_amount"].includes(h)) col.amount = i
+          if (h === 'title') col.title = i
+          if (['first name','firstname','first_name'].includes(h)) col.firstName = i
+          if (['last name','lastname','last_name','surname'].includes(h)) col.lastName = i
+          if (h === 'address') col.address = i
+          if (['postcode','post code','post_code'].includes(h)) col.postcode = i
+          if (['donation date','donationdate','donation_date','date'].includes(h)) col.donationDate = i
+          if (['amount','donation amount','donation_amount'].includes(h)) col.amount = i
+          if (['gift aid opt in','gift_aid_opt_in','giftaidoptin','opt in','opt_in'].includes(h)) col.giftAidOptIn = i
         })
-        const missing: string[] = []
-        if (col.firstName===undefined) missing.push("First Name"); if (col.lastName===undefined) missing.push("Last Name")
-        if (col.address===undefined) missing.push("Address"); if (col.postcode===undefined) missing.push("Postcode")
-        if (col.donationDate===undefined) missing.push("Donation Date"); if (col.amount===undefined) missing.push("Amount")
-        if (missing.length > 0) { resolve({ rows: [], errors: [{ row: 0, message: `Missing required columns: ${missing.join(", ")}` }] }); return }
-        const rows: DonorRow[] = []; const errors: ParseError[] = []
+
+        const rows: ParsedRow[] = []
         for (let i = 1; i < rawRows.length; i++) {
-          const row = rawRows[i] as any[]; const rowNum = i + 1
-          if (!row || row.every((c) => !c && c !== 0)) continue
-          const get = (c?: number) => (c !== undefined ? String(row[c] || "").trim() : "")
-          const firstName = get(col.firstName); const lastName = get(col.lastName); const address = get(col.address)
-          const postcode = get(col.postcode); const donationDate = get(col.donationDate)
-          const amountRaw = col.amount !== undefined ? row[col.amount] : ""; const amount = parseFloat(String(amountRaw).replace(/[£,\s]/g, ""))
-          if (!firstName) errors.push({ row: rowNum, message: `Row ${rowNum}: First Name is required.` })
-          if (!lastName) errors.push({ row: rowNum, message: `Row ${rowNum}: Last Name is required.` })
-          if (!address) errors.push({ row: rowNum, message: `Row ${rowNum}: Address is required.` })
-          if (!postcode) errors.push({ row: rowNum, message: `Row ${rowNum}: Postcode is required.` })
-          if (!donationDate) errors.push({ row: rowNum, message: `Row ${rowNum}: Donation Date is required.` })
-          if (!amountRaw && amountRaw !== 0) errors.push({ row: rowNum, message: `Row ${rowNum}: Amount is required.` })
-          else if (isNaN(amount) || amount <= 0) errors.push({ row: rowNum, message: `Row ${rowNum}: Amount must be a positive number.` })
-          rows.push({ rowNum, title: get(col.title), firstName, lastName, address, postcode, donationDate, amount: isNaN(amount) ? 0 : amount })
+          const row = rawRows[i] as any[]
+          if (!row || row.every(c => !c && c !== 0)) continue
+
+          const get = (k: keyof typeof col) => col[k] !== undefined ? String(row[col[k]!] ?? '').trim() : ''
+          const amtRaw = col.amount !== undefined ? row[col.amount] : ''
+          const amount = parseFloat(String(amtRaw).replace(/[£,\s]/g, ''))
+
+          const base = {
+            rowNum: i + 1,
+            title: get('title'),
+            firstName: get('firstName'),
+            lastName: get('lastName'),
+            address: get('address'),
+            postcode: get('postcode'),
+            donationDate: get('donationDate'),
+            amount: isNaN(amount) ? null : amount,
+            giftAidOptIn: get('giftAidOptIn'),
+          }
+
+          const { status, missingFields } = categoriseRow(base)
+          rows.push({ ...base, status, missingFields })
         }
-        resolve({ rows, errors })
-      } catch (err: any) { resolve({ rows: [], errors: [{ row: 0, message: `Could not read the file: ${err.message}` }] }) }
+
+        resolve(rows)
+      } catch (err: any) { reject(err) }
     }
     reader.readAsArrayBuffer(file)
   })
@@ -108,6 +148,7 @@ const statusColor = (s: string) => {
   return 'bg-yellow-100 text-yellow-700'
 }
 
+// ── Component ────────────────────────────────────────────
 export default function AdminCharityDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
@@ -115,9 +156,8 @@ export default function AdminCharityDetail() {
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
-  const [parsedRows, setParsedRows] = useState<DonorRow[]>([])
-  const [parseErrors, setParseErrors] = useState<ParseError[]>([])
-  const [fileName, setFileName] = useState("")
+  const [parsedRows, setParsedRows] = useState<ParsedRow[]>([])
+  const [fileName, setFileName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitSuccess, setSubmitSuccess] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -131,27 +171,27 @@ export default function AdminCharityDetail() {
     try {
       setPageError(null)
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { navigate("/login"); return }
-      const { data: charityData, error: charityErr } = await supabase.from("charities").select("id, name, contact_email, charity_number").eq("id", id).single()
-      if (charityErr) throw new Error(charityErr.message)
+      if (!session) { navigate('/login'); return }
+      const { data: charityData, error: cErr } = await supabase.from('charities').select('id, name, contact_email, charity_number').eq('id', id).single()
+      if (cErr) throw new Error(cErr.message)
       setCharity(charityData)
-      const { data: subsData } = await supabase.from("submissions").select("id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year").eq("charity_id", id).order("submission_date", { ascending: false })
-      setSubmissions(subsData || [])
+      const { data: subData } = await supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year').eq('charity_id', id).order('submission_date', { ascending: false })
+      setSubmissions(subData || [])
     } catch (e: any) { setPageError(e.message) } finally { setLoading(false) }
   }
 
   const handleUpdateStatus = async (submissionId: string, newStatus: string) => {
     setUpdatingId(submissionId)
-    const { error } = await supabase.from("submissions").update({ status: newStatus }).eq("id", submissionId)
+    const { error } = await supabase.from('submissions').update({ status: newStatus }).eq('id', submissionId)
     if (error) setPageError(error.message)
     else setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: newStatus } : s))
     setUpdatingId(null)
   }
 
   const handleDelete = async (submissionId: string) => {
-    if (!window.confirm("Are you sure you want to delete this submission? This cannot be undone.")) return
+    if (!window.confirm('Are you sure you want to delete this submission?')) return
     setDeletingId(submissionId)
-    const { error } = await supabase.from("submissions").delete().eq("id", submissionId)
+    const { error } = await supabase.from('submissions').delete().eq('id', submissionId)
     if (error) setPageError(error.message)
     else setSubmissions(prev => prev.filter(s => s.id !== submissionId))
     setDeletingId(null)
@@ -159,30 +199,78 @@ export default function AdminCharityDetail() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
-    setFileName(file.name); setParsedRows([]); setParseErrors([]); setSubmitSuccess(false); setSubmitError(null)
-    const result = await parseExcel(file); setParsedRows(result.rows); setParseErrors(result.errors)
+    setFileName(file.name); setParsedRows([]); setSubmitSuccess(false); setSubmitError(null)
+    try {
+      const rows = await parseExcel(file)
+      setParsedRows(rows)
+    } catch (err: any) {
+      setSubmitError(`Could not read the file: ${err.message}`)
+    }
   }
 
   const handleSubmit = async () => {
-    if (parseErrors.length > 0 || parsedRows.length === 0) return
+    if (!parsedRows.length) return
     try {
       setSubmitting(true); setSubmitError(null)
-      const totalDonations = parsedRows.reduce((s, r) => s + r.amount, 0)
-      const giftAidAmount = Math.round(totalDonations * 0.25 * 100) / 100
-      const taxYear = getTaxYearFromDonations(parsedRows)
-      const { data: newSubmission, error: insertErr } = await supabase.from("submissions").insert({
-        charity_id: id, submission_date: new Date().toISOString().split("T")[0],
-        tax_year: taxYear, amount_claimed: giftAidAmount, number_of_donations: parsedRows.length, status: "pending",
-      }).select("id").single()
-      if (insertErr || !newSubmission) throw new Error(insertErr?.message || "Insert failed")
-      const donationRows = parsedRows.map(r => ({ submission_id: newSubmission.id, charity_id: id, title: r.title || null, first_name: r.firstName, last_name: r.lastName, address: r.address, postcode: r.postcode, donation_date: r.donationDate, amount: r.amount }))
-      const { error: donationsErr } = await supabase.from("donations").insert(donationRows)
-      if (donationsErr) throw new Error(donationsErr.message)
-      setSubmitSuccess(true); setParsedRows([]); setParseErrors([]); setFileName("")
-      if (fileInputRef.current) fileInputRef.current.value = ""
+
+      const validRows    = parsedRows.filter(r => r.status === 'valid')
+      const incompleteRows = parsedRows.filter(r => r.status === 'incomplete')
+      const optOutRows   = parsedRows.filter(r => r.status === 'opt_out')
+
+      const taxYear = getTaxYearFromRows(validRows.length ? validRows : parsedRows)
+      let submissionId: string | null = null
+
+      // Create HMRC submission only if there are valid rows
+      if (validRows.length > 0) {
+        const totalDonations = validRows.reduce((s, r) => s + (r.amount ?? 0), 0)
+        const giftAid = Math.round(totalDonations * 0.25 * 100) / 100
+
+        const { data: newSub, error: subErr } = await supabase.from('submissions').insert({
+          charity_id: id, submission_date: new Date().toISOString().split('T')[0],
+          tax_year: taxYear, amount_claimed: giftAid,
+          number_of_donations: validRows.length, status: 'pending',
+        }).select('id').single()
+        if (subErr || !newSub) throw new Error(subErr?.message || 'Failed to create submission')
+        submissionId = newSub.id
+
+        // Insert into donations table
+        await supabase.from('donations').insert(
+          validRows.map(r => ({
+            submission_id: submissionId, charity_id: id,
+            title: r.title || null, first_name: r.firstName, last_name: r.lastName,
+            address: r.address, postcode: r.postcode, donation_date: r.donationDate, amount: r.amount,
+          }))
+        )
+      }
+
+      // Save ALL rows to uploaded_records for insights
+      const allRecords = parsedRows.map(r => ({
+        charity_id: id,
+        submission_id: r.status === 'valid' ? submissionId : null,
+        title: r.title || null,
+        first_name: r.firstName || null,
+        last_name: r.lastName || null,
+        address: r.address || null,
+        postcode: r.postcode || null,
+        donation_date: r.donationDate || null,
+        amount: r.amount ?? null,
+        gift_aid_opt_in: r.giftAidOptIn || null,
+        record_status: r.status,
+        tax_year: taxYear,
+      }))
+      const { error: recErr } = await supabase.from('uploaded_records').insert(allRecords)
+      if (recErr) throw new Error(recErr.message)
+
+      setSubmitSuccess(true)
+      setParsedRows([]); setFileName('')
+      if (fileInputRef.current) fileInputRef.current.value = ''
       await loadData()
     } catch (e: any) { setSubmitError(e.message) } finally { setSubmitting(false) }
   }
+
+  const validRows      = parsedRows.filter(r => r.status === 'valid')
+  const incompleteRows = parsedRows.filter(r => r.status === 'incomplete')
+  const optOutRows     = parsedRows.filter(r => r.status === 'opt_out')
 
   if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
 
@@ -200,7 +288,7 @@ export default function AdminCharityDetail() {
         </nav>
 
         <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
-          <button onClick={() => navigate("/admin")} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Admin</button>
+          <button onClick={() => navigate('/admin')} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Admin</button>
           <h1 className="text-3xl font-bold text-brand-primary">{charity?.name}</h1>
           <p className="text-gray-400 text-sm mt-1">{charity?.contact_email}{charity?.charity_number && ` · ${charity.charity_number}`}</p>
         </div>
@@ -210,12 +298,12 @@ export default function AdminCharityDetail() {
 
           {/* Summary cards */}
           {submissions.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
               {[
                 { label: 'Total Donations', value: `£${(totalGiftAid * 4).toLocaleString('en-GB', { minimumFractionDigits: 2 })}`, color: 'text-brand-primary' },
-                { label: 'Total Gift Aid', value: `£${totalGiftAid.toLocaleString('en-GB', { minimumFractionDigits: 2 })}`, color: 'text-brand-accent' },
-                { label: 'Total Submissions', value: String(submissions.length), color: 'text-brand-primary' },
-                { label: 'Approved', value: String(submissions.filter(s => s.status === 'approved').length), color: 'text-green-600' },
+                { label: 'Total Gift Aid',  value: `£${totalGiftAid.toLocaleString('en-GB', { minimumFractionDigits: 2 })}`, color: 'text-brand-accent' },
+                { label: 'Submissions',     value: String(submissions.length), color: 'text-brand-primary' },
+                { label: 'Approved',        value: String(submissions.filter(s => s.status === 'approved').length), color: 'text-green-600' },
               ].map(c => (
                 <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
                   <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
@@ -227,40 +315,31 @@ export default function AdminCharityDetail() {
 
           {/* Submissions table */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-50">
-              <h2 className="font-semibold text-brand-primary">Submissions</h2>
-            </div>
+            <div className="px-6 py-4 border-b border-gray-50"><h2 className="font-semibold text-brand-primary">Submissions</h2></div>
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-50">
-                <thead><tr className="bg-gray-50/50">
-                  {["Date", "Tax Year", "Amount", "Donations", "Status", "HMRC Ref", "Actions"].map(h => (
-                    <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
-                  ))}
-                </tr></thead>
+                <thead><tr className="bg-gray-50/50">{['Date','Tax Year','Amount','Donations','Status','HMRC Ref','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>)}</tr></thead>
                 <tbody className="divide-y divide-gray-50">
                   {submissions.length === 0 ? (
                     <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-300">No submissions yet</td></tr>
                   ) : submissions.map(s => (
                     <tr key={s.id} className="hover:bg-brand-surface/40 cursor-pointer transition-colors"
                       onClick={() => navigate(`/submissions/${s.id}`, { state: { backUrl: `/admin/charities/${id}` } })}>
-                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{new Date(s.submission_date).toLocaleDateString("en-GB", { year: "numeric", month: "short", day: "numeric" })}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{new Date(s.submission_date).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{s.tax_year}</td>
-                      <td className="px-4 py-3 text-sm font-bold text-brand-accent whitespace-nowrap">£{parseFloat(String(s.amount_claimed || 0)).toLocaleString("en-GB", { minimumFractionDigits: 2 })}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500 whitespace-nowrap">{s.number_of_donations}</td>
+                      <td className="px-4 py-3 text-sm font-bold text-brand-accent whitespace-nowrap">£{parseFloat(String(s.amount_claimed || 0)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{s.number_of_donations}</td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <select value={s.status} disabled={updatingId === s.id} onChange={(e) => handleUpdateStatus(s.id, e.target.value)}
+                        <select value={s.status} disabled={updatingId === s.id} onChange={e => handleUpdateStatus(s.id, e.target.value)}
                           className={`text-xs font-semibold rounded px-2 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-brand-accent ${statusColor(s.status)}`}>
-                          <option value="pending">Pending</option>
-                          <option value="submitted">Submitted</option>
-                          <option value="approved">Approved</option>
-                          <option value="rejected">Rejected</option>
+                          <option value="pending">Pending</option><option value="submitted">Submitted</option>
+                          <option value="approved">Approved</option><option value="rejected">Rejected</option>
                         </select>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-400 font-mono whitespace-nowrap">{s.hmrc_reference || "—"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-400 font-mono whitespace-nowrap">{s.hmrc_reference || '—'}</td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id}
-                          className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
-                          {deletingId === s.id ? "Deleting…" : "Delete"}
+                        <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
+                          {deletingId === s.id ? 'Deleting…' : 'Delete'}
                         </button>
                       </td>
                     </tr>
@@ -273,54 +352,83 @@ export default function AdminCharityDetail() {
           {/* Upload section */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
             <h2 className="font-semibold text-brand-primary mb-1">Upload Donation Spreadsheet</h2>
-            <p className="text-sm text-gray-400 mb-1">Upload an Excel file (.xlsx). Gift Aid (25%) is calculated automatically.</p>
-            <p className="text-xs text-gray-300 mb-4">Required columns: <span className="font-medium text-gray-400">First Name, Last Name, Address, Postcode, Donation Date, Amount</span> — Optional: Title</p>
+            <p className="text-sm text-gray-400 mb-1">Upload an Excel file (.xlsx). Rows are automatically sorted by Gift Aid Opt In status.</p>
+            <p className="text-xs text-gray-300 mb-4">
+              Required columns: <span className="font-medium text-gray-400">First Name, Last Name, Address, Postcode, Donation Date, Amount, Gift Aid Opt In</span> — Title is optional
+            </p>
 
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange}
               className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-brand-accent file:text-white hover:file:opacity-90 mb-4" />
 
-            {parseErrors.length > 0 && (
-              <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
-                <p className="font-medium text-red-700 mb-2">{parseErrors.length} error{parseErrors.length !== 1 ? 's' : ''} found — please fix before submitting:</p>
-                <ul className="space-y-1">{parseErrors.map((e, i) => <li key={i} className="text-sm text-red-600 flex gap-2"><span>•</span><span>{e.message}</span></li>)}</ul>
+            {/* Category breakdown */}
+            {parsedRows.length > 0 && (
+              <div className="grid grid-cols-3 gap-3 mb-4">
+                {[
+                  { label: 'Valid for HMRC', count: validRows.length, color: 'border-green-400 text-green-700 bg-green-50' },
+                  { label: 'Incomplete', count: incompleteRows.length, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
+                  { label: 'Gift Aid Opt Out', count: optOutRows.length, color: 'border-gray-300 text-gray-500 bg-gray-50' },
+                ].map(c => (
+                  <div key={c.label} className={`rounded-lg border-l-4 p-3 ${c.color}`}>
+                    <div className="text-2xl font-bold">{c.count}</div>
+                    <div className="text-xs font-medium mt-0.5">{c.label}</div>
+                  </div>
+                ))}
               </div>
             )}
 
-            {parsedRows.length > 0 && parseErrors.length === 0 && (
+            {/* Valid rows preview */}
+            {validRows.length > 0 && (
               <div className="mb-4">
-                <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 mb-3">
-                  <p className="text-sm text-green-700 font-medium">
-                    {parsedRows.length} valid donation{parsedRows.length !== 1 ? 's' : ''} ready —
-                    total donations: £{parsedRows.reduce((s, r) => s + r.amount, 0).toLocaleString('en-GB', { minimumFractionDigits: 2 })},
-                    Gift Aid claim: £{(parsedRows.reduce((s, r) => s + r.amount, 0) * 0.25).toLocaleString('en-GB', { minimumFractionDigits: 2 })}
-                  </p>
-                </div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Valid rows — Gift Aid value: £{(validRows.reduce((s, r) => s + (r.amount ?? 0), 0) * 0.25).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</p>
                 <div className="overflow-x-auto border border-gray-100 rounded-lg">
                   <table className="min-w-full divide-y divide-gray-100 text-sm">
-                    <thead className="bg-gray-50"><tr>{["Title","First Name","Last Name","Address","Postcode","Date","Amount"].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">{h}</th>)}</tr></thead>
+                    <thead className="bg-gray-50"><tr>{['First Name','Last Name','Address','Postcode','Date','Amount'].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">{h}</th>)}</tr></thead>
                     <tbody className="divide-y divide-gray-50">
-                      {parsedRows.slice(0, 5).map(r => (
+                      {validRows.slice(0, 5).map(r => (
                         <tr key={r.rowNum}>
-                          <td className="px-3 py-2 text-gray-400">{r.title || '—'}</td>
                           <td className="px-3 py-2">{r.firstName}</td><td className="px-3 py-2">{r.lastName}</td>
                           <td className="px-3 py-2">{r.address}</td><td className="px-3 py-2">{r.postcode}</td>
                           <td className="px-3 py-2 whitespace-nowrap">{r.donationDate}</td>
-                          <td className="px-3 py-2 font-medium text-brand-accent">£{r.amount.toFixed(2)}</td>
+                          <td className="px-3 py-2 font-medium text-brand-accent">£{(r.amount ?? 0).toFixed(2)}</td>
                         </tr>
                       ))}
-                      {parsedRows.length > 5 && <tr><td colSpan={7} className="px-3 py-2 text-center text-gray-300 text-xs italic">… and {parsedRows.length - 5} more row{parsedRows.length - 5 !== 1 ? 's' : ''}</td></tr>}
+                      {validRows.length > 5 && <tr><td colSpan={6} className="px-3 py-2 text-center text-gray-300 text-xs italic">… and {validRows.length - 5} more</td></tr>}
                     </tbody>
                   </table>
                 </div>
               </div>
             )}
 
-            {submitSuccess && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">Submission created successfully.</div>}
+            {/* Incomplete rows preview */}
+            {incompleteRows.length > 0 && (
+              <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                <p className="text-xs font-semibold text-yellow-700 uppercase tracking-wide mb-2">{incompleteRows.length} incomplete row{incompleteRows.length !== 1 ? 's' : ''} — missing mandatory fields</p>
+                <ul className="space-y-1">
+                  {incompleteRows.slice(0, 5).map(r => (
+                    <li key={r.rowNum} className="text-xs text-yellow-700">
+                      Row {r.rowNum}: {r.firstName || r.lastName ? `${r.firstName} ${r.lastName} — ` : ''}missing {r.missingFields.join(', ')}
+                    </li>
+                  ))}
+                  {incompleteRows.length > 5 && <li className="text-xs text-yellow-600 italic">… and {incompleteRows.length - 5} more</li>}
+                </ul>
+              </div>
+            )}
+
+            {/* Opt-out summary */}
+            {optOutRows.length > 0 && (
+              <div className="mb-4 bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                  {optOutRows.length} donor{optOutRows.length !== 1 ? 's' : ''} opted out of Gift Aid — these will be saved for reporting but not submitted to HMRC
+                </p>
+              </div>
+            )}
+
+            {submitSuccess && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">Upload complete. {validRows.length > 0 ? `${validRows.length} valid donation${validRows.length !== 1 ? 's' : ''} submitted to Gift Aid.` : 'No valid rows to submit.'}</div>}
             {submitError && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{submitError}</div>}
 
-            <button onClick={handleSubmit} disabled={submitting || parsedRows.length === 0 || parseErrors.length > 0}
+            <button onClick={handleSubmit} disabled={submitting || parsedRows.length === 0}
               className="bg-brand-accent text-white rounded-lg px-5 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-40">
-              {submitting ? "Creating submission…" : "Create Gift Aid Submission"}
+              {submitting ? 'Uploading…' : `Upload ${parsedRows.length > 0 ? `(${parsedRows.length} rows)` : ''}`}
             </button>
           </div>
         </div>
