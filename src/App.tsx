@@ -12,7 +12,7 @@ import CharitySetup from './pages/charitySetup'
 import AdminCharityDetail from './pages/adminCharityDetail'
 import CharityProfile from './pages/charityProfile'
 
-import AcceptInvite from './pages/acceptInvite'
+import AdminCharityInsights from './pages/adminCharityInsights'
 
 function App() {
   return (
@@ -29,6 +29,7 @@ function App() {
       <Route path="/profile" element={<CharityProfile />} />
       <Route path="/admin" element={<Admin />} />
       <Route path="/admin/charities/:id" element={<AdminCharityDetail />} />
+      <Route path="/admin/charities/:id/insights" element={<AdminCharityInsights />} />
       <Route path="/charity-setup" element={<CharitySetup />} />
       <Route path="/" element={<Navigate to="/login" />} />
       <Route path="*" element={<Navigate to="/login" />} />
