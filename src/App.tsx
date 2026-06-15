@@ -3,15 +3,15 @@ import Login from './pages/login'
 import Signup from './pages/signup'
 import ForgotPassword from './pages/forgotPassword'
 import ResetPassword from './pages/resetPassword'
+import AcceptInvite from './pages/acceptInvite'
 import Dashboard from './pages/dashboard'
 import Submissions from './pages/submissions'
 import SubmissionDetail from './pages/submissionDetail'
 import Insights from './pages/insights'
-import Admin from './pages/admin'
-import CharitySetup from './pages/charitySetup'
-import AdminCharityDetail from './pages/adminCharityDetail'
 import CharityProfile from './pages/charityProfile'
-
+import CharitySetup from './pages/charitySetup'
+import Admin from './pages/admin'
+import AdminCharityDetail from './pages/adminCharityDetail'
 import AdminCharityInsights from './pages/adminCharityInsights'
 
 function App() {
@@ -27,10 +27,10 @@ function App() {
       <Route path="/submissions/:id" element={<SubmissionDetail />} />
       <Route path="/insights" element={<Insights />} />
       <Route path="/profile" element={<CharityProfile />} />
+      <Route path="/charity-setup" element={<CharitySetup />} />
       <Route path="/admin" element={<Admin />} />
       <Route path="/admin/charities/:id" element={<AdminCharityDetail />} />
       <Route path="/admin/charities/:id/insights" element={<AdminCharityInsights />} />
-      <Route path="/charity-setup" element={<CharitySetup />} />
       <Route path="/" element={<Navigate to="/login" />} />
       <Route path="*" element={<Navigate to="/login" />} />
     </Routes>
