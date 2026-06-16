@@ -23,23 +23,45 @@ export default function Login() {
   const successMessage = (location.state as any)?.message ?? null;
 
   const handleLogin = async (e: React.FormEvent) => {
-    e.preventDefault(); setError(null); setLoading(true);
+    e.preventDefault();
+    setError(null);
+    setLoading(true);
     try {
       const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
       if (authError) throw authError;
+
+      // ── MFA check ──────────────────────────────────────────
+      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+
+      if (aal.currentLevel === 'aal1' && aal.nextLevel === 'aal2') {
+        // User has MFA enrolled — send to challenge
+        navigate('/mfa-challenge');
+        return;
+      }
+
+      if (aal.currentLevel === 'aal1' && aal.nextLevel === 'aal1') {
+        // No MFA enrolled — force setup before proceeding
+        navigate('/mfa-setup');
+        return;
+      }
+
+      // ── AAL2 reached (MFA already satisfied in session) ────
       const { data: sessionData } = await supabase.auth.getSession();
       const token = sessionData.session?.access_token;
-      if (!token) throw new Error("Login succeeded but no session token found.");
+      if (!token) throw new Error("No session token found.");
+
       const meResp = await fetch("/api/user/me", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
       const meJson = await meResp.json();
       if (!meResp.ok || !meJson.ok) throw new Error(meJson?.error || "Failed to identify user");
+
       if (meJson.role === "operator") { navigate("/admin"); return; }
-      if (meJson.role === "charity_user") {
-        if (!meJson.charityId) { navigate("/charity-setup"); return; }
-        navigate("/dashboard", { state: { charityName: meJson.charityName } }); return;
-      }
-      navigate("/dashboard");
-    } catch (e: any) { setError(e?.message ?? "Login failed"); setLoading(false); }
+      if (!meJson.charityId) { navigate("/charity-setup"); return; }
+      navigate("/dashboard", { state: { charityName: meJson.charityName } });
+
+    } catch (e: any) {
+      setError(e?.message ?? "Login failed");
+      setLoading(false);
+    }
   };
 
   const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent";
@@ -72,11 +94,14 @@ export default function Login() {
                 </div>
                 <input type="password" required className={inputClass} value={password} onChange={e => setPassword(e.target.value)} disabled={loading} autoComplete="current-password" />
               </div>
-              <button type="submit" disabled={loading} className="w-full bg-brand-accent text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50">
+              <button type="submit" disabled={loading}
+                className="w-full bg-brand-accent text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50">
                 {loading ? "Signing in…" : "Sign In"}
               </button>
             </form>
-            <p className="text-xs text-gray-400 mt-5 text-center">New here?{" "}<Link to="/signup" className="text-brand-accent font-semibold hover:underline">Create an account</Link></p>
+            <p className="text-xs text-gray-400 mt-5 text-center">
+              New here?{" "}<Link to="/signup" className="text-brand-accent font-semibold hover:underline">Create an account</Link>
+            </p>
           </div>
         </div>
       </div>
