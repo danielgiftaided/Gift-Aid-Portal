@@ -2,6 +2,64 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 
+function MfaSection() {
+  const navigate = useNavigate()
+  const [factors, setFactors] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [removing, setRemoving] = useState(false)
+  const [message, setMessage] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    supabase.auth.mfa.listFactors().then(({ data }) => {
+      setFactors(data?.totp || [])
+      setLoading(false)
+    })
+  }, [])
+
+  const handleRemove = async () => {
+    if (!window.confirm('Remove two-factor authentication? You will be required to set it up again on your next login.')) return
+    setRemoving(true); setError(null); setMessage(null)
+    const { error } = await supabase.auth.mfa.unenroll({ factorId: factors[0].id })
+    if (error) { setError(error.message); setRemoving(false); return }
+    setFactors([])
+    setMessage('2FA removed. You will be prompted to set it up again on your next login.')
+    setRemoving(false)
+  }
+
+  if (loading) return null
+
+  return (
+    <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6 mt-4">
+      <h3 className="font-semibold text-brand-primary mb-1">Two-Factor Authentication</h3>
+      <p className="text-xs text-gray-400 mb-4">
+        {factors.length > 0
+          ? 'Your account is protected with an authenticator app.'
+          : 'Add an extra layer of security to your account.'}
+      </p>
+      {message && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">{message}</div>}
+      {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
+      {factors.length > 0 ? (
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-green-600">✓</span>
+            <span className="text-sm font-medium text-gray-600">Authenticator app enabled</span>
+          </div>
+          <button onClick={handleRemove} disabled={removing}
+            className="text-sm text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
+            {removing ? 'Removing…' : 'Remove 2FA'}
+          </button>
+        </div>
+      ) : (
+        <button onClick={() => navigate('/mfa-setup')}
+          className="bg-brand-primary text-white rounded-lg px-5 py-2.5 text-sm font-semibold hover:opacity-90">
+          Set up two-factor authentication
+        </button>
+      )}
+    </div>
+  )
+}
+
 interface Profile { name: string; contact_email: string; description: string; charity_number: string; authorised_official_name: string; authorised_official_role: string; address: string }
 const empty: Profile = { name:'', contact_email:'', description:'', charity_number:'', authorised_official_name:'', authorised_official_role:'', address:'' }
 
@@ -36,6 +94,10 @@ export default function CharityProfile() {
   const [passwordSaving, setPasswordSaving] = useState(false)
   const [passwordSuccess, setPasswordSuccess] = useState(false)
   const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [mfaFactors, setMfaFactors] = useState<any[]>([])
+  const [mfaLoading, setMfaLoading] = useState(false)
+  const [mfaMessage, setMfaMessage] = useState<string | null>(null)
+  const [mfaError, setMfaError] = useState<string | null>(null)
 
   useEffect(() => {
     (async () => {
@@ -44,6 +106,11 @@ export default function CharityProfile() {
       const res = await fetch('/api/charity/profile', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' })
       const json = await res.json()
       if (json.ok) setProfile(json.profile)
+
+      // Load MFA factors
+      const { data: factors } = await supabase.auth.mfa.listFactors()
+      setMfaFactors(factors?.totp || [])
+
       setLoading(false)
     })()
   }, [])
@@ -69,6 +136,16 @@ export default function CharityProfile() {
     if (error) setPasswordError(error.message)
     else { setPasswordSuccess(true); setNewPassword(''); setConfirmPassword(''); setTimeout(() => setPasswordSuccess(false), 4000) }
     setPasswordSaving(false)
+  }
+
+  const handleUnenroll = async (factorId: string) => {
+    if (!window.confirm('Are you sure you want to remove two-factor authentication? You will be required to set it up again on your next login.')) return
+    setMfaLoading(true); setMfaError(null); setMfaMessage(null)
+    const { error } = await supabase.auth.mfa.unenroll({ factorId })
+    if (error) { setMfaError(error.message); setMfaLoading(false); return }
+    setMfaFactors([])
+    setMfaMessage('Two-factor authentication removed. You will be prompted to set it up again on your next login.')
+    setMfaLoading(false)
   }
 
   const set = (field: keyof Profile) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => setProfile(prev => ({ ...prev, [field]: e.target.value }))
@@ -149,6 +226,9 @@ export default function CharityProfile() {
               </div>
             </div>
           </form>
+
+          {/* MFA Management */}
+          <MfaSection />
         </div>
       </div>
     </div>
