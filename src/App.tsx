@@ -4,6 +4,8 @@ import Signup from './pages/signup'
 import ForgotPassword from './pages/forgotPassword'
 import ResetPassword from './pages/resetPassword'
 import AcceptInvite from './pages/acceptInvite'
+import MfaSetup from './pages/mfaSetup'
+import MfaChallenge from './pages/mfaChallenge'
 import Dashboard from './pages/dashboard'
 import Submissions from './pages/submissions'
 import SubmissionDetail from './pages/submissionDetail'
@@ -22,6 +24,8 @@ function App() {
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/accept-invite" element={<AcceptInvite />} />
+      <Route path="/mfa-setup" element={<MfaSetup />} />
+      <Route path="/mfa-challenge" element={<MfaChallenge />} />
       <Route path="/dashboard" element={<Dashboard />} />
       <Route path="/submissions" element={<Submissions />} />
       <Route path="/submissions/:id" element={<SubmissionDetail />} />
