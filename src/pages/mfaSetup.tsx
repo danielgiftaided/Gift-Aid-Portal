@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import { daysSincePasswordChange, stampPasswordChanged, PASSWORD_EXPIRY_DAYS } from '../utils/hibp'
 
 function AuthShapes() {
   return (
@@ -18,6 +19,19 @@ const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm
 async function redirectAfterAuth(navigate: ReturnType<typeof useNavigate>) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) { navigate('/login'); return }
+
+  // ── Password age check ──────────────────────────────────
+  const { data: { user } } = await supabase.auth.getUser()
+  const days = daysSincePasswordChange(user)
+
+  if (days === null) {
+    await stampPasswordChanged(supabase)
+  } else if (days > PASSWORD_EXPIRY_DAYS) {
+    navigate('/password-expired')
+    return
+  }
+
+  // ── Role-based redirect ─────────────────────────────────
   const meResp = await fetch('/api/user/me', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' })
   const meJson = await meResp.json()
   if (!meResp.ok || !meJson.ok) { navigate('/login'); return }
@@ -41,19 +55,10 @@ export default function MfaSetup() {
 
   const enroll = async () => {
     try {
-      const { data, error } = await supabase.auth.mfa.enroll({
-        factorType: 'totp',
-        issuer: 'Gift Aided Portal',
-      })
+      const { data, error } = await supabase.auth.mfa.enroll({ factorType: 'totp', issuer: 'Gift Aided Portal' })
       if (error) throw error
-      setFactorId(data.id)
-      setQrCode(data.totp.qr_code)
-      setSecret(data.totp.secret)
-    } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setEnrolling(false)
-    }
+      setFactorId(data.id); setQrCode(data.totp.qr_code); setSecret(data.totp.secret)
+    } catch (e: any) { setError(e.message) } finally { setEnrolling(false) }
   }
 
   const handleVerify = async (e: React.FormEvent) => {
@@ -86,7 +91,7 @@ export default function MfaSetup() {
               <h2 className="text-lg font-bold text-brand-primary">Set up two-factor authentication</h2>
             </div>
             <p className="text-xs text-gray-400 mb-5">
-              Scan the QR code below with an authenticator app such as Google Authenticator, Authy or Microsoft Authenticator, then enter the 6-digit code to confirm.
+              Scan the QR code with Google Authenticator, Authy or Microsoft Authenticator, then enter the 6-digit code to confirm.
             </p>
 
             {enrolling ? (
@@ -95,19 +100,16 @@ export default function MfaSetup() {
               </div>
             ) : (
               <>
-                {/* QR code */}
                 {qrCode && (
                   <div className="flex justify-center mb-4">
                     <div className="border-2 border-gray-100 rounded-xl p-3 inline-block bg-white"
-                      dangerouslySetInnerHTML={{ __html: qrCode }}
-                    />
+                      dangerouslySetInnerHTML={{ __html: qrCode }} />
                   </div>
                 )}
 
-                {/* Manual entry toggle */}
                 <div className="text-center mb-5">
                   <button onClick={() => setShowSecret(s => !s)} className="text-xs text-brand-accent hover:underline">
-                    {showSecret ? 'Hide manual code' : 'Can\'t scan? Enter code manually'}
+                    {showSecret ? 'Hide manual code' : "Can't scan? Enter code manually"}
                   </button>
                   {showSecret && (
                     <div className="mt-2 bg-gray-50 rounded-lg p-3">
@@ -122,12 +124,10 @@ export default function MfaSetup() {
                 <form onSubmit={handleVerify} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-600 mb-1 text-center">Enter the 6-digit code from your app</label>
-                    <input
-                      type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+                    <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
                       className={inputClass} value={code}
                       onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                      placeholder="000000" autoComplete="one-time-code"
-                    />
+                      placeholder="000000" autoComplete="one-time-code" />
                   </div>
                   <button type="submit" disabled={loading || code.length !== 6}
                     className="w-full bg-brand-accent text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50">
