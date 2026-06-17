@@ -159,12 +159,18 @@ export default function PendingCharities() {
       setPendingList(pending || [])
 
       if (pending && pending.length > 0) {
-        const { data: staged } = await supabase
-          .from('pending_uploaded_records')
-          .select('pending_email')
-          .in('pending_email', pending.map(p => p.email))
+        // Use a count query per email — exact counts regardless of how many
+        // rows exist, without pulling the row data just to tally it client-side.
         const counts: Record<string, number> = {}
-        for (const row of staged || []) counts[row.pending_email] = (counts[row.pending_email] || 0) + 1
+        await Promise.all(
+          pending.map(async (p) => {
+            const { count } = await supabase
+              .from('pending_uploaded_records')
+              .select('id', { count: 'exact', head: true })
+              .eq('pending_email', p.email)
+            counts[p.email] = count ?? 0
+          })
+        )
         setStagedCounts(counts)
       }
     } catch (e: any) { setError(e.message) } finally { setLoading(false) }
