@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import { daysSincePasswordChange, stampPasswordChanged, PASSWORD_EXPIRY_DAYS } from '../utils/hibp'
 
 function AuthShapes() {
   return (
@@ -18,6 +19,20 @@ const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm
 async function redirectAfterAuth(navigate: ReturnType<typeof useNavigate>) {
   const { data: { session } } = await supabase.auth.getSession()
   if (!session) { navigate('/login'); return }
+
+  // ── Password age check ──────────────────────────────────
+  const { data: { user } } = await supabase.auth.getUser()
+  const days = daysSincePasswordChange(user)
+
+  if (days === null) {
+    // No timestamp yet — start the clock from today (grace period for existing users)
+    await stampPasswordChanged(supabase)
+  } else if (days > PASSWORD_EXPIRY_DAYS) {
+    navigate('/password-expired')
+    return
+  }
+
+  // ── Role-based redirect ─────────────────────────────────
   const meResp = await fetch('/api/user/me', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' })
   const meJson = await meResp.json()
   if (!meResp.ok || !meJson.ok) { navigate('/login'); return }
@@ -79,12 +94,10 @@ export default function MfaChallenge() {
             <form onSubmit={handleVerify} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1 text-center">Authentication code</label>
-                <input
-                  type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+                <input type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
                   className={inputClass} value={code}
                   onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="000000" autoComplete="one-time-code" autoFocus
-                />
+                  placeholder="000000" autoComplete="one-time-code" autoFocus />
               </div>
               <button type="submit" disabled={loading || code.length !== 6 || !factorId}
                 className="w-full bg-brand-accent text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50">
@@ -95,9 +108,7 @@ export default function MfaChallenge() {
             <p className="text-xs text-gray-400 mt-5 text-center">
               Can't access your app?{' '}
               <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }}
-                className="text-brand-accent hover:underline">
-                Sign out and try again
-              </button>
+                className="text-brand-accent hover:underline">Sign out and try again</button>
             </p>
           </div>
         </div>
