@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import { isPasswordPwned, stampPasswordChanged } from '../utils/hibp'
 
 function AuthShapes() {
   return (
@@ -24,16 +25,10 @@ export default function AcceptInvite() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    // Supabase picks up the invite token from the URL hash automatically
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) {
-        setReady(true)
-      }
+      if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) setReady(true)
     })
-    // Also check if already has a session (e.g. page refresh)
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) setReady(true)
-    })
+    supabase.auth.getSession().then(({ data: { session } }) => { if (session) setReady(true) })
     return () => subscription.unsubscribe()
   }, [])
 
@@ -43,11 +38,17 @@ export default function AcceptInvite() {
     if (password !== confirm) { setError('Passwords do not match'); return }
     setLoading(true); setError(null)
 
+    const pwned = await isPasswordPwned(password)
+    if (pwned) {
+      setError('This password has appeared in a known data breach. Please choose a different one.')
+      setLoading(false); return
+    }
+
     const { error: updateErr } = await supabase.auth.updateUser({ password })
     if (updateErr) { setError(updateErr.message); setLoading(false); return }
 
-    // New user — send to charity setup
-    navigate('/charity-setup')
+    await stampPasswordChanged(supabase)
+    navigate('/mfa-setup') // New users go straight to MFA setup
   }
 
   return (
@@ -59,49 +60,27 @@ export default function AcceptInvite() {
             gift aided <span style={{ fontWeight: 400 }}>Portal</span>
           </span>
           <p className="text-gray-400 text-sm mb-8">You've been invited — set a password to get started</p>
-
           <div className="bg-white rounded-2xl shadow-md p-7">
             {!ready ? (
-              <div className="text-center py-4">
-                <p className="text-sm text-gray-400">Verifying your invite link…</p>
-              </div>
+              <div className="text-center py-4"><p className="text-sm text-gray-400">Verifying your invite link…</p></div>
             ) : (
               <>
                 <h2 className="text-lg font-bold text-brand-primary mb-0.5">Create your password</h2>
                 <p className="text-xs text-gray-400 mb-5">Choose a strong password to secure your account.</p>
-
-                {error && (
-                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>
-                )}
-
+                {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
                 <form onSubmit={handleSubmit} className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-600 mb-1">New password</label>
-                    <input
-                      type="password" required className={inputClass}
-                      value={password} onChange={e => setPassword(e.target.value)}
-                      placeholder="At least 8 characters" autoComplete="new-password"
-                    />
+                    <input type="password" required className={inputClass} value={password} onChange={e => setPassword(e.target.value)} placeholder="At least 8 characters" autoComplete="new-password" />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-600 mb-1">Confirm password</label>
-                    <input
-                      type="password" required className={inputClass}
-                      value={confirm} onChange={e => setConfirm(e.target.value)}
-                      autoComplete="new-password"
-                    />
-                    {password && confirm && (
-                      <p className={`text-xs mt-1 ${password === confirm ? 'text-green-600' : 'text-red-500'}`}>
-                        {password === confirm ? 'Passwords match ✓' : 'Passwords do not match'}
-                      </p>
-                    )}
+                    <input type="password" required className={inputClass} value={confirm} onChange={e => setConfirm(e.target.value)} autoComplete="new-password" />
+                    {password && confirm && <p className={`text-xs mt-1 ${password === confirm ? 'text-green-600' : 'text-red-500'}`}>{password === confirm ? 'Passwords match ✓' : 'Passwords do not match'}</p>}
                   </div>
-                  <button
-                    type="submit"
-                    disabled={loading || !password || !confirm || password !== confirm}
-                    className="w-full bg-brand-accent text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50"
-                  >
-                    {loading ? 'Setting up your account…' : 'Set password & continue'}
+                  <button type="submit" disabled={loading || !password || !confirm || password !== confirm}
+                    className="w-full bg-brand-accent text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50">
+                    {loading ? 'Checking & setting up…' : 'Set password & continue'}
                   </button>
                 </form>
               </>
