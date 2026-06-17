@@ -41,6 +41,32 @@ const TEAL = '#0c745d'; const AMBER = '#f59e0b'; const SLATE = '#94a3b8'; const 
 
 function fmt(v: number) { return `£${v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 
+// Supabase/PostgREST caps a single response at 1000 rows by default.
+// This loops through in batches until every row has been fetched.
+async function fetchAllPendingRecords(email: string): Promise<PendingRecord[]> {
+  const PAGE_SIZE = 1000
+  let all: PendingRecord[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await supabase
+      .from('pending_uploaded_records')
+      .select('id, title, first_name, last_name, postcode, donation_date, amount, record_status, tax_year, created_at')
+      .eq('pending_email', email)
+      .order('created_at', { ascending: true })
+      .range(from, from + PAGE_SIZE - 1)
+
+    if (error) throw new Error(error.message)
+    if (!data || data.length === 0) break
+
+    all = all.concat(data as PendingRecord[])
+    if (data.length < PAGE_SIZE) break // last page reached
+    from += PAGE_SIZE
+  }
+
+  return all
+}
+
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
@@ -68,14 +94,8 @@ export default function PendingCharityInsights() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { navigate('/login'); return }
 
-      const { data, error: err } = await supabase
-        .from('pending_uploaded_records')
-        .select('id, title, first_name, last_name, postcode, donation_date, amount, record_status, tax_year, created_at')
-        .eq('pending_email', email)
-        .order('created_at', { ascending: true })
-
-      if (err) throw new Error(err.message)
-      setRecords(data || [])
+      const allRecords = await fetchAllPendingRecords(email)
+      setRecords(allRecords)
     } catch (e: any) { setError(e.message) } finally { setLoading(false) }
   }
 
