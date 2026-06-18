@@ -64,21 +64,26 @@ function getTaxYearForDate(date: Date): string {
 }
 function parseDonationDate(str: string): Date | null {
   if (!str) return null
-  const dmy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (dmy) return new Date(parseInt(dmy[3]), parseInt(dmy[2]) - 1, parseInt(dmy[1]))
-  const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (ymd) return new Date(parseInt(ymd[1]), parseInt(ymd[2]) - 1, parseInt(ymd[3]))
-  const d = new Date(str)
-  return isNaN(d.getTime()) ? null : d
-}
-function getTaxYearFromRows(rows: ParsedRow[]): string {
-  const counts: Record<string, number> = {}
-  for (const r of rows) {
-    const d = parseDonationDate(r.donationDate)
-    if (d) { const ty = getTaxYearForDate(d); counts[ty] = (counts[ty] || 0) + 1 }
+  const trimmed = str.trim()
+
+  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (dmy) {
+    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10), year = parseInt(dmy[3], 10)
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d = new Date(year, month - 1, day)
+      if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
+    }
   }
-  if (!Object.keys(counts).length) return getTaxYearForDate(new Date())
-  return Object.entries(counts).reduce((a, b) => b[1] > a[1] ? b : a)[0]
+
+  const ymd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (ymd) {
+    const year = parseInt(ymd[1], 10), month = parseInt(ymd[2], 10), day = parseInt(ymd[3], 10)
+    const d = new Date(year, month - 1, day)
+    if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
+  }
+
+  const fallback = new Date(trimmed)
+  return isNaN(fallback.getTime()) ? null : fallback
 }
 
 function parseExcel(file: File): Promise<ParsedRow[]> {
@@ -191,22 +196,27 @@ export default function PendingCharities() {
     if (!uploadingFor || !parsedRows.length) return
     try {
       setSubmitting(true); setSubmitError(null)
-      const taxYear = getTaxYearFromRows(parsedRows)
 
+      // Compute each row's OWN tax year from its own donation date —
+      // a staged batch can span multiple tax years.
       const { error: insertErr } = await supabase.from('pending_uploaded_records').insert(
-        parsedRows.map(r => ({
-          pending_email: uploadingFor,
-          title: r.title || null,
-          first_name: r.firstName || null,
-          last_name: r.lastName || null,
-          address: r.address || null,
-          postcode: r.postcode || null,
-          donation_date: r.donationDate || null,
-          amount: r.amount,
-          gift_aid_opt_in: r.giftAidOptIn || null,
-          record_status: r.status,
-          tax_year: taxYear,
-        }))
+        parsedRows.map(r => {
+          const parsedDate = parseDonationDate(r.donationDate)
+          const taxYear = parsedDate ? getTaxYearForDate(parsedDate) : getTaxYearForDate(new Date())
+          return {
+            pending_email: uploadingFor,
+            title: r.title || null,
+            first_name: r.firstName || null,
+            last_name: r.lastName || null,
+            address: r.address || null,
+            postcode: r.postcode || null,
+            donation_date: r.donationDate || null,
+            amount: r.amount,
+            gift_aid_opt_in: r.giftAidOptIn || null,
+            record_status: r.status,
+            tax_year: taxYear,
+          }
+        })
       )
       if (insertErr) throw new Error(insertErr.message)
 
