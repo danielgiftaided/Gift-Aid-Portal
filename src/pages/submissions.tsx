@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
+import { fetchAllRows } from '../utils/fetchAll'
 
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; notes: string | null }
 
@@ -35,8 +36,10 @@ export default function Submissions() {
         if (!session) { navigate('/login'); return }
         const { data: userData } = await supabase.from('users').select('charity_id').eq('id', session.user.id).single()
         if (userData?.charity_id) {
-          const { data } = await supabase.from('submissions').select('*').eq('charity_id', userData.charity_id).order('submission_date', { ascending: false })
-          setSubmissions(data || [])
+          const data = await fetchAllRows<Submission>(() =>
+            supabase.from('submissions').select('*').eq('charity_id', userData.charity_id).order('submission_date', { ascending: false })
+          )
+          setSubmissions(data)
         }
       } catch (e) { console.error(e) } finally { setLoading(false) }
     })()
