@@ -9,7 +9,7 @@ import {
 
 interface Submission { id: string; submission_date: string; status: string; amount_claimed: number; number_of_donations: number; tax_year: string }
 interface Donation { amount: number; submission_id: string }
-interface UploadedRecord { record_status: 'valid' | 'incomplete' | 'opt_out'; tax_year: string | null; amount: number | null }
+interface UploadedRecord { record_status: 'valid' | 'incomplete' | 'opt_out'; tax_year: string | null; amount: number | null; donation_date: string | null }
 
 function Logo() {
   return (
@@ -33,6 +33,41 @@ function PageShapes() {
 const TEAL = '#0c745d'; const NAVY = '#304675'; const WARM = '#e8e4db'; const AMBER = '#f59e0b'; const SLATE = '#94a3b8'
 
 function fmt(v: number) { return `£${v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
+
+// Recomputes the tax year from each row's own donation date rather than
+// trusting the stored tax_year column, which protects against any stale
+// values written before per-row tax year calculation was fixed.
+function parseDonationDateForTaxYear(str: string | null): Date | null {
+  if (!str) return null
+  const trimmed = str.trim()
+  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (dmy) {
+    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10), year = parseInt(dmy[3], 10)
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d = new Date(year, month - 1, day)
+      if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
+    }
+  }
+  const ymd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (ymd) {
+    const year = parseInt(ymd[1], 10), month = parseInt(ymd[2], 10), day = parseInt(ymd[3], 10)
+    const d = new Date(year, month - 1, day)
+    if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
+  }
+  const fallback = new Date(trimmed)
+  return isNaN(fallback.getTime()) ? null : fallback
+}
+
+function getTaxYearForDateForInsights(date: Date): string {
+  const y = date.getFullYear(), m = date.getMonth() + 1, d = date.getDate()
+  return (m > 4 || (m === 4 && d >= 6)) ? `${y}/${String(y + 1).slice(2)}` : `${y - 1}/${String(y).slice(2)}`
+}
+
+function effectiveTaxYear(r: UploadedRecord): string {
+  const parsed = parseDonationDateForTaxYear(r.donation_date)
+  if (parsed) return getTaxYearForDateForInsights(parsed)
+  return r.tax_year || getTaxYearForDateForInsights(new Date())
+}
 
 function ChartTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
@@ -90,7 +125,7 @@ export default function AdminCharityInsights() {
       // All uploaded records for this charity
       const recData = await fetchAllRows<UploadedRecord>(() =>
         supabase
-          .from('uploaded_records').select('record_status, tax_year, amount')
+          .from('uploaded_records').select('record_status, tax_year, amount, donation_date')
           .eq('charity_id', id)
       )
       setRecords(recData)
@@ -134,12 +169,12 @@ export default function AdminCharityInsights() {
   const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
   const totalRecords   = records.length
 
-  const taxYears = [...new Set(records.map(r => r.tax_year).filter(Boolean))].sort() as string[]
+  const taxYears = [...new Set(records.map(r => effectiveTaxYear(r)))].sort()
   const recordsByYear = taxYears.map(ty => ({
     taxYear: ty,
-    valid:      records.filter(r => r.tax_year === ty && r.record_status === 'valid').length,
-    incomplete: records.filter(r => r.tax_year === ty && r.record_status === 'incomplete').length,
-    optOut:     records.filter(r => r.tax_year === ty && r.record_status === 'opt_out').length,
+    valid:      records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'valid').length,
+    incomplete: records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'incomplete').length,
+    optOut:     records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'opt_out').length,
   }))
 
   if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
