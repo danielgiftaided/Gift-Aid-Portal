@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { fetchAllRows } from '../utils/fetchAll'
 
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; notes: string | null }
 interface Donation { id: string; title: string | null; first_name: string; last_name: string; address: string; postcode: string; donation_date: string; amount: number }
@@ -50,8 +51,10 @@ export default function SubmissionDetail() {
       const { data: sub, error: subErr } = await supabase.from('submissions').select('*').eq('id', id).single()
       if (subErr) throw new Error(subErr.message)
       setSubmission(sub)
-      const { data: don } = await supabase.from('donations').select('*').eq('submission_id', id).order('created_at', { ascending: true })
-      setDonations(don || [])
+      const don = await fetchAllRows<Donation>(() =>
+        supabase.from('donations').select('*').eq('submission_id', id).order('created_at', { ascending: true })
+      )
+      setDonations(don)
     } catch (e: any) { setError(e.message) } finally { setLoading(false) }
   }
 
