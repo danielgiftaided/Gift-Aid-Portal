@@ -9,7 +9,18 @@ import {
 
 interface Submission { id: string; submission_date: string; status: string; amount_claimed: number; number_of_donations: number; tax_year: string }
 interface Donation { amount: number; submission_id: string }
-interface UploadedRecord { record_status: 'valid' | 'incomplete' | 'opt_out'; tax_year: string | null; amount: number | null; donation_date: string | null }
+interface UploadedRecord {
+  record_status: 'valid' | 'incomplete' | 'opt_out'
+  tax_year: string | null
+  amount: number | null
+  donation_date: string | null
+  title: string | null
+  first_name: string | null
+  last_name: string | null
+  address: string | null
+  postcode: string | null
+  gift_aid_opt_in: string | null
+}
 
 function Logo() {
   return (
@@ -73,6 +84,54 @@ function effectiveTaxYear(r: UploadedRecord): string {
   return r.tax_year || getTaxYearForDateForInsights(new Date())
 }
 
+// Formats a raw donation date string as UK short date DD/MM/YYYY for exports
+function formatUkDateForExport(raw: string | null): string {
+  if (!raw) return ''
+  const parsed = parseDonationDateForTaxYear(raw)
+  if (!parsed) return raw
+  const dd = String(parsed.getDate()).padStart(2, '0')
+  const mm = String(parsed.getMonth() + 1).padStart(2, '0')
+  return `${dd}/${mm}/${parsed.getFullYear()}`
+}
+
+// Escapes a single CSV field — wraps in quotes and doubles any internal quotes
+// whenever the value contains a comma, quote, or newline.
+function csvEscape(value: string): string {
+  if (/[",\n]/.test(value)) return `"${value.replace(/"/g, '""')}"`
+  return value
+}
+
+function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
+  const headers = ['Title', 'First Name', 'Last Name', 'Address', 'Postcode', 'Donation Date', 'Amount', 'Gift Aid Opt In', 'Tax Year']
+  const lines = [headers.join(',')]
+
+  for (const r of rows) {
+    const fields = [
+      r.title || '',
+      r.first_name || '',
+      r.last_name || '',
+      r.address || '',
+      (r.postcode || '').toUpperCase(),
+      formatUkDateForExport(r.donation_date),
+      r.amount != null ? parseFloat(String(r.amount)).toFixed(2) : '',
+      r.gift_aid_opt_in || '',
+      effectiveTaxYear(r),
+    ]
+    lines.push(fields.map(f => csvEscape(String(f))).join(','))
+  }
+
+  const csvContent = lines.join('\n')
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
 function GBPTooltip({ active, payload, label }: any) {
   if (!active || !payload?.length) return null
   return (
@@ -127,7 +186,7 @@ export default function Insights() {
 
         const recData = await fetchAllRows<UploadedRecord>(() =>
           supabase
-            .from('uploaded_records').select('record_status, tax_year, amount, donation_date')
+            .from('uploaded_records').select('record_status, tax_year, amount, donation_date, title, first_name, last_name, address, postcode, gift_aid_opt_in')
             .eq('charity_id', meJson.charityId)
         )
         setRecords(recData)
@@ -304,15 +363,22 @@ export default function Insights() {
                   {/* Headline counts */}
                   <div className="grid grid-cols-3 gap-4">
                     {[
-                      { label: 'Records Claimed',    value: validCount,      sub: 'Submitted to HMRC and claimed', color: 'border-brand-accent text-brand-accent' },
-                      { label: 'Incomplete records', value: incompleteCount, sub: 'Missing mandatory fields',      color: 'border-yellow-400 text-yellow-600' },
-                      { label: 'Gift Aid opt outs',  value: optOutCount,     sub: 'Opted out — won\'t be claimed', color: 'border-gray-300 text-gray-500' },
+                      { label: 'Records Claimed',    value: validCount,      sub: 'Submitted to HMRC and claimed', color: 'border-brand-accent text-brand-accent', status: 'valid' as const,      filename: 'submitted-claims.csv' },
+                      { label: 'Incomplete records', value: incompleteCount, sub: 'Missing mandatory fields',      color: 'border-yellow-400 text-yellow-600',     status: 'incomplete' as const, filename: 'incomplete-records.csv' },
+                      { label: 'Gift Aid opt outs',  value: optOutCount,     sub: 'Opted out — won\'t be claimed', color: 'border-gray-300 text-gray-500',         status: 'opt_out' as const,    filename: 'opt-out-records.csv' },
                     ].map(c => (
                       <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.color.split(' ')[0]}`}>
                         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
                         <div className={`text-3xl font-bold ${c.color.split(' ')[1]}`}>{c.value}</div>
                         <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
                         {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
+                        <button
+                          onClick={() => downloadRecordsAsCsv(records.filter(r => r.record_status === c.status), c.filename)}
+                          disabled={c.value === 0}
+                          className="mt-3 text-xs font-semibold text-brand-accent hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
+                        >
+                          Export CSV
+                        </button>
                       </div>
                     ))}
                   </div>
