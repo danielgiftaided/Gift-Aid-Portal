@@ -215,12 +215,11 @@ export default function Insights() {
             <div className="space-y-6">
 
               {/* Summary strip */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {[
-                  { label: 'Total submissions',          value: String(submissions.length) },
-                  { label: 'Avg Gift Aid / submission',  value: submissions.length ? fmt(overallAvg) : '—' },
-                  { label: 'Avg Gift Aid / donor',        value: totalDonorCount > 0 ? fmt(avgGiftAidPerDonor) : '—' },
-                  { label: 'Potential missed Gift Aid',   value: missedRecords.length > 0 ? fmt(potentialMissedGiftAid) : '—' },
+                  { label: 'Total records',         value: String(totalRecords) },
+                  { label: 'Gift Aid Claimed',      value: totalDonorCount > 0 ? fmt(totalDonationAmount * 0.25) : '—' },
+                  { label: 'Avg Gift Aid / donor',  value: totalDonorCount > 0 ? fmt(avgGiftAidPerDonor) : '—' },
                 ].map(c => (
                   <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
                     <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
@@ -305,14 +304,15 @@ export default function Insights() {
                   {/* Headline counts */}
                   <div className="grid grid-cols-3 gap-4">
                     {[
-                      { label: 'Valid for Gift Aid', value: validCount, color: 'border-brand-accent text-brand-accent' },
-                      { label: 'Incomplete records', value: incompleteCount, color: 'border-yellow-400 text-yellow-600' },
-                      { label: 'Gift Aid opt outs',  value: optOutCount,    color: 'border-gray-300 text-gray-500' },
+                      { label: 'Records Claimed',    value: validCount,      sub: 'Submitted to HMRC and claimed', color: 'border-brand-accent text-brand-accent' },
+                      { label: 'Incomplete records', value: incompleteCount, sub: 'Missing mandatory fields',      color: 'border-yellow-400 text-yellow-600' },
+                      { label: 'Gift Aid opt outs',  value: optOutCount,     sub: 'Opted out — won\'t be claimed', color: 'border-gray-300 text-gray-500' },
                     ].map(c => (
                       <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.color.split(' ')[0]}`}>
                         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
                         <div className={`text-3xl font-bold ${c.color.split(' ')[1]}`}>{c.value}</div>
-                        {totalRecords > 0 && <div className="text-xs text-gray-400 mt-1">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
+                        <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
+                        {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
                       </div>
                     ))}
                   </div>
