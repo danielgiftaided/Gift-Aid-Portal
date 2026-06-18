@@ -41,6 +41,46 @@ const TEAL = '#0c745d'; const AMBER = '#f59e0b'; const SLATE = '#94a3b8'; const 
 
 function fmt(v: number) { return `£${v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 
+// Recomputes the tax year from each row's own donation date rather than
+// trusting the stored tax_year column — this makes the page self-correcting
+// for any rows staged before the per-row tax year fix went live.
+function parseDonationDate(str: string | null): Date | null {
+  if (!str) return null
+  const trimmed = str.trim()
+
+  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (dmy) {
+    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10), year = parseInt(dmy[3], 10)
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d = new Date(year, month - 1, day)
+      if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
+    }
+  }
+
+  const ymd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (ymd) {
+    const year = parseInt(ymd[1], 10), month = parseInt(ymd[2], 10), day = parseInt(ymd[3], 10)
+    const d = new Date(year, month - 1, day)
+    if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
+  }
+
+  const fallback = new Date(trimmed)
+  return isNaN(fallback.getTime()) ? null : fallback
+}
+
+function getTaxYearForDate(date: Date): string {
+  const y = date.getFullYear(), m = date.getMonth() + 1, d = date.getDate()
+  return (m > 4 || (m === 4 && d >= 6)) ? `${y}/${String(y + 1).slice(2)}` : `${y - 1}/${String(y).slice(2)}`
+}
+
+/** Resolves the correct tax year for a record — prefers the donation date,
+ *  falls back to the stored tax_year column only if the date can't be parsed. */
+function effectiveTaxYear(r: PendingRecord): string {
+  const parsed = parseDonationDate(r.donation_date)
+  if (parsed) return getTaxYearForDate(parsed)
+  return r.tax_year || getTaxYearForDate(new Date())
+}
+
 // Supabase/PostgREST caps a single response at 1000 rows by default.
 // This loops through in batches until every row has been fetched.
 async function fetchAllPendingRecords(email: string): Promise<PendingRecord[]> {
@@ -109,17 +149,17 @@ export default function PendingCharityInsights() {
   const potentialGiftAid   = totalDonationValue * 0.25
   const avgGiftAidPerDonor = validRecords.length > 0 ? potentialGiftAid / validRecords.length : 0
 
-  const taxYears = [...new Set(records.map(r => r.tax_year).filter(Boolean))].sort() as string[]
+  const taxYears = [...new Set(records.map(r => effectiveTaxYear(r)))].sort()
 
   const recordsByYear = taxYears.map(ty => ({
     taxYear: ty,
-    valid:      records.filter(r => r.tax_year === ty && r.record_status === 'valid').length,
-    incomplete: records.filter(r => r.tax_year === ty && r.record_status === 'incomplete').length,
-    optOut:     records.filter(r => r.tax_year === ty && r.record_status === 'opt_out').length,
+    valid:      records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'valid').length,
+    incomplete: records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'incomplete').length,
+    optOut:     records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'opt_out').length,
   }))
 
   const giftAidByYear = taxYears.map(ty => {
-    const yearValid = validRecords.filter(r => r.tax_year === ty)
+    const yearValid = validRecords.filter(r => effectiveTaxYear(r) === ty)
     const yearTotal = yearValid.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
     return { taxYear: ty, giftAid: Math.round(yearTotal * 0.25 * 100) / 100 }
   })
