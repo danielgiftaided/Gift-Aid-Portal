@@ -2,6 +2,7 @@ import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useParams, useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
+import { fetchAllRows } from '../utils/fetchAll'
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null }
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string }
@@ -47,22 +48,30 @@ function getTaxYearForDate(date: Date): string {
 
 function parseDonationDate(str: string): Date | null {
   if (!str) return null
-  const dmy = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
-  if (dmy) return new Date(parseInt(dmy[3]), parseInt(dmy[2]) - 1, parseInt(dmy[1]))
-  const ymd = str.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (ymd) return new Date(parseInt(ymd[1]), parseInt(ymd[2]) - 1, parseInt(ymd[3]))
-  const d = new Date(str)
-  return isNaN(d.getTime()) ? null : d
-}
+  const trimmed = str.trim()
 
-function getTaxYearFromRows(rows: ParsedRow[]): string {
-  const counts: Record<string, number> = {}
-  for (const r of rows) {
-    const d = parseDonationDate(r.donationDate)
-    if (d) { const ty = getTaxYearForDate(d); counts[ty] = (counts[ty] || 0) + 1 }
+  // DD/MM/YYYY (UK standard) — validate ranges and reject silent rollovers
+  // (e.g. "31/02/2024" must not become "2 March 2024")
+  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (dmy) {
+    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10), year = parseInt(dmy[3], 10)
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d = new Date(year, month - 1, day)
+      if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
+    }
   }
-  if (!Object.keys(counts).length) return getTaxYearForDate(new Date())
-  return Object.entries(counts).reduce((a, b) => b[1] > a[1] ? b : a)[0]
+
+  // YYYY-MM-DD (ISO)
+  const ymd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (ymd) {
+    const year = parseInt(ymd[1], 10), month = parseInt(ymd[2], 10), day = parseInt(ymd[3], 10)
+    const d = new Date(year, month - 1, day)
+    if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
+  }
+
+  // Fallback — let JS attempt to parse directly (handles things like "6 April 2024")
+  const fallback = new Date(trimmed)
+  return isNaN(fallback.getTime()) ? null : fallback
 }
 
 function categoriseRow(row: Omit<ParsedRow, 'status' | 'missingFields'>): Pick<ParsedRow, 'status' | 'missingFields'> {
@@ -175,8 +184,10 @@ export default function AdminCharityDetail() {
       const { data: charityData, error: cErr } = await supabase.from('charities').select('id, name, contact_email, charity_number').eq('id', id).single()
       if (cErr) throw new Error(cErr.message)
       setCharity(charityData)
-      const { data: subData } = await supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year').eq('charity_id', id).order('submission_date', { ascending: false })
-      setSubmissions(subData || [])
+      const subData = await fetchAllRows<Submission>(() =>
+        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year').eq('charity_id', id).order('submission_date', { ascending: false })
+      )
+      setSubmissions(subData)
     } catch (e: any) { setPageError(e.message) } finally { setLoading(false) }
   }
 
@@ -213,40 +224,53 @@ export default function AdminCharityDetail() {
     try {
       setSubmitting(true); setSubmitError(null)
 
-      const validRows    = parsedRows.filter(r => r.status === 'valid')
-      const incompleteRows = parsedRows.filter(r => r.status === 'incomplete')
-      const optOutRows   = parsedRows.filter(r => r.status === 'opt_out')
+      // Compute each row's OWN tax year from its own donation date —
+      // never assume the whole batch shares one tax year.
+      const rowsWithTaxYear = parsedRows.map(r => {
+        const parsedDate = parseDonationDate(r.donationDate)
+        const computedTaxYear = parsedDate ? getTaxYearForDate(parsedDate) : getTaxYearForDate(new Date())
+        return { ...r, computedTaxYear }
+      })
 
-      const taxYear = getTaxYearFromRows(validRows.length ? validRows : parsedRows)
-      let submissionId: string | null = null
+      const validRows = rowsWithTaxYear.filter(r => r.status === 'valid')
 
-      // Create HMRC submission only if there are valid rows
-      if (validRows.length > 0) {
-        const totalDonations = validRows.reduce((s, r) => s + (r.amount ?? 0), 0)
+      // Group valid rows by tax year — one submission per tax year present
+      const byTaxYear: Record<string, typeof validRows> = {}
+      for (const row of validRows) {
+        if (!byTaxYear[row.computedTaxYear]) byTaxYear[row.computedTaxYear] = []
+        byTaxYear[row.computedTaxYear].push(row)
+      }
+
+      // Map of rowNum -> created submission id (valid rows only)
+      const submissionIdByRowNum: Record<number, string> = {}
+
+      for (const [taxYear, rows] of Object.entries(byTaxYear)) {
+        const totalDonations = rows.reduce((s, r) => s + (r.amount ?? 0), 0)
         const giftAid = Math.round(totalDonations * 0.25 * 100) / 100
 
         const { data: newSub, error: subErr } = await supabase.from('submissions').insert({
           charity_id: id, submission_date: new Date().toISOString().split('T')[0],
           tax_year: taxYear, amount_claimed: giftAid,
-          number_of_donations: validRows.length, status: 'pending',
+          number_of_donations: rows.length, status: 'pending',
         }).select('id').single()
         if (subErr || !newSub) throw new Error(subErr?.message || 'Failed to create submission')
-        submissionId = newSub.id
 
-        // Insert into donations table
+        for (const row of rows) submissionIdByRowNum[row.rowNum] = newSub.id
+
         await supabase.from('donations').insert(
-          validRows.map(r => ({
-            submission_id: submissionId, charity_id: id,
+          rows.map(r => ({
+            submission_id: newSub.id, charity_id: id,
             title: r.title || null, first_name: r.firstName, last_name: r.lastName,
             address: r.address, postcode: r.postcode, donation_date: r.donationDate, amount: r.amount,
           }))
         )
       }
 
-      // Save ALL rows to uploaded_records for insights
-      const allRecords = parsedRows.map(r => ({
+      // Save ALL rows to uploaded_records — each tagged with its OWN tax year,
+      // not a single batch-wide guess
+      const allRecords = rowsWithTaxYear.map(r => ({
         charity_id: id,
-        submission_id: r.status === 'valid' ? submissionId : null,
+        submission_id: submissionIdByRowNum[r.rowNum] ?? null,
         title: r.title || null,
         first_name: r.firstName || null,
         last_name: r.lastName || null,
@@ -256,7 +280,7 @@ export default function AdminCharityDetail() {
         amount: r.amount ?? null,
         gift_aid_opt_in: r.giftAidOptIn || null,
         record_status: r.status,
-        tax_year: taxYear,
+        tax_year: r.computedTaxYear,
       }))
       const { error: recErr } = await supabase.from('uploaded_records').insert(allRecords)
       if (recErr) throw new Error(recErr.message)
@@ -271,6 +295,15 @@ export default function AdminCharityDetail() {
   const validRows      = parsedRows.filter(r => r.status === 'valid')
   const incompleteRows = parsedRows.filter(r => r.status === 'incomplete')
   const optOutRows     = parsedRows.filter(r => r.status === 'opt_out')
+
+  // Each row's tax year is computed individually from its own donation date —
+  // a single upload can span multiple tax years and will create one submission per year.
+  const distinctTaxYears = [...new Set(
+    validRows.map(r => {
+      const d = parseDonationDate(r.donationDate)
+      return d ? getTaxYearForDate(d) : getTaxYearForDate(new Date())
+    })
+  )]
 
   if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
 
@@ -384,6 +417,12 @@ export default function AdminCharityDetail() {
                   </div>
                 ))}
               </div>
+            )}
+
+            {distinctTaxYears.length > 0 && (
+              <p className="text-xs text-gray-400 mb-4">
+                Valid rows span <span className="font-semibold text-brand-primary">{distinctTaxYears.length} tax year{distinctTaxYears.length !== 1 ? 's' : ''}</span> ({distinctTaxYears.sort().join(', ')}) — {distinctTaxYears.length > 1 ? 'one submission will be created per tax year.' : 'one submission will be created.'}
+              </p>
             )}
 
             {/* Valid rows preview */}
