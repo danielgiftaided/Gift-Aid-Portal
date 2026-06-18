@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate } from 'react-router-dom'
+import { fetchAllRows } from '../utils/fetchAll'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ComposedChart, Line, ResponsiveContainer, Legend
@@ -67,28 +68,32 @@ export default function AdminCharityInsights() {
       if (charity) setCharityName(charity.name)
 
       // Submissions
-      const { data: subData, error: subErr } = await supabase
-        .from('submissions')
-        .select('id, submission_date, status, amount_claimed, number_of_donations, tax_year')
-        .eq('charity_id', id)
-        .order('submission_date', { ascending: true })
-      if (subErr) throw new Error(subErr.message)
-      const subs = subData || []
+      const subs = await fetchAllRows<Submission>(() =>
+        supabase
+          .from('submissions')
+          .select('id, submission_date, status, amount_claimed, number_of_donations, tax_year')
+          .eq('charity_id', id)
+          .order('submission_date', { ascending: true })
+      )
       setSubmissions(subs)
 
       // Donations
       if (subs.length > 0) {
-        const { data: donData } = await supabase
-          .from('donations').select('amount, submission_id')
-          .in('submission_id', subs.map(s => s.id))
-        setDonations(donData || [])
+        const donData = await fetchAllRows<Donation>(() =>
+          supabase
+            .from('donations').select('amount, submission_id')
+            .in('submission_id', subs.map(s => s.id))
+        )
+        setDonations(donData)
       }
 
       // All uploaded records for this charity
-      const { data: recData } = await supabase
-        .from('uploaded_records').select('record_status, tax_year, amount')
-        .eq('charity_id', id)
-      setRecords(recData || [])
+      const recData = await fetchAllRows<UploadedRecord>(() =>
+        supabase
+          .from('uploaded_records').select('record_status, tax_year, amount')
+          .eq('charity_id', id)
+      )
+      setRecords(recData)
 
     } catch (e: any) { setError(e.message) } finally { setLoading(false) }
   }
