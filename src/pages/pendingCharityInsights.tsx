@@ -211,12 +211,11 @@ export default function PendingCharityInsights() {
               </div>
 
               {/* Summary strip */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {[
-                  { label: 'Total records staged',       value: String(totalRecords) },
-                  { label: 'Potential Gift Aid value',   value: fmt(potentialGiftAid) },
-                  { label: 'Avg Gift Aid / donor',       value: validRecords.length > 0 ? fmt(avgGiftAidPerDonor) : '—' },
-                  { label: 'Potential missed Gift Aid',  value: missedRecords.length > 0 ? fmt(potentialMissedGiftAid) : '—' },
+                  { label: 'Total records staged',  value: String(totalRecords) },
+                  { label: 'Gift Aid Claimed',       value: fmt(potentialGiftAid) },
+                  { label: 'Avg Gift Aid / donor',   value: validRecords.length > 0 ? fmt(avgGiftAidPerDonor) : '—' },
                 ].map(c => (
                   <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
                     <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
@@ -228,9 +227,9 @@ export default function PendingCharityInsights() {
               {/* Headline record breakdown */}
               <div className="grid grid-cols-3 gap-4">
                 {[
-                  { label: 'Valid for Gift Aid', value: validRecords.length,      sub: 'Will be submitted to HMRC',  border: 'border-brand-accent', text: 'text-brand-accent' },
-                  { label: 'Incomplete records', value: incompleteRecords.length, sub: 'Missing mandatory fields',   border: 'border-yellow-400',   text: 'text-yellow-600' },
-                  { label: 'Gift Aid opt outs',  value: optOutRecords.length,     sub: 'Opted out — won\'t be claimed', border: 'border-gray-300',  text: 'text-gray-500' },
+                  { label: 'Records Claimed',    value: validRecords.length,      sub: 'Submitted to HMRC and claimed', border: 'border-brand-accent', text: 'text-brand-accent' },
+                  { label: 'Incomplete records', value: incompleteRecords.length, sub: 'Missing mandatory fields',      border: 'border-yellow-400',   text: 'text-yellow-600' },
+                  { label: 'Gift Aid opt outs',  value: optOutRecords.length,     sub: 'Opted out — won\'t be claimed', border: 'border-gray-300',    text: 'text-gray-500' },
                 ].map(c => (
                   <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.border}`}>
                     <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
@@ -273,34 +272,6 @@ export default function PendingCharityInsights() {
                       <Bar dataKey="giftAid" name="Potential Gift Aid" fill={NAVY} radius={[4, 4, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
-                </div>
-              )}
-
-              {/* Incomplete rows detail */}
-              {incompleteRecords.length > 0 && (
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
-                  <h2 className="font-semibold text-brand-primary mb-1">Incomplete Records</h2>
-                  <p className="text-xs text-gray-400 mb-4">These rows are missing mandatory fields and won't be submitted to HMRC until corrected</p>
-                  <div className="overflow-x-auto border border-gray-100 rounded-lg">
-                    <table className="min-w-full divide-y divide-gray-100 text-sm">
-                      <thead className="bg-gray-50"><tr>
-                        {['Name', 'Postcode', 'Date', 'Amount'].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">{h}</th>)}
-                      </tr></thead>
-                      <tbody className="divide-y divide-gray-50">
-                        {incompleteRecords.slice(0, 10).map(r => (
-                          <tr key={r.id}>
-                            <td className="px-3 py-2">{[r.title, r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
-                            <td className="px-3 py-2">{r.postcode ? r.postcode.toUpperCase() : '—'}</td>
-                            <td className="px-3 py-2 whitespace-nowrap">{formatUkDate(r.donation_date)}</td>
-                            <td className="px-3 py-2">{r.amount ? `£${parseFloat(String(r.amount)).toFixed(2)}` : '—'}</td>
-                          </tr>
-                        ))}
-                        {incompleteRecords.length > 10 && (
-                          <tr><td colSpan={4} className="px-3 py-2 text-center text-gray-300 text-xs italic">… and {incompleteRecords.length - 10} more</td></tr>
-                        )}
-                      </tbody>
-                    </table>
-                  </div>
                 </div>
               )}
 
