@@ -33,8 +33,6 @@ function PageShapes() {
 const TEAL = '#0c745d'
 const NAVY = '#304675'
 const WARM = '#e8e4db'
-const AMBER = '#f59e0b'
-const SLATE = '#94a3b8'
 
 function fmt(val: number) {
   return `£${val.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -176,14 +174,11 @@ export default function Insights() {
   const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
   const totalRecords   = records.length
 
-  // Record breakdown by tax year
-  const taxYears = [...new Set(records.map(r => effectiveTaxYear(r)))].sort()
-  const recordsByYear = taxYears.map(ty => ({
-    taxYear: ty,
-    valid:      records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'valid').length,
-    incomplete: records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'incomplete').length,
-    optOut:     records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'opt_out').length,
-  }))
+  // Potential Gift Aid that ISN'T being captured — combines incomplete records
+  // (missing data, fixable) and opt-outs (donor declined) into one figure
+  const missedRecords = records.filter(r => r.record_status === 'incomplete' || r.record_status === 'opt_out')
+  const missedDonationValue = missedRecords.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
+  const potentialMissedGiftAid = missedDonationValue * 0.25
 
   if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
 
@@ -222,10 +217,10 @@ export default function Insights() {
               {/* Summary strip */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: 'Tax years on record',      value: String(byTaxYear.length) },
-                  { label: 'Total submissions',         value: String(submissions.length) },
-                  { label: 'Avg Gift Aid / submission', value: submissions.length ? fmt(overallAvg) : '—' },
-                  { label: 'Avg Gift Aid / donor',      value: totalDonorCount > 0 ? fmt(avgGiftAidPerDonor) : '—' },
+                  { label: 'Total submissions',          value: String(submissions.length) },
+                  { label: 'Avg Gift Aid / submission',  value: submissions.length ? fmt(overallAvg) : '—' },
+                  { label: 'Avg Gift Aid / donor',        value: totalDonorCount > 0 ? fmt(avgGiftAidPerDonor) : '—' },
+                  { label: 'Potential missed Gift Aid',   value: missedRecords.length > 0 ? fmt(potentialMissedGiftAid) : '—' },
                 ].map(c => (
                   <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
                     <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
@@ -322,24 +317,21 @@ export default function Insights() {
                     ))}
                   </div>
 
-                  {/* Record breakdown by tax year */}
-                  {recordsByYear.length > 0 && (
-                    <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
-                      <h2 className="font-semibold text-brand-primary mb-1">Record Breakdown by Tax Year</h2>
-                      <p className="text-xs text-gray-400 mb-6">Valid, incomplete and opt-out records across each tax year</p>
-                      <ResponsiveContainer width="100%" height={280}>
-                        <BarChart data={recordsByYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                          <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                          <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                          <Tooltip content={<GBPTooltip />} />
-                          <Legend wrapperStyle={{ fontSize: 12 }} />
-                          <Bar dataKey="valid"      name="Valid"      fill={TEAL}  radius={[3, 3, 0, 0]} stackId="a" />
-                          <Bar dataKey="incomplete" name="Incomplete" fill={AMBER} radius={[0, 0, 0, 0]} stackId="a" />
-                          <Bar dataKey="optOut"     name="Opt out"   fill={SLATE} radius={[3, 3, 0, 0]} stackId="a" />
-                        </BarChart>
-                      </ResponsiveContainer>
-                      <p className="text-xs text-gray-300 mt-3 text-center">Bars are stacked — teal = valid, amber = incomplete, grey = opt out</p>
+                  {/* Potential missed Gift Aid — incomplete + opt-out combined */}
+                  {missedRecords.length > 0 && (
+                    <div className="bg-white rounded-xl border-l-4 border-amber-400 border-t border-r border-b border-gray-100 shadow-sm p-6">
+                      <div className="flex flex-wrap items-start justify-between gap-4">
+                        <div>
+                          <h2 className="font-semibold text-brand-primary mb-1">Potential Missed Gift Aid</h2>
+                          <p className="text-xs text-gray-400 max-w-md">
+                            Gift Aid value not currently being captured — combining donations with incomplete data and donors who opted out.
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-2xl font-bold text-amber-600">{fmt(potentialMissedGiftAid)}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{missedRecords.length} record{missedRecords.length !== 1 ? 's' : ''} ({incompleteCount} incomplete, {optOutCount} opted out)</p>
+                        </div>
+                      </div>
                     </div>
                   )}
                 </>
