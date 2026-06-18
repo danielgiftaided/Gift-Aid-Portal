@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
 
 interface PendingRecord {
@@ -37,7 +37,7 @@ function PageShapes() {
   )
 }
 
-const TEAL = '#0c745d'; const AMBER = '#f59e0b'; const SLATE = '#94a3b8'; const NAVY = '#304675'
+const NAVY = '#304675'
 
 function fmt(v: number) { return `£${v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 
@@ -149,20 +149,30 @@ export default function PendingCharityInsights() {
   const potentialGiftAid   = totalDonationValue * 0.25
   const avgGiftAidPerDonor = validRecords.length > 0 ? potentialGiftAid / validRecords.length : 0
 
-  const taxYears = [...new Set(records.map(r => effectiveTaxYear(r)))].sort()
+  // Potential Gift Aid that ISN'T being captured — combines incomplete records
+  // (missing data, fixable) and opt-outs (donor declined) into one figure
+  const missedRecords = [...incompleteRecords, ...optOutRecords]
+  const missedDonationValue = missedRecords.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
+  const potentialMissedGiftAid = missedDonationValue * 0.25
 
-  const recordsByYear = taxYears.map(ty => ({
-    taxYear: ty,
-    valid:      records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'valid').length,
-    incomplete: records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'incomplete').length,
-    optOut:     records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'opt_out').length,
-  }))
+  const taxYears = [...new Set(records.map(r => effectiveTaxYear(r)))].sort()
 
   const giftAidByYear = taxYears.map(ty => {
     const yearValid = validRecords.filter(r => effectiveTaxYear(r) === ty)
     const yearTotal = yearValid.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
     return { taxYear: ty, giftAid: Math.round(yearTotal * 0.25 * 100) / 100 }
   })
+
+  // Formats a raw donation date string as UK short date DD/MM/YYYY
+  function formatUkDate(raw: string | null): string {
+    if (!raw) return '—'
+    const parsed = parseDonationDate(raw)
+    if (!parsed) return raw // show the original text if it couldn't be parsed
+    const dd = String(parsed.getDate()).padStart(2, '0')
+    const mm = String(parsed.getMonth() + 1).padStart(2, '0')
+    const yyyy = parsed.getFullYear()
+    return `${dd}/${mm}/${yyyy}`
+  }
 
   if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
 
@@ -203,10 +213,10 @@ export default function PendingCharityInsights() {
               {/* Summary strip */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 {[
-                  { label: 'Total records staged',      value: String(totalRecords) },
-                  { label: 'Potential Gift Aid value',  value: fmt(potentialGiftAid) },
-                  { label: 'Avg Gift Aid / donor',      value: validRecords.length > 0 ? fmt(avgGiftAidPerDonor) : '—' },
-                  { label: 'Tax years represented',     value: String(taxYears.length) },
+                  { label: 'Total records staged',       value: String(totalRecords) },
+                  { label: 'Potential Gift Aid value',   value: fmt(potentialGiftAid) },
+                  { label: 'Avg Gift Aid / donor',       value: validRecords.length > 0 ? fmt(avgGiftAidPerDonor) : '—' },
+                  { label: 'Potential missed Gift Aid',  value: missedRecords.length > 0 ? fmt(potentialMissedGiftAid) : '—' },
                 ].map(c => (
                   <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
                     <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
@@ -231,23 +241,21 @@ export default function PendingCharityInsights() {
                 ))}
               </div>
 
-              {/* Record breakdown by tax year */}
-              {recordsByYear.length > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
-                  <h2 className="font-semibold text-brand-primary mb-1">Record Breakdown by Tax Year</h2>
-                  <p className="text-xs text-gray-400 mb-6">Valid, incomplete and opt-out records across each tax year represented in the staged data</p>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={recordsByYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <Tooltip content={<ChartTooltip />} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="valid"      name="Valid"      fill={TEAL}  stackId="a" radius={[0,0,0,0]} />
-                      <Bar dataKey="incomplete" name="Incomplete" fill={AMBER} stackId="a" radius={[0,0,0,0]} />
-                      <Bar dataKey="optOut"     name="Opt out"   fill={SLATE} stackId="a" radius={[3,3,0,0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
+              {/* Potential missed Gift Aid — incomplete + opt-out combined */}
+              {missedRecords.length > 0 && (
+                <div className="bg-white rounded-xl border-l-4 border-amber-400 border-t border-r border-b border-gray-100 shadow-sm p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h2 className="font-semibold text-brand-primary mb-1">Potential Missed Gift Aid</h2>
+                      <p className="text-xs text-gray-400 max-w-md">
+                        Gift Aid value not currently being captured — combining donations with incomplete data and donors who opted out. Fixing incomplete records could recover some of this.
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold text-amber-600">{fmt(potentialMissedGiftAid)}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{missedRecords.length} record{missedRecords.length !== 1 ? 's' : ''} ({incompleteRecords.length} incomplete, {optOutRecords.length} opted out)</p>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -282,8 +290,8 @@ export default function PendingCharityInsights() {
                         {incompleteRecords.slice(0, 10).map(r => (
                           <tr key={r.id}>
                             <td className="px-3 py-2">{[r.title, r.first_name, r.last_name].filter(Boolean).join(' ') || '—'}</td>
-                            <td className="px-3 py-2">{r.postcode || '—'}</td>
-                            <td className="px-3 py-2 whitespace-nowrap">{r.donation_date || '—'}</td>
+                            <td className="px-3 py-2">{r.postcode ? r.postcode.toUpperCase() : '—'}</td>
+                            <td className="px-3 py-2 whitespace-nowrap">{formatUkDate(r.donation_date)}</td>
                             <td className="px-3 py-2">{r.amount ? `£${parseFloat(String(r.amount)).toFixed(2)}` : '—'}</td>
                           </tr>
                         ))}
