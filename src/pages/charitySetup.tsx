@@ -6,12 +6,12 @@ export default function CharitySetup() {
   const [name, setName] = useState("");
   const [contactEmail, setContactEmail] = useState("");
   const [charityNumber, setCharityNumber] = useState("");
+  const [authorisedOfficialName, setAuthorisedOfficialName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
-    // Pre-fill email from session if available — no redirect on failure
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user?.email) {
         setContactEmail(session.user.email);
@@ -26,14 +26,22 @@ export default function CharitySetup() {
 
       const cleanName = name.trim();
       const cleanEmail = contactEmail.trim();
-      const cleanCharityNumber = charityNumber.trim();
+      const cleanCharityNumber = charityNumber.trim().toUpperCase();
+      const cleanOfficialName = authorisedOfficialName.trim();
 
       if (!cleanName) throw new Error("Charity name is required");
       if (!cleanEmail) throw new Error("Contact email is required");
-      if (!cleanCharityNumber) throw new Error("Registered charity number is required");
+      if (!cleanCharityNumber) throw new Error("HMRC Charities reference is required");
+      if (!cleanOfficialName) throw new Error("Authorised Official's name is required");
 
-      if (!/^[A-Za-z0-9]+$/.test(cleanCharityNumber)) {
-        throw new Error("Charity number must contain only letters and numbers (no spaces).");
+      // HMRC's actual Charities Online reference format: 1-2 letters
+      // followed by 1-5 numbers, e.g. "AB12345" — this is NOT the same as
+      // a Charity Commission registration number (which is numeric only).
+      if (!/^[A-Z]{1,2}[0-9]{1,5}$/.test(cleanCharityNumber)) {
+        throw new Error('Charity reference must be 1-2 letters followed by 1-5 numbers (e.g. "AB12345") — this is your HMRC Gift Aid reference, not your Charity Commission number.');
+      }
+      if (/\/(0|1|2)$/.test(cleanCharityNumber)) {
+        throw new Error("Charity reference cannot end in /0, /1 or /2 — HMRC no longer accepts these sub-fund suffixes.");
       }
 
       const { data } = await supabase.auth.getSession();
@@ -53,10 +61,19 @@ export default function CharitySetup() {
           name: cleanName,
           contact_email: cleanEmail,
           charity_number: cleanCharityNumber,
+          authorised_official_name: cleanOfficialName,
         }),
       });
 
-      const json = await res.json();
+      // Read as text first so we can diagnose non-JSON responses
+      const text = await res.text();
+      let json: any;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        throw new Error(`Server returned unexpected response (HTTP ${res.status}): ${text.substring(0, 200)}`);
+      }
+
       if (!res.ok || !json.ok) {
         throw new Error(json?.error || "Failed to set up charity");
       }
@@ -78,7 +95,7 @@ export default function CharitySetup() {
         </p>
 
         {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4">
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded mb-4 text-xs break-all">
             {error}
           </div>
         )}
@@ -108,18 +125,33 @@ export default function CharitySetup() {
         />
 
         <label className="block text-sm font-medium mb-1">
-          Registered charity number <span className="text-red-600">*</span>
+          HMRC Charities (Gift Aid) reference <span className="text-red-600">*</span>
         </label>
         <input
           className="w-full border rounded px-3 py-2"
           value={charityNumber}
           onChange={(e) => setCharityNumber(e.target.value)}
-          placeholder="e.g. 328158 or AA12345"
+          placeholder="e.g. AB12345"
           autoComplete="off"
           disabled={loading}
         />
         <div className="text-xs text-gray-500 mt-2 mb-4">
-          Letters and numbers only — this becomes your HMRC CHARID for Gift Aid submissions.
+          1-2 letters followed by 1-5 numbers, issued by HMRC specifically for Gift Aid claims — this is different from your Charity Commission registration number, which is numeric only.
+        </div>
+
+        <label className="block text-sm font-medium mb-1">
+          Authorised Official's full name <span className="text-red-600">*</span>
+        </label>
+        <input
+          className="w-full border rounded px-3 py-2"
+          value={authorisedOfficialName}
+          onChange={(e) => setAuthorisedOfficialName(e.target.value)}
+          placeholder="e.g. Jane Smith"
+          autoComplete="off"
+          disabled={loading}
+        />
+        <div className="text-xs text-gray-500 mt-2 mb-4">
+          The person HMRC recognises as authorised to act for this charity. You can update this later from your profile if it changes.
         </div>
 
         <button
