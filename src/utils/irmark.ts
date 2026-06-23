@@ -17,20 +17,29 @@
  *      needed if you want a human-readable value to display somewhere —
  *      it is NOT what gets submitted to HMRC.
  *
- * IMPORTANT: requires a real XML canonicalisation (C14N) library — do not
- * attempt to hand-roll this. Install one before using this module, e.g.:
- *   npm install xml-c14n
+ * CANONICALISATION LIBRARY: uses `xml-crypto`'s C14nCanonicalization class,
+ * which implements the exact spec URI HMRC references
+ * (http://www.w3.org/TR/2001/REC-xml-c14n-20010315) — NOT "exclusive"
+ * canonicalisation (xml-exc-c14n), which is a different algorithm with
+ * different namespace handling and would silently produce a wrong IRmark.
+ * Several popular npm packages (e.g. `xml-c14n`) only implement the
+ * exclusive variant, so this was deliberately checked before choosing a
+ * library.
  *
- * This file deliberately keeps the canonicalisation step pluggable via the
- * `canonicalise` parameter so it can be swapped for whichever C14N
- * implementation ends up working reliably against HMRC's LTS responses —
- * in practice it's worth validating this against the example XML files HMRC
- * publishes (full submission / canonical payload / response) until the
- * computed IRmark matches their worked example exactly, before trusting it
- * against real submissions.
+ * Install before use:
+ *   npm install xml-crypto @xmldom/xmldom
+ *
+ * VALIDATION STATUS: this has been smoke-tested (it runs, and produces a
+ * deterministic SHA-1/Base64 value) but has NOT been validated against
+ * HMRC's own published worked example. That file isn't reachable from this
+ * environment's network — see verify-irmark.mjs (provided alongside this
+ * file) to run that check yourself before trusting this against a real
+ * submission.
  */
 
 import { createHash } from 'crypto'
+import { DOMParser } from '@xmldom/xmldom'
+import { C14nCanonicalization } from 'xml-crypto'
 
 export interface IrmarkResult {
   /** Base64-encoded SHA-1 digest — this is what goes in <IRmark>. */
@@ -83,6 +92,13 @@ export function extractBodyForIrmark(fullGovTalkXml: string): string {
   return withInheritedNamespaces.replace(/<IRmark\b[^>]*>[\s\S]*?<\/IRmark>/, '')
 }
 
+/** Canonicalises an XML string per W3C XML-C14N (REC-xml-c14n-20010315). */
+function canonicalise(xml: string): string {
+  const doc = new DOMParser().parseFromString(xml, 'text/xml')
+  const c14n = new C14nCanonicalization()
+  return c14n.process(doc.documentElement as any)
+}
+
 /**
  * Computes the IRmark for a given full GovTalkMessage XML string.
  *
@@ -90,31 +106,15 @@ export function extractBodyForIrmark(fullGovTalkXml: string): string {
  *                         placeholder <IRmark> element already present in
  *                         the position it will occupy in the real submission
  *                         (its content will be stripped before hashing).
- * @param canonicalise     A function implementing W3C XML-C14N canonical-
- *                         isation. Inject this rather than hard-coding a
- *                         library here, since the right npm package may
- *                         need to be chosen/validated against HMRC's worked
- *                         examples first.
  */
-export function generateIrmark(
-  fullGovTalkXml: string,
-  canonicalise: (xml: string) => string | Promise<string>
-): Promise<IrmarkResult> | IrmarkResult {
+export function generateIrmark(fullGovTalkXml: string): IrmarkResult {
   const bodyForHashing = extractBodyForIrmark(fullGovTalkXml)
   const canonical = canonicalise(bodyForHashing)
-
-  const finish = (canonicalXml: string): IrmarkResult => {
-    const hash = createHash('sha1').update(canonicalXml, 'utf8').digest()
-    return {
-      base64: hash.toString('base64'),
-      base32: toBase32(hash),
-    }
+  const hash = createHash('sha1').update(canonical, 'utf8').digest()
+  return {
+    base64: hash.toString('base64'),
+    base32: toBase32(hash),
   }
-
-  if (canonical instanceof Promise) {
-    return canonical.then(finish)
-  }
-  return finish(canonical)
 }
 
 /** Minimal RFC 4648 Base32 encoder (no padding stripped) — display only. */
