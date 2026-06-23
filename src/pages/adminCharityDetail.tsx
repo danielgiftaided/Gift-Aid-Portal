@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { fetchAllRows } from '../utils/fetchAll'
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null }
-interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string }
+interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null }
 
 interface ParsedRow {
   rowNum: number
@@ -173,6 +173,9 @@ export default function AdminCharityDetail() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [buildingId, setBuildingId] = useState<string | null>(null)
+  const [buildResult, setBuildResult] = useState<{ submissionId: string; ok: boolean; message: string; errors?: string[]; warnings?: string[] } | null>(null)
+  const [viewingXmlFor, setViewingXmlFor] = useState<Submission | null>(null)
 
   useEffect(() => { if (id) loadData() }, [id])
 
@@ -185,7 +188,7 @@ export default function AdminCharityDetail() {
       if (cErr) throw new Error(cErr.message)
       setCharity(charityData)
       const subData = await fetchAllRows<Submission>(() =>
-        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year').eq('charity_id', id).order('submission_date', { ascending: false })
+        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml').eq('charity_id', id).order('submission_date', { ascending: false })
       )
       setSubmissions(subData)
     } catch (e: any) { setPageError(e.message) } finally { setLoading(false) }
@@ -206,6 +209,57 @@ export default function AdminCharityDetail() {
     if (error) setPageError(error.message)
     else setSubmissions(prev => prev.filter(s => s.id !== submissionId))
     setDeletingId(null)
+  }
+
+  const handleBuildClaim = async (submissionId: string) => {
+    setBuildingId(submissionId)
+    setBuildResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setPageError('Your session has expired — please refresh and log in again.'); return }
+
+      const resp = await fetch('/api/admin/submitClaim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ submission_id: submissionId }),
+      })
+      const json = await resp.json()
+
+      if (!resp.ok) {
+        setBuildResult({ submissionId, ok: false, message: json.error || 'Failed to build claim', errors: json.errors || [] })
+      } else {
+        setBuildResult({ submissionId, ok: true, message: json.message, warnings: json.warnings || [] })
+      }
+      await loadData() // refresh to pick up the new hmrc_status / hmrc_claim_xml
+    } catch (e: any) {
+      setBuildResult({ submissionId, ok: false, message: e.message, errors: [] })
+    } finally {
+      setBuildingId(null)
+    }
+  }
+
+  function hmrcStatusBadge(status: string) {
+    const styles: Record<string, string> = {
+      not_submitted: 'bg-gray-100 text-gray-500',
+      validation_failed: 'bg-red-100 text-red-700',
+      ready_to_send: 'bg-blue-100 text-blue-700',
+      sent: 'bg-amber-100 text-amber-700',
+      polling: 'bg-amber-100 text-amber-700',
+      accepted: 'bg-green-100 text-green-700',
+      rejected: 'bg-red-100 text-red-700',
+      error: 'bg-red-100 text-red-700',
+    }
+    const labels: Record<string, string> = {
+      not_submitted: 'Not built',
+      validation_failed: 'Validation failed',
+      ready_to_send: 'Ready to send',
+      sent: 'Sent',
+      polling: 'Awaiting response',
+      accepted: 'Accepted',
+      rejected: 'Rejected',
+      error: 'Error',
+    }
+    return <span className={`text-xs font-semibold px-2 py-1 rounded ${styles[status] || 'bg-gray-100 text-gray-500'}`}>{labels[status] || status}</span>
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -359,12 +413,23 @@ export default function AdminCharityDetail() {
           {/* Submissions table */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-50"><h2 className="font-semibold text-brand-primary">Submissions</h2></div>
+            {buildResult && (
+              <div className={`px-6 py-3 text-sm ${buildResult.ok ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
+                <p className="font-medium">{buildResult.message}</p>
+                {buildResult.errors && buildResult.errors.length > 0 && (
+                  <ul className="list-disc list-inside mt-1 text-xs">{buildResult.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+                )}
+                {buildResult.warnings && buildResult.warnings.length > 0 && (
+                  <ul className="list-disc list-inside mt-1 text-xs">{buildResult.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
+                )}
+              </div>
+            )}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-50">
-                <thead><tr className="bg-gray-50/50">{['Date','Tax Year','Amount','Donations','Status','HMRC Ref','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>)}</tr></thead>
+                <thead><tr className="bg-gray-50/50">{['Date','Tax Year','Amount','Donations','Status','HMRC Ref','HMRC Claim','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>)}</tr></thead>
                 <tbody className="divide-y divide-gray-50">
                   {submissions.length === 0 ? (
-                    <tr><td colSpan={7} className="px-4 py-8 text-center text-gray-300">No submissions yet</td></tr>
+                    <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-300">No submissions yet</td></tr>
                   ) : submissions.map(s => (
                     <tr key={s.id} className="hover:bg-brand-surface/40 cursor-pointer transition-colors"
                       onClick={() => navigate(`/submissions/${s.id}`, { state: { backUrl: `/admin/charities/${id}` } })}>
@@ -381,9 +446,23 @@ export default function AdminCharityDetail() {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-400 font-mono whitespace-nowrap">{s.hmrc_reference || '—'}</td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
-                          {deletingId === s.id ? 'Deleting…' : 'Delete'}
-                        </button>
+                        {hmrcStatusBadge(s.hmrc_status || 'not_submitted')}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center gap-3">
+                          <button onClick={() => handleBuildClaim(s.id)} disabled={buildingId === s.id}
+                            className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40">
+                            {buildingId === s.id ? 'Building…' : 'Build HMRC Claim'}
+                          </button>
+                          {s.hmrc_claim_xml && (
+                            <button onClick={() => setViewingXmlFor(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
+                              View XML
+                            </button>
+                          )}
+                          <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
+                            {deletingId === s.id ? 'Deleting…' : 'Delete'}
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -482,6 +561,37 @@ export default function AdminCharityDetail() {
           </div>
         </div>
       </div>
+
+      {/* HMRC claim XML viewer */}
+      {viewingXmlFor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-brand-primary">HMRC Claim XML</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Submission {viewingXmlFor.tax_year} — {hmrcStatusBadge(viewingXmlFor.hmrc_status || 'not_submitted')}
+                </p>
+              </div>
+              <button onClick={() => setViewingXmlFor(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6">
+              <p className="text-xs text-gray-400 mb-3">
+                Select all (Ctrl/Cmd+A) and copy this into a plain text editor, save it with a .xml extension, then upload it through your Local Test Service page to validate it against HMRC's real schema.
+              </p>
+              <textarea
+                readOnly
+                value={viewingXmlFor.hmrc_claim_xml || ''}
+                className="w-full h-96 font-mono text-xs border border-gray-200 rounded-lg p-3 bg-gray-50"
+                onClick={(e) => (e.target as HTMLTextAreaElement).select()}
+              />
+              {viewingXmlFor.hmrc_response_message && (
+                <p className="text-xs text-amber-600 mt-3">{viewingXmlFor.hmrc_response_message}</p>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
