@@ -40,7 +40,8 @@ export interface GiftAidDonor {
   houseNameOrNumber: string
   postcode?: string      // required for UK residents
   overseas?: boolean     // set true for non-UK residents (then postcode omitted, full address in house field)
-  aggregated?: boolean   // true if this row represents aggregated small donations (<=£20 each, max £1000/line)
+  donationDate: string   // ccyy-mm-dd — confirmed mandatory by LTS validation, positioned right after donor/sponsored
+  aggregated?: boolean   // true if this row represents aggregated small donations (<=£20 each, max £1000/line) — UNVERIFIED position, see note in buildGadElement
   aggregatedDescription?: string
   sponsoredEvent?: boolean
   amount: number         // always 2dp; if <£10 still needs a leading zero e.g. 9.99
@@ -96,11 +97,15 @@ function buildDonorElement(d: GiftAidDonor): string {
 
 function buildGadElement(d: GiftAidDonor): string {
   const inner: string[] = [buildDonorElement(d)]
-  if (d.sponsoredEvent) inner.push(`<SponsoredEventInd>yes</SponsoredEventInd>`)
-  if (d.aggregated) {
-    inner.push(`<AggregatedDonations>${escapeXml(d.aggregatedDescription || '')}</AggregatedDonations>`)
-  }
+  // Confirmed order by LTS schema validation: Donor -> [Sponsored] -> Date -> Total
+  if (d.sponsoredEvent) inner.push(`<Sponsored>yes</Sponsored>`)
+  inner.push(`<Date>${d.donationDate}</Date>`)
   inner.push(`<Total>${formatAmount(d.amount)}</Total>`)
+  // NOTE: aggregated-donation handling removed here pending schema
+  // verification — LTS only told us about the Sponsored/Date/Total
+  // sequence since none of our real test data used aggregation yet.
+  // Do not re-add <AggregatedDonations> without checking its real
+  // position against the actual XSD first.
   return `<GAD>${inner.join('')}</GAD>`
 }
 
@@ -137,7 +142,6 @@ export function buildR68Submission(
 <Qualifier>request</Qualifier>
 <Function>submit</Function>
 ${gatewayTestElement}
-<GatewayTimestamp></GatewayTimestamp>
 </MessageDetails>
 <SenderDetails>
 <IDAuthentication>
