@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { fetchAllRows } from '../utils/fetchAll'
 
-interface Charity { id: string; name: string; contact_email: string; charity_number: string | null }
+interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; agent_nominee_reference: string | null }
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null }
 
 interface ParsedRow {
@@ -176,6 +176,9 @@ export default function AdminCharityDetail() {
   const [buildingId, setBuildingId] = useState<string | null>(null)
   const [buildResult, setBuildResult] = useState<{ submissionId: string; ok: boolean; message: string; errors?: string[]; warnings?: string[] } | null>(null)
   const [viewingXmlFor, setViewingXmlFor] = useState<Submission | null>(null)
+  const [agentRefInput, setAgentRefInput] = useState('')
+  const [savingAgentRef, setSavingAgentRef] = useState(false)
+  const [agentRefSaved, setAgentRefSaved] = useState(false)
 
   useEffect(() => { if (id) loadData() }, [id])
 
@@ -184,9 +187,10 @@ export default function AdminCharityDetail() {
       setPageError(null)
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { navigate('/login'); return }
-      const { data: charityData, error: cErr } = await supabase.from('charities').select('id, name, contact_email, charity_number').eq('id', id).single()
+      const { data: charityData, error: cErr } = await supabase.from('charities').select('id, name, contact_email, charity_number, agent_nominee_reference').eq('id', id).single()
       if (cErr) throw new Error(cErr.message)
       setCharity(charityData)
+      setAgentRefInput(charityData?.agent_nominee_reference || '')
       const subData = await fetchAllRows<Submission>(() =>
         supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml').eq('charity_id', id).order('submission_date', { ascending: false })
       )
@@ -200,6 +204,21 @@ export default function AdminCharityDetail() {
     if (error) setPageError(error.message)
     else setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: newStatus } : s))
     setUpdatingId(null)
+  }
+
+  const handleSaveAgentRef = async () => {
+    setSavingAgentRef(true)
+    setAgentRefSaved(false)
+    const trimmed = agentRefInput.trim()
+    const { error } = await supabase.from('charities').update({ agent_nominee_reference: trimmed || null }).eq('id', id)
+    if (error) {
+      setPageError(error.message)
+    } else {
+      setCharity(prev => prev ? { ...prev, agent_nominee_reference: trimmed || null } : prev)
+      setAgentRefSaved(true)
+      setTimeout(() => setAgentRefSaved(false), 3000)
+    }
+    setSavingAgentRef(false)
   }
 
   const handleDelete = async (submissionId: string) => {
@@ -388,6 +407,28 @@ export default function AdminCharityDetail() {
               View Insights
             </button>
           </div>
+
+          {/* HMRC Agent/Nominee reference — specific to this charity's relationship with HMRC */}
+          <div className="mt-4 bg-white rounded-lg border border-gray-100 px-4 py-3 flex items-end gap-3 max-w-md">
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">HMRC Agent/Nominee Reference</label>
+              <input
+                type="text"
+                value={agentRefInput}
+                onChange={e => setAgentRefInput(e.target.value)}
+                placeholder="Not yet received from HMRC"
+                className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+              />
+            </div>
+            <button
+              onClick={handleSaveAgentRef}
+              disabled={savingAgentRef}
+              className="text-sm font-semibold text-brand-accent hover:text-brand-primary disabled:opacity-40 pb-1.5"
+            >
+              {savingAgentRef ? 'Saving…' : agentRefSaved ? 'Saved ✓' : 'Save'}
+            </button>
+          </div>
+          <p className="text-xs text-gray-300 mt-1">This is specific to Gift Aided's relationship with this charity — different for every charity, issued by HMRC separately each time.</p>
         </div>
 
         <div className="max-w-4xl mx-auto px-6 pb-12 space-y-6">
