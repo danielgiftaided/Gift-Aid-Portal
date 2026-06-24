@@ -11,13 +11,25 @@
  *
  * KNOWN GAPS this file surfaces (flagged, not silently worked around):
  *
- * 1. Authorised Official name (<OffName>) is mandatory on every claim, but
- *    nothing in the current charity setup/profile flow captures it. This
- *    needs adding as a field on the charities table and on the
+ * 1. Authorised Official name is mandatory on every claim, but nothing in
+ *    the current charity setup/profile flow captures it. This needs
+ *    adding as a field on the charities table and on the
  *    charitySetup.tsx / charityProfile.tsx forms before this can run for
  *    real — see `authorisedOfficialName` parameter below, currently passed
  *    in rather than read from the charity row, precisely because it
- *    doesn't exist there yet.
+ *    didn't exist there yet (this has since been added — see
+ *    charitySetup.tsx / charityProfile.tsx).
+ *
+ *    IMPORTANT — confirmed wrong by real LTS validation: the Claim-level
+ *    element for this is NOT simply <OffName> as r68XmlBuilder.ts
+ *    currently renders it. LTS's schema validator expects one of
+ *    {WelshSubmission, CollAgent, AuthOfficial, AgtOrNom} at that position
+ *    instead — meaning the correct element is almost certainly
+ *    <AuthOfficial>, very possibly with its own sub-structure (e.g.
+ *    separate Fore/Sur name parts, similar to <Donor>) rather than a
+ *    single string. This has NOT yet been fixed, since guessing the exact
+ *    correct structure risks more wasted LTS round-trips — the actual XSD
+ *    file in RIMArtefacts should be checked directly before changing this.
  *
  * 2. The existing charity_number validation (in api/charity/setup.ts) only
  *    checks for 3-30 alphanumeric characters. HMRC's actual format is much
@@ -65,6 +77,7 @@ export interface DonationRow {
   last_name: string | null
   address: string | null
   postcode: string | null
+  donation_date: string | null
   amount: number | null
 }
 
@@ -91,6 +104,30 @@ export function validateHmrcCharityReference(reference: string): string | null {
 }
 
 /**
+ * Parses a UK-format donation date (DD/MM/YYYY, as stored throughout this
+ * codebase) into the ccyy-mm-dd format the R68 schema requires, with the
+ * same range validation and rollover rejection used elsewhere — confirmed
+ * mandatory by real LTS schema validation (see r68XmlBuilder.ts).
+ */
+function parseAndFormatDonationDate(raw: string): string | null {
+  const trimmed = raw.trim()
+  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  if (dmy) {
+    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10), year = parseInt(dmy[3], 10)
+    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+      const d = new Date(year, month - 1, day)
+      if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) {
+        return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+      }
+    }
+    return null
+  }
+  const ymd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
+  if (ymd) return trimmed // already in the right format
+  return null
+}
+
+/**
  * Validates and sanitises a single donation row into a GiftAidDonor, or
  * returns a list of blocking errors if it can't be made valid.
  */
@@ -102,6 +139,14 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
   if (!row.address) errors.push(`Donation ${row.id}: missing address`)
   if (!row.postcode) errors.push(`Donation ${row.id}: missing postcode`)
   if (row.amount == null || row.amount <= 0) errors.push(`Donation ${row.id}: missing or invalid amount`)
+
+  let formattedDate: string | null = null
+  if (!row.donation_date) {
+    errors.push(`Donation ${row.id}: missing donation date — required by HMRC's schema`)
+  } else {
+    formattedDate = parseAndFormatDonationDate(row.donation_date)
+    if (!formattedDate) errors.push(`Donation ${row.id}: donation date "${row.donation_date}" could not be parsed into a valid date`)
+  }
 
   if (errors.length > 0) {
     return { donor: null, errors }
@@ -132,6 +177,7 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
       lastName: row.last_name!,
       houseNameOrNumber: house,
       postcode: row.postcode!.trim().toUpperCase(),
+      donationDate: formattedDate!,
       amount: Math.round(row.amount! * 100) / 100,
     },
     errors: [],
