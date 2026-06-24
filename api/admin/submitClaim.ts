@@ -10,18 +10,22 @@
  * be the one triggering it, at least until this has a real track record.
  *
  * LIVE TRANSPORT IS DELIBERATELY DISABLED until:
- *   1. SDST has confirmed whose Gateway credentials populate SenderID
- *      (the charity's own enrolment, or an agent-specific identity).
- *   2. The Local Test Service has validated this XML structure against the
+ *   1. The Local Test Service has validated this XML structure against the
  *      real schema and business rules (this codebase's structure is built
  *      from the documentation, not yet checked against the authoritative
  *      LTS tool).
- *   3. External Test Service credentials are available to test the actual
+ *   2. External Test Service credentials are available to test the actual
  *      network transport before anything touches live data.
  *
- * Until all three are true, this endpoint builds the XML, verifies the
- * IRmark, and stores everything for review with hmrc_status='ready_to_send'
- * — it does not transmit anything anywhere.
+ * Credentials model (confirmed): every submission uses Gift Aided's own
+ * single Government Gateway login, set via HMRC_SENDER_ID / 
+ * HMRC_SENDER_PASSWORD below — not anything collected from charities
+ * themselves. HMRC matches the submission to the right charity via the
+ * HMRCref/CHARID and Agent/Nominee reference already in the XML.
+ *
+ * Until both of the above are true, this endpoint builds the XML, verifies
+ * the IRmark, and stores everything for review with
+ * hmrc_status='ready_to_send' — it does not transmit anything anywhere.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
@@ -90,7 +94,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Fetch the charity
     const { data: charity, error: charityErr } = await supabaseAdmin
       .from('charities')
-      .select('id, name, charity_id, authorised_official_name')
+      .select('id, name, charity_id, authorised_official_name, agent_nominee_reference')
       .eq('id', submission.charity_id)
       .single()
 
@@ -136,11 +140,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ── Step 2: build the XML with a placeholder IRmark ─────
-    // NOTE: credentials below are placeholders. SenderID/password source is
-    // the unresolved open question — see file header. Using empty strings
-    // here is intentional: this keeps the XML structurally complete enough
-    // to compute the IRmark from (which doesn't depend on these values)
-    // without pretending we have real credentials to submit with.
+    // Credentials are Gift Aided's own single Government Gateway login —
+    // confirmed not to be per-charity. These env vars must be set once
+    // real credentials exist; empty strings are fine for now since IRmark
+    // generation doesn't depend on them.
     const credentials: SubmissionCredentials = {
       vendorId: process.env.HMRC_VENDOR_ID || '9330',
       productName: process.env.HMRC_PRODUCT_NAME || 'Gift Aided Portal',
