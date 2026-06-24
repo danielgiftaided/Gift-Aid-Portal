@@ -34,25 +34,21 @@
  *    longer than that get truncated here with a warning rather than
  *    silently cut — review any truncation warnings before submitting.
  *
- * 4. The Agent/Nominee reference is a single, Gift-Aided-wide value (your
- *    own HMRC Charities Agent Reference), not something stored per
- *    charity — it should come from a single source of config (env var),
- *    not the database. See AGENT_OR_NOMINEE_REFERENCE below.
+ * 4. The Agent/Nominee reference is specific to each individual charity
+ *    relationship with HMRC — NOT a single Gift-Aided-wide value. It must
+ *    come from the charity's own row (agent_nominee_reference), set once
+ *    HMRC issues it for that specific charity. Earlier scaffolding treated
+ *    this as a single shared env var, which was wrong — corrected here.
  */
 
 import { GiftAidClaimInput, GiftAidDonor } from './r68XmlBuilder'
-
-// Your own HMRC Charities Agent Reference, issued separately from the
-// Vendor ID — applies to every claim submitted on behalf of any charity.
-// Set this in Vercel's environment variables once HMRC confirms it; do not
-// hard-code it here.
-const AGENT_OR_NOMINEE_REFERENCE = process.env.HMRC_AGENT_NOMINEE_REFERENCE || ''
 
 export interface CharityRow {
   id: string
   name: string
   charity_id: string // the HMRC Charities reference, e.g. "AB12345"
-  authorised_official_name?: string | null // does not exist on the table yet — see file header
+  authorised_official_name?: string | null
+  agent_nominee_reference?: string | null // specific to this charity's relationship with HMRC — not shared across charities
 }
 
 export interface SubmissionRow {
@@ -168,9 +164,9 @@ export function buildClaimFromSubmission(
     )
   }
 
-  if (!AGENT_OR_NOMINEE_REFERENCE) {
+  if (!charity.agent_nominee_reference) {
     errors.push(
-      'HMRC_AGENT_NOMINEE_REFERENCE is not configured. Set this in environment variables before any live submission — see file header for context.'
+      `${charity.name} has no Agent/Nominee reference on file. HMRC issues this specifically for Gift Aided's relationship with each charity — add it to this charity's record before submitting this claim.`
     )
   }
 
@@ -199,7 +195,7 @@ export function buildClaimFromSubmission(
   return {
     claim: {
       charityHmrcReference: charity.charity_id.trim().toUpperCase(),
-      agentOrNomineeReference: AGENT_OR_NOMINEE_REFERENCE,
+      agentOrNomineeReference: charity.agent_nominee_reference!,
       claimingOrganisationName: charity.name,
       authorisedOfficialName: charity.authorised_official_name!,
       taxYear: submission.tax_year,
