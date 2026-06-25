@@ -175,6 +175,8 @@ export default function AdminCharityDetail() {
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [buildingId, setBuildingId] = useState<string | null>(null)
+  const [sendingId, setSendingId] = useState<string | null>(null)
+  const [checkingId, setCheckingId] = useState<string | null>(null)
   const [buildResult, setBuildResult] = useState<{ submissionId: string; ok: boolean; message: string; errors?: string[]; warnings?: string[] } | null>(null)
   const [viewingXmlFor, setViewingXmlFor] = useState<Submission | null>(null)
   const [agentRefInput, setAgentRefInput] = useState('')
@@ -255,6 +257,61 @@ export default function AdminCharityDetail() {
       setBuildResult({ submissionId, ok: false, message: e.message, errors: [] })
     } finally {
       setBuildingId(null)
+    }
+  }
+
+  const handleSendToEts = async (submissionId: string) => {
+    if (!window.confirm('This will actually submit the claim to HMRC\'s External Test Service over the network. Continue?')) return
+    setSendingId(submissionId)
+    setBuildResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setPageError('Your session has expired — please refresh and log in again.'); return }
+
+      const resp = await fetch('/api/admin/sendToEts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ submission_id: submissionId }),
+      })
+      const json = await resp.json()
+
+      if (!resp.ok) {
+        setBuildResult({ submissionId, ok: false, message: json.error || 'Failed to send to ETS', errors: (json.errors || []).map((e: any) => `[${e.number}] ${e.text}`) })
+      } else {
+        setBuildResult({ submissionId, ok: true, message: json.message })
+      }
+      await loadData()
+    } catch (e: any) {
+      setBuildResult({ submissionId, ok: false, message: e.message, errors: [] })
+    } finally {
+      setSendingId(null)
+    }
+  }
+
+  const handleCheckStatus = async (submissionId: string) => {
+    setCheckingId(submissionId)
+    setBuildResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) { setPageError('Your session has expired — please refresh and log in again.'); return }
+
+      const resp = await fetch('/api/admin/pollClaim', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ submission_id: submissionId }),
+      })
+      const json = await resp.json()
+
+      if (!resp.ok) {
+        setBuildResult({ submissionId, ok: false, message: json.error || 'Failed to check status', errors: [] })
+      } else {
+        setBuildResult({ submissionId, ok: true, message: json.message, errors: (json.errors || []).map((e: any) => `[${e.number}] ${e.text}`) })
+      }
+      await loadData()
+    } catch (e: any) {
+      setBuildResult({ submissionId, ok: false, message: e.message, errors: [] })
+    } finally {
+      setCheckingId(null)
     }
   }
 
@@ -499,6 +556,18 @@ export default function AdminCharityDetail() {
                           {s.hmrc_claim_xml && (
                             <button onClick={() => setViewingXmlFor(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
                               View XML
+                            </button>
+                          )}
+                          {s.hmrc_status === 'ready_to_send' && (
+                            <button onClick={() => handleSendToEts(s.id)} disabled={sendingId === s.id}
+                              className="text-xs text-amber-600 hover:text-amber-800 font-semibold disabled:opacity-40">
+                              {sendingId === s.id ? 'Sending…' : 'Send to ETS'}
+                            </button>
+                          )}
+                          {(s.hmrc_status === 'sent' || s.hmrc_status === 'polling') && (
+                            <button onClick={() => handleCheckStatus(s.id)} disabled={checkingId === s.id}
+                              className="text-xs text-amber-600 hover:text-amber-800 font-semibold disabled:opacity-40">
+                              {checkingId === s.id ? 'Checking…' : 'Check Status'}
                             </button>
                           )}
                           <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
