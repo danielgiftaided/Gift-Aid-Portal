@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { fetchAllRows } from '../utils/fetchAll'
 
-interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; agent_nominee_reference: string | null }
+interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; charity_id: string | null; authorised_official_name: string | null; agent_nominee_reference: string | null }
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null }
 
 interface ParsedRow {
@@ -182,6 +182,10 @@ export default function AdminCharityDetail() {
   const [agentRefInput, setAgentRefInput] = useState('')
   const [savingAgentRef, setSavingAgentRef] = useState(false)
   const [agentRefSaved, setAgentRefSaved] = useState(false)
+  const [activeTab, setActiveTab] = useState<'submissions' | 'chv1'>('submissions')
+  const [authOfficialInput, setAuthOfficialInput] = useState('')
+  const [savingAuthOfficial, setSavingAuthOfficial] = useState(false)
+  const [authOfficialSaved, setAuthOfficialSaved] = useState(false)
 
   useEffect(() => { if (id) loadData() }, [id])
 
@@ -190,10 +194,11 @@ export default function AdminCharityDetail() {
       setPageError(null)
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { navigate('/login'); return }
-      const { data: charityData, error: cErr } = await supabase.from('charities').select('id, name, contact_email, charity_number, agent_nominee_reference').eq('id', id).single()
+      const { data: charityData, error: cErr } = await supabase.from('charities').select('id, name, contact_email, charity_number, charity_id, authorised_official_name, agent_nominee_reference').eq('id', id).single()
       if (cErr) throw new Error(cErr.message)
       setCharity(charityData)
       setAgentRefInput(charityData?.agent_nominee_reference || '')
+      setAuthOfficialInput(charityData?.authorised_official_name || '')
       const subData = await fetchAllRows<Submission>(() =>
         supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml').eq('charity_id', id).order('submission_date', { ascending: false })
       )
@@ -222,6 +227,21 @@ export default function AdminCharityDetail() {
       setTimeout(() => setAgentRefSaved(false), 3000)
     }
     setSavingAgentRef(false)
+  }
+
+  const handleSaveAuthOfficial = async () => {
+    setSavingAuthOfficial(true)
+    setAuthOfficialSaved(false)
+    const trimmed = authOfficialInput.trim()
+    const { error } = await supabase.from('charities').update({ authorised_official_name: trimmed || null }).eq('id', id)
+    if (error) {
+      setPageError(error.message)
+    } else {
+      setCharity(prev => prev ? { ...prev, authorised_official_name: trimmed || null } : prev)
+      setAuthOfficialSaved(true)
+      setTimeout(() => setAuthOfficialSaved(false), 3000)
+    }
+    setSavingAuthOfficial(false)
   }
 
   const handleDelete = async (submissionId: string) => {
@@ -454,10 +474,7 @@ export default function AdminCharityDetail() {
         <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
           <button onClick={() => navigate('/admin')} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Admin</button>
           <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold text-brand-primary">{charity?.name}</h1>
-              <p className="text-gray-400 text-sm mt-1">{charity?.contact_email}{charity?.charity_number && ` · ${charity.charity_number}`}</p>
-            </div>
+            <h1 className="text-3xl font-bold text-brand-primary">{charity?.name}</h1>
             <button
               onClick={() => navigate(`/admin/charities/${id}/insights`)}
               className="flex-shrink-0 px-4 py-2 text-sm font-semibold rounded-lg bg-brand-accent text-white hover:opacity-90 transition-opacity"
@@ -466,29 +483,95 @@ export default function AdminCharityDetail() {
             </button>
           </div>
 
-          {/* HMRC Agent/Nominee reference — specific to this charity's relationship with HMRC */}
-          <div className="mt-4 bg-white rounded-lg border border-gray-100 px-4 py-3 flex items-end gap-3 max-w-md">
-            <div className="flex-1">
-              <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">HMRC Agent/Nominee Reference</label>
-              <input
-                type="text"
-                value={agentRefInput}
-                onChange={e => setAgentRefInput(e.target.value)}
-                placeholder="Not yet received from HMRC"
-                className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
-              />
-            </div>
-            <button
-              onClick={handleSaveAgentRef}
-              disabled={savingAgentRef}
-              className="text-sm font-semibold text-brand-accent hover:text-brand-primary disabled:opacity-40 pb-1.5"
-            >
-              {savingAgentRef ? 'Saving…' : agentRefSaved ? 'Saved ✓' : 'Save'}
-            </button>
+          {/* Tabs */}
+          <div className="flex gap-6 mt-6 border-b border-gray-100">
+            {[
+              { key: 'submissions' as const, label: 'Submissions' },
+              { key: 'chv1' as const, label: 'Charity Information' },
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                className={`pb-3 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                  activeTab === tab.key
+                    ? 'border-brand-accent text-brand-accent'
+                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
           </div>
-          <p className="text-xs text-gray-300 mt-1">This is specific to Gift Aided's relationship with this charity — different for every charity, issued by HMRC separately each time.</p>
         </div>
 
+        {activeTab === 'chv1' && (
+          <div className="max-w-4xl mx-auto px-6 pb-12">
+            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 max-w-lg">
+              <h2 className="font-semibold text-brand-primary mb-1">Charity Information</h2>
+              <p className="text-xs text-gray-400 mb-5">Everything needed to complete a ChV1 form for this charity, in one place.</p>
+
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Contact Email</label>
+                  <p className="text-sm text-gray-700">{charity?.contact_email || '—'}</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Charity Commission Number</label>
+                  <p className="text-sm text-gray-700">{charity?.charity_number || '—'}</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">HMRC Charities (Gift Aid) Reference</label>
+                  <p className="text-sm text-gray-700">{charity?.charity_id || '—'}</p>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Authorised Official's Name</label>
+                  <div className="flex items-end gap-3">
+                    <input
+                      type="text"
+                      value={authOfficialInput}
+                      onChange={e => setAuthOfficialInput(e.target.value)}
+                      placeholder="e.g. Jane Smith"
+                      className="flex-1 text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                    />
+                    <button
+                      onClick={handleSaveAuthOfficial}
+                      disabled={savingAuthOfficial}
+                      className="text-sm font-semibold text-brand-accent hover:text-brand-primary disabled:opacity-40 pb-1.5"
+                    >
+                      {savingAuthOfficial ? 'Saving…' : authOfficialSaved ? 'Saved ✓' : 'Save'}
+                    </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">HMRC Agent/Nominee Reference</label>
+                  <div className="flex items-end gap-3">
+                    <input
+                      type="text"
+                      value={agentRefInput}
+                      onChange={e => setAgentRefInput(e.target.value)}
+                      placeholder="Not yet received from HMRC"
+                      className="flex-1 text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                    />
+                    <button
+                      onClick={handleSaveAgentRef}
+                      disabled={savingAgentRef}
+                      className="text-sm font-semibold text-brand-accent hover:text-brand-primary disabled:opacity-40 pb-1.5"
+                    >
+                      {savingAgentRef ? 'Saving…' : agentRefSaved ? 'Saved ✓' : 'Save'}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-300 mt-1">Specific to Gift Aided's relationship with this charity — different for every charity, issued by HMRC separately each time.</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'submissions' && (
         <div className="max-w-4xl mx-auto px-6 pb-12 space-y-6">
           {pageError && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{pageError}</div>}
 
@@ -671,7 +754,7 @@ export default function AdminCharityDetail() {
             </button>
           </div>
         </div>
-      </div>
+        )}
 
       {/* HMRC claim XML viewer */}
       {viewingXmlFor && (
@@ -703,6 +786,7 @@ export default function AdminCharityDetail() {
           </div>
         </div>
       )}
+    </div>
     </div>
   )
 }
