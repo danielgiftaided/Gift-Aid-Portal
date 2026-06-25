@@ -99,16 +99,21 @@ export function validateHmrcCharityReference(reference: string): string | null {
 }
 
 /**
- * Parses a UK-format donation date (DD/MM/YYYY, as stored throughout this
- * codebase) into the ccyy-mm-dd format the R68 schema requires, with the
+ * Parses a UK-format donation date (DD/MM/YYYY or DD/MM/YY, both seen in
+ * real data) into the ccyy-mm-dd format the R68 schema requires, with the
  * same range validation and rollover rejection used elsewhere — confirmed
  * mandatory by real LTS schema validation (see r68XmlBuilder.ts).
+ *
+ * 2-digit years are assumed to be 20YY, not 19YY — Gift Aid claims can only
+ * realistically cover the last few years, so this is a safe assumption for
+ * this specific use case (it would NOT be a safe general-purpose rule).
  */
 function parseAndFormatDonationDate(raw: string): string | null {
   const trimmed = raw.trim()
-  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
   if (dmy) {
-    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10), year = parseInt(dmy[3], 10)
+    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10)
+    const year = dmy[3].length === 2 ? 2000 + parseInt(dmy[3], 10) : parseInt(dmy[3], 10)
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
       const d = new Date(year, month - 1, day)
       if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) {
