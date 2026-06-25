@@ -163,11 +163,17 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
     }
   }
 
-  // House field: 40-character limit per the technical pack.
+  // House field: 40-character limit, confirmed by the real R68 schema.
+  // Truncate at the last whole word rather than mid-word — the postcode is
+  // a separate field and unaffected, so this is purely cosmetic, but a
+  // submission ending mid-word looks sloppy on an official document.
   let house = row.address!.trim()
   if (house.length > 40) {
-    warnings.push(`Donation ${row.id}: address truncated to 40 characters for HMRC submission ("${house}" -> "${house.slice(0, 40)}"). Review before submitting.`)
-    house = house.slice(0, 40)
+    const hardCut = house.slice(0, 40)
+    const lastSpace = hardCut.lastIndexOf(' ')
+    const wordBoundaryCut = lastSpace > 20 ? hardCut.slice(0, lastSpace) : hardCut // don't over-shorten if the last word break is too early
+    warnings.push(`Donation ${row.id}: address truncated to fit HMRC's 40-character limit ("${house}" -> "${wordBoundaryCut}"). Review before submitting.`)
+    house = wordBoundaryCut
   }
 
   return {
