@@ -94,7 +94,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Fetch the charity
     const { data: charity, error: charityErr } = await supabaseAdmin
       .from('charities')
-      .select('id, name, charity_id, authorised_official_name, agent_nominee_reference')
+      .select('id, name, charity_id, charity_number, authorised_official_name, agent_nominee_reference')
       .eq('id', submission.charity_id)
       .single()
 
