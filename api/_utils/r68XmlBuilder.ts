@@ -49,9 +49,8 @@ export interface GiftAidDonor {
 
 export interface GiftAidClaimInput {
   charityHmrcReference: string   // e.g. "AB12345" — the charity's own HMRC Charities reference
-  agentOrNomineeReference?: string // required if submitting as Agent/Nominee — must match enrolment exactly (error 7020 otherwise)
+  agentOrNomineeReference: string // required — must match enrolment exactly (error 7020 otherwise)
   claimingOrganisationName: string
-  authorisedOfficialName: string
   taxYear: string                 // for our own reference; not itself an R68 field, used to derive PeriodEnd
   donations: GiftAidDonor[]
   adjustment?: { amount: number; explanation: string }
@@ -64,6 +63,11 @@ export interface SubmissionCredentials {
   senderId: string        // Government Gateway User ID — see OPEN QUESTION above
   senderPassword: string  // Government Gateway password — see OPEN QUESTION above
   isLive: boolean          // false => GatewayTest=1, true => omit GatewayTest
+  // Gift Aided's OWN details as the submitting agent — confirmed required by
+  // the real R68 schema's AgtOrNom structure (NOT the charity's details).
+  agentOrgName: string     // e.g. "Gift Aided Ltd"
+  agentPostcode: string    // Gift Aided's own registered postcode — must match r68_PostCodeType format
+  agentPhone: string       // Gift Aided's own contact phone number
 }
 
 function escapeXml(value: string): string {
@@ -119,12 +123,14 @@ export function buildR68Submission(
 ): string {
   const gadElements = claim.donations.map(buildGadElement).join('')
 
-  const agtOrNom = claim.agentOrNomineeReference
-    ? `<AgtOrNom><RefNo>${escapeXml(claim.agentOrNomineeReference)}</RefNo></AgtOrNom>`
+  // Adjustment sits INSIDE <Repayment>, after the GAD entries — confirmed
+  // by the real schema. The explanation (if any) goes in the separate,
+  // Claim-level <OtherInfo> free-text field, not bundled with Adjustment.
+  const adjustmentElement = claim.adjustment
+    ? `<Adjustment>${formatAmount(claim.adjustment.amount)}</Adjustment>`
     : ''
-
-  const adjustment = claim.adjustment
-    ? `<Adjustment>${formatAmount(claim.adjustment.amount)}</Adjustment><OtherInformation>${escapeXml(claim.adjustment.explanation)}</OtherInformation>`
+  const otherInfoElement = claim.adjustment?.explanation
+    ? `<OtherInfo>${escapeXml(claim.adjustment.explanation.slice(0, 350))}</OtherInfo>`
     : ''
 
   const gatewayTestElement = credentials.isLive ? '' : `<GatewayTest>1</GatewayTest>`
@@ -181,15 +187,23 @@ ${gatewayTestElement}
 <Sender>Agent</Sender>
 </IRheader>
 <R68>
+<AgtOrNom>
+<OrgName>${escapeXml(credentials.agentOrgName)}</OrgName>
+<RefNo>${escapeXml(claim.agentOrNomineeReference)}</RefNo>
+<AoNID>
+<Postcode>${escapeXml(credentials.agentPostcode)}</Postcode>
+</AoNID>
+<Phone>${escapeXml(credentials.agentPhone)}</Phone>
+</AgtOrNom>
+<Declaration>yes</Declaration>
 <Claim>
 <OrgName>${escapeXml(claim.claimingOrganisationName)}</OrgName>
 <HMRCref>${escapeXml(claim.charityHmrcReference)}</HMRCref>
-<OffName>${escapeXml(claim.authorisedOfficialName)}</OffName>
-${agtOrNom}
 <Repayment>
 ${gadElements}
+${adjustmentElement}
 </Repayment>
-${adjustment}
+${otherInfoElement}
 </Claim>
 </R68>
 </IRenvelope>
