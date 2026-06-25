@@ -61,6 +61,11 @@ export interface GiftAidClaimInput {
   // so Scottish (OSCR) or Northern Irish (CCNI) charities will need this
   // overridden before a real submission for them specifically.
   regulatorName?: 'CCEW' | 'CCNI' | 'OSCR'
+  // Confirmed mandatory (business rule 7031) whenever regulatorName/RegName
+  // is present — this is the charity's actual Charity Commission (or OSCR/
+  // CCNI) registration number, which is a DIFFERENT number from the HMRC
+  // Gift Aid reference (charityHmrcReference) above.
+  regulatorNumber?: string
 }
 
 export interface SubmissionCredentials {
@@ -215,6 +220,7 @@ ${gatewayTestElement}
 <HMRCref>${escapeXml(claim.charityHmrcReference)}</HMRCref>
 <Regulator>
 <RegName>${escapeXml(claim.regulatorName || 'CCEW')}</RegName>
+<RegNo>${escapeXml(claim.regulatorNumber || '')}</RegNo>
 </Regulator>
 <Repayment>
 ${gadElements}
