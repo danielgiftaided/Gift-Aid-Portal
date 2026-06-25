@@ -52,9 +52,10 @@ function parseDonationDate(str: string): Date | null {
 
   // DD/MM/YYYY (UK standard) — validate ranges and reject silent rollovers
   // (e.g. "31/02/2024" must not become "2 March 2024")
-  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/)
+  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
   if (dmy) {
-    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10), year = parseInt(dmy[3], 10)
+    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10)
+    const year = dmy[3].length === 2 ? 2000 + parseInt(dmy[3], 10) : parseInt(dmy[3], 10)
     if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
       const d = new Date(year, month - 1, day)
       if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
