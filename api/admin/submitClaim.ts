@@ -151,6 +151,20 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       senderId: process.env.HMRC_SENDER_ID || '',
       senderPassword: process.env.HMRC_SENDER_PASSWORD || '',
       isLive: false, // always test-mode (GatewayTest=1) until this is explicitly revisited
+      // Gift Aided's OWN details as the agent — confirmed required by the
+      // real schema's AgtOrNom structure. Must be set before any real
+      // submission; empty strings here will fail schema validation
+      // (Postcode/Phone are both mandatory, non-empty fields).
+      agentOrgName: process.env.HMRC_AGENT_ORG_NAME || 'Gift Aided Ltd',
+      agentPostcode: process.env.HMRC_AGENT_POSTCODE || '',
+      agentPhone: process.env.HMRC_AGENT_PHONE || '',
+    }
+
+    if (!credentials.agentPostcode || !credentials.agentPhone) {
+      return send(res, 500, {
+        ok: false,
+        error: 'HMRC_AGENT_POSTCODE and/or HMRC_AGENT_PHONE are not configured. The real R68 schema requires Gift Aided\'s own postcode and phone number on every claim (the AgtOrNom structure) — set these in Vercel environment variables before building any claim.',
+      })
     }
 
     const xmlWithPlaceholder = buildR68Submission(mapping.claim, credentials)
