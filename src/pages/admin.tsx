@@ -130,7 +130,6 @@ export default function Admin() {
                     <div className="px-6 py-4 flex items-center justify-between hover:bg-brand-surface/40 transition-colors">
                       <div>
                         <div className="font-semibold text-brand-primary">{c.name}</div>
-                        <div className="text-sm text-gray-400 mt-0.5">{c.contact_email}</div>
                       </div>
                       <Link to={`/admin/charities/${c.id}`}
                         className="px-4 py-1.5 text-sm font-semibold rounded-lg border border-brand-primary/20 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors">
