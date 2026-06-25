@@ -54,6 +54,7 @@ export interface CharityRow {
   id: string
   name: string
   charity_id: string // the HMRC Charities reference, e.g. "AB12345"
+  charity_number?: string | null // the Charity Commission (or OSCR/CCNI) registration number — a DIFFERENT number from charity_id
   authorised_official_name?: string | null
   agent_nominee_reference?: string | null // specific to this charity's relationship with HMRC — not shared across charities
 }
@@ -222,6 +223,12 @@ export function buildClaimFromSubmission(
     )
   }
 
+  if (!charity.charity_number) {
+    errors.push(
+      `${charity.name} has no Charity Commission registration number on file (charity_number column). HMRC's business rules require this whenever Regulator details are included, which is mandatory for any charity reference not starting with CH or CF — add it to this charity's record before submitting this claim.`
+    )
+  }
+
   if (donations.length === 0) {
     errors.push(`Submission ${submission.id} has no donations to claim.`)
   }
@@ -250,6 +257,7 @@ export function buildClaimFromSubmission(
       agentOrNomineeReference: charity.agent_nominee_reference!,
       claimingOrganisationName: charity.name,
       taxYear: submission.tax_year,
+      regulatorNumber: charity.charity_number || undefined,
       donations: mappedDonors,
     },
     errors: [],
