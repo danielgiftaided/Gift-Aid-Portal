@@ -65,6 +65,18 @@ export async function postToTransactionEngine(xml: string, url: string): Promise
  * Parses any GovTalkMessage response from the Transaction Engine —
  * acknowledgement, final response, or business error — into a single
  * consistent shape.
+ *
+ * IMPORTANT: HMRC uses two different shapes for reporting errors,
+ * confirmed by a real ETS response during testing:
+ *   1. Early/fatal errors (e.g. authentication failure) — the error
+ *      details sit directly in <GovTalkDetails><GovTalkErrors>, with an
+ *      empty <Body/>. This is the SUBMISSION_ERROR message type.
+ *   2. Business validation errors (the kind LTS returns) — sit nested
+ *      inside <Body><ErrorResponse>, with a generic 3001 summary error
+ *      also present in GovTalkErrors. This is the Business Error Response
+ *      message type.
+ * This function checks both locations and merges whatever it finds, so
+ * neither error type goes unreported.
  */
 export function parseGovTalkResponse(xml: string): ParsedGovTalkMessage {
   const qualifierMatch = xml.match(/<Qualifier>([^<]*)<\/Qualifier>/)
@@ -75,8 +87,9 @@ export function parseGovTalkResponse(xml: string): ParsedGovTalkMessage {
   const rawBody = bodyMatch ? bodyMatch[1].trim() : null
 
   const businessErrors: TransactionEngineError[] = []
-  if (rawBody) {
-    const errorBlocks = [...rawBody.matchAll(/<Error>([\s\S]*?)<\/Error>/g)]
+
+  function extractErrorsFrom(sourceXml: string) {
+    const errorBlocks = [...sourceXml.matchAll(/<Error>([\s\S]*?)<\/Error>/g)]
     for (const block of errorBlocks) {
       const errorXml = block[1]
       const numberMatch = errorXml.match(/<Number>(\d+)<\/Number>/)
@@ -90,6 +103,18 @@ export function parseGovTalkResponse(xml: string): ParsedGovTalkMessage {
         location: locationMatch ? locationMatch[1] : null,
       })
     }
+  }
+
+  // Check GovTalkDetails/GovTalkErrors first (fatal/early errors).
+  const govTalkErrorsMatch = xml.match(/<GovTalkErrors>([\s\S]*?)<\/GovTalkErrors>/)
+  if (govTalkErrorsMatch) extractErrorsFrom(govTalkErrorsMatch[1])
+
+  // Then check inside Body (business validation errors) — skip the
+  // generic 3001 "see below for details" summary already covered above
+  // by only looking inside ErrorResponse specifically, not the whole body.
+  if (rawBody) {
+    const errorResponseMatch = rawBody.match(/<ErrorResponse[\s\S]*?>([\s\S]*)<\/ErrorResponse>/)
+    if (errorResponseMatch) extractErrorsFrom(errorResponseMatch[1])
   }
 
   return {
