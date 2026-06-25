@@ -9,27 +9,22 @@
  * BEFORE a submission is attempted, not as a cryptic HMRC error after the
  * fact.
  *
+ * CONFIRMED BY THE REAL R68 SCHEMA (not just documentation): AuthOfficial
+ * and AgtOrNom are mutually exclusive alternatives for identifying who is
+ * making the claim, not fields that both belong inside <Claim> together.
+ * Since Gift Aided always submits as agent, only AgtOrNom applies, and it
+ * sits as a sibling of <Claim> at the R68 level — never AuthOfficial.
+ * Authorised Official name is therefore NOT part of this XML at all. It's
+ * still captured and stored (likely needed for HMRC's separate agent
+ * authorisation paperwork, not for individual claims), so the check below
+ * is a non-blocking warning rather than an error.
+ *
  * KNOWN GAPS this file surfaces (flagged, not silently worked around):
  *
- * 1. Authorised Official name is mandatory on every claim, but nothing in
- *    the current charity setup/profile flow captures it. This needs
- *    adding as a field on the charities table and on the
- *    charitySetup.tsx / charityProfile.tsx forms before this can run for
- *    real — see `authorisedOfficialName` parameter below, currently passed
- *    in rather than read from the charity row, precisely because it
- *    didn't exist there yet (this has since been added — see
- *    charitySetup.tsx / charityProfile.tsx).
- *
- *    IMPORTANT — confirmed wrong by real LTS validation: the Claim-level
- *    element for this is NOT simply <OffName> as r68XmlBuilder.ts
- *    currently renders it. LTS's schema validator expects one of
- *    {WelshSubmission, CollAgent, AuthOfficial, AgtOrNom} at that position
- *    instead — meaning the correct element is almost certainly
- *    <AuthOfficial>, very possibly with its own sub-structure (e.g.
- *    separate Fore/Sur name parts, similar to <Donor>) rather than a
- *    single string. This has NOT yet been fixed, since guessing the exact
- *    correct structure risks more wasted LTS round-trips — the actual XSD
- *    file in RIMArtefacts should be checked directly before changing this.
+ * 1. RESOLVED — Authorised Official name is no longer part of this XML at
+ *    all (see explanation above). It's kept as a non-blocking warning
+ *    purely because it's still useful data to have on file for other
+ *    purposes, not because this submission needs it.
  *
  * 2. The existing charity_number validation (in api/charity/setup.ts) only
  *    checks for 3-30 alphanumeric characters. HMRC's actual format is much
@@ -205,8 +200,8 @@ export function buildClaimFromSubmission(
   if (refError) errors.push(refError)
 
   if (!charity.authorised_official_name) {
-    errors.push(
-      `${charity.name} has no Authorised Official name on file. This is mandatory for HMRC submission — add it to the charity's profile before submitting this claim.`
+    warnings.push(
+      `${charity.name} has no Authorised Official name on file. This isn't required for this specific submission, but is likely needed for HMRC's separate agent authorisation paperwork — worth adding when convenient.`
     )
   }
 
@@ -243,7 +238,6 @@ export function buildClaimFromSubmission(
       charityHmrcReference: charity.charity_id.trim().toUpperCase(),
       agentOrNomineeReference: charity.agent_nominee_reference!,
       claimingOrganisationName: charity.name,
-      authorisedOfficialName: charity.authorised_official_name!,
       taxYear: submission.tax_year,
       donations: mappedDonors,
     },
