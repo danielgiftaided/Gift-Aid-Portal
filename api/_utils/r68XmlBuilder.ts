@@ -54,6 +54,13 @@ export interface GiftAidClaimInput {
   taxYear: string                 // for our own reference; not itself an R68 field, used to derive PeriodEnd
   donations: GiftAidDonor[]
   adjustment?: { amount: number; explanation: string }
+  // Confirmed conditionally mandatory by business rule 7029: required
+  // whenever the charity's HMRC reference doesn't start with CH or CF and
+  // no Collecting Agent is involved. Defaults to CCEW (England & Wales)
+  // since that covers most charities — NOT yet configurable per charity,
+  // so Scottish (OSCR) or Northern Irish (CCNI) charities will need this
+  // overridden before a real submission for them specifically.
+  regulatorName?: 'CCEW' | 'CCNI' | 'OSCR'
 }
 
 export interface SubmissionCredentials {
@@ -122,6 +129,13 @@ export function buildR68Submission(
   credentials: SubmissionCredentials
 ): string {
   const gadElements = claim.donations.map(buildGadElement).join('')
+
+  // EarliestGAdate is confirmed conditionally mandatory by business rule
+  // 7034 whenever any GAD entries are present. donationDate strings are
+  // already ccyy-mm-dd, so a plain string min() sorts correctly.
+  const earliestDonationDate = claim.donations
+    .map(d => d.donationDate)
+    .reduce((earliest, current) => (current < earliest ? current : earliest))
 
   // Adjustment sits INSIDE <Repayment>, after the GAD entries — confirmed
   // by the real schema. The explanation (if any) goes in the separate,
@@ -199,8 +213,12 @@ ${gatewayTestElement}
 <Claim>
 <OrgName>${escapeXml(claim.claimingOrganisationName)}</OrgName>
 <HMRCref>${escapeXml(claim.charityHmrcReference)}</HMRCref>
+<Regulator>
+<RegName>${escapeXml(claim.regulatorName || 'CCEW')}</RegName>
+</Regulator>
 <Repayment>
 ${gadElements}
+<EarliestGAdate>${earliestDonationDate}</EarliestGAdate>
 ${adjustmentElement}
 </Repayment>
 ${otherInfoElement}
