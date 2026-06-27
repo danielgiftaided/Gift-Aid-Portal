@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from "@vercel/node";
 import { supabaseAdmin } from "../_utils/supabase.js";
 import { requireUser } from "../_utils/requireUser.js";
+import { logActivity } from "../_utils/activityLog.js";
 
 function send(res: VercelResponse, status: number, body: object) {
   return res.status(status).json(body);
@@ -253,6 +254,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (userEmail) {
       await migratePendingData(userEmail, charityId);
     }
+
+    await logActivity({
+      userId: userId,
+      userEmail: userEmail,
+      action: 'charity_setup_completed',
+      targetType: 'charity',
+      targetId: charityId,
+      details: `Charity name: ${name}`,
+    });
 
     return send(res, 200, { ok: true, charity_id: charityId, alreadySetup: false });
 
