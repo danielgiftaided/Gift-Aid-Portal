@@ -83,12 +83,20 @@ export default function Admin() {
             <h1 className="text-3xl font-bold text-brand-primary">Admin Dashboard</h1>
             <p className="text-gray-400 text-sm mt-1">Manage charities and Gift Aid submissions</p>
           </div>
-          <button
-            onClick={() => navigate('/admin/pending-charities')}
-            className="flex-shrink-0 px-4 py-2 text-sm font-semibold rounded-lg border border-brand-primary/20 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors"
-          >
-            Pending Charities
-          </button>
+          <div className="flex gap-3 flex-shrink-0">
+            <button
+              onClick={() => navigate('/admin/activity-log')}
+              className="px-4 py-2 text-sm font-semibold rounded-lg border border-brand-primary/20 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors"
+            >
+              Activity Log
+            </button>
+            <button
+              onClick={() => navigate('/admin/pending-charities')}
+              className="px-4 py-2 text-sm font-semibold rounded-lg border border-brand-primary/20 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors"
+            >
+              Pending Charities
+            </button>
+          </div>
         </div>
 
         <div className="max-w-4xl mx-auto px-6 pb-12">
