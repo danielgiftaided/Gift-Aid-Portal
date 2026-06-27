@@ -34,6 +34,7 @@ import { requireOperator } from '../_utils/requireOperator.js'
 import { buildClaimFromSubmission, CharityRow, SubmissionRow, DonationRow } from '../_utils/buildClaimFromSubmission.js'
 import { buildR68Submission, SubmissionCredentials } from '../_utils/r68XmlBuilder.js'
 import { generateIrmark } from '../_utils/irmark.js'
+import { logActivity } from '../_utils/activityLog.js'
 
 function send(res: VercelResponse, status: number, body: object) {
   return res.status(status).json(body)
@@ -70,7 +71,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 405, { ok: false, error: 'Method not allowed' })
     }
 
-    await requireOperator(req)
+    const operator = await requireOperator(req)
 
     const body = (req as any).body ?? {}
     const parsedBody = typeof body === 'string' ? JSON.parse(body) : body
@@ -197,6 +198,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         hmrc_response_message: mapping.warnings.length > 0 ? `Built with warnings: ${mapping.warnings.join(' | ')}` : null,
       })
       .eq('id', submissionId)
+
+    await logActivity({
+      userId: operator.id,
+      userEmail: operator.email,
+      action: 'claim_built',
+      targetType: 'submission',
+      targetId: submissionId,
+      details: mapping.warnings.length > 0 ? `Built with warnings: ${mapping.warnings.join(' | ')}` : 'Built cleanly',
+    })
 
     return send(res, 200, {
       ok: true,
