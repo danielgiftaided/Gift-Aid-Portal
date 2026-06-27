@@ -20,6 +20,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
 import { postToTransactionEngine, parseGovTalkResponse, buildPollMessage, buildDeleteMessage } from '../_utils/transactionEngine.js'
+import { logActivity } from '../_utils/activityLog.js'
 
 const CLAIM_CLASS = 'HMRC-CHAR-CLM'
 
@@ -33,7 +34,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 405, { ok: false, error: 'Method not allowed' })
     }
 
-    await requireOperator(req)
+    const operator = await requireOperator(req)
 
     const body = (req as any).body ?? {}
     const parsedBody = typeof body === 'string' ? JSON.parse(body) : body
@@ -117,6 +118,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         })
         .eq('id', submissionId)
 
+      await logActivity({
+        userId: operator.id, userEmail: operator.email,
+        action: 'claim_status_checked', targetType: 'submission', targetId: submissionId,
+        details: 'Accepted by HMRC',
+      })
+
       return send(res, 200, { ok: true, status: 'accepted', message: 'HMRC has accepted this claim.' })
     }
 
@@ -133,6 +140,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         hmrc_response_at: new Date().toISOString(),
       })
       .eq('id', submissionId)
+
+    await logActivity({
+      userId: operator.id, userEmail: operator.email,
+      action: 'claim_status_checked', targetType: 'submission', targetId: submissionId,
+      success: false, details: errorSummary,
+    })
 
     return send(res, 200, { ok: true, status: 'rejected', message: 'HMRC rejected this claim.', errors: parsed.businessErrors })
 
