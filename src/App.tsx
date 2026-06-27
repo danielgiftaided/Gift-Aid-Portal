@@ -18,32 +18,38 @@ import AdminCharityDetail from './pages/adminCharityDetail'
 import AdminCharityInsights from './pages/adminCharityInsights'
 import PendingCharities from './pages/pendingCharities'
 import PendingCharityInsights from './pages/pendingCharityInsights'
+import ActivityLog from './pages/activityLog'
+import IdleTimeoutMonitor from './components/IdleTimeoutMonitor'
 
 function App() {
   return (
-    <Routes>
-      <Route path="/login" element={<Login />} />
-      <Route path="/signup" element={<Signup />} />
-      <Route path="/forgot-password" element={<ForgotPassword />} />
-      <Route path="/reset-password" element={<ResetPassword />} />
-      <Route path="/accept-invite" element={<AcceptInvite />} />
-      <Route path="/mfa-setup" element={<MfaSetup />} />
-      <Route path="/mfa-challenge" element={<MfaChallenge />} />
-      <Route path="/password-expired" element={<PasswordExpired />} />
-      <Route path="/dashboard" element={<Dashboard />} />
-      <Route path="/submissions" element={<Submissions />} />
-      <Route path="/submissions/:id" element={<SubmissionDetail />} />
-      <Route path="/insights" element={<Insights />} />
-      <Route path="/profile" element={<CharityProfile />} />
-      <Route path="/charity-setup" element={<CharitySetup />} />
-      <Route path="/admin" element={<Admin />} />
-      <Route path="/admin/charities/:id" element={<AdminCharityDetail />} />
-      <Route path="/admin/charities/:id/insights" element={<AdminCharityInsights />} />
-      <Route path="/admin/pending-charities" element={<PendingCharities />} />
-      <Route path="/admin/pending-charities/:email/insights" element={<PendingCharityInsights />} />
-      <Route path="/" element={<Navigate to="/login" />} />
-      <Route path="*" element={<Navigate to="/login" />} />
-    </Routes>
+    <>
+      <IdleTimeoutMonitor />
+      <Routes>
+        <Route path="/login" element={<Login />} />
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/accept-invite" element={<AcceptInvite />} />
+        <Route path="/mfa-setup" element={<MfaSetup />} />
+        <Route path="/mfa-challenge" element={<MfaChallenge />} />
+        <Route path="/password-expired" element={<PasswordExpired />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/submissions" element={<Submissions />} />
+        <Route path="/submissions/:id" element={<SubmissionDetail />} />
+        <Route path="/insights" element={<Insights />} />
+        <Route path="/profile" element={<CharityProfile />} />
+        <Route path="/charity-setup" element={<CharitySetup />} />
+        <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/charities/:id" element={<AdminCharityDetail />} />
+        <Route path="/admin/charities/:id/insights" element={<AdminCharityInsights />} />
+        <Route path="/admin/pending-charities" element={<PendingCharities />} />
+        <Route path="/admin/pending-charities/:email/insights" element={<PendingCharityInsights />} />
+        <Route path="/admin/activity-log" element={<ActivityLog />} />
+        <Route path="/" element={<Navigate to="/login" />} />
+        <Route path="*" element={<Navigate to="/login" />} />
+      </Routes>
+    </>
   )
 }
 
