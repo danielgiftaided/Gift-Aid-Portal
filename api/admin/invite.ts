@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { createClient } from '@supabase/supabase-js'
+import { logActivity } from '../_utils/activityLog.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Always return JSON
@@ -53,6 +54,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     )
 
     if (inviteErr) return res.status(400).json({ ok: false, error: inviteErr.message })
+
+    await logActivity({
+      userId: user.id,
+      userEmail: user.email,
+      action: 'charity_invited',
+      targetType: 'invited_email',
+      targetId: email.trim().toLowerCase(),
+    })
 
     return res.status(200).json({ ok: true })
 
