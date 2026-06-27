@@ -19,6 +19,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
 import { postToTransactionEngine, parseGovTalkResponse, ETS_SUBMISSION_ENDPOINT } from '../_utils/transactionEngine.js'
+import { logActivity } from '../_utils/activityLog.js'
 
 function send(res: VercelResponse, status: number, body: object) {
   return res.status(status).json(body)
@@ -30,7 +31,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 405, { ok: false, error: 'Method not allowed' })
     }
 
-    await requireOperator(req)
+    const operator = await requireOperator(req)
 
     const body = (req as any).body ?? {}
     const parsedBody = typeof body === 'string' ? JSON.parse(body) : body
@@ -90,6 +91,15 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         })
         .eq('id', submissionId)
 
+      await logActivity({
+        userId: operator.id,
+        userEmail: operator.email,
+        action: 'claim_sent_to_ets',
+        targetType: 'submission',
+        targetId: submissionId,
+        details: `Correlation ID: ${parsed.correlationId}`,
+      })
+
       return send(res, 200, {
         ok: true,
         status: 'sent',
@@ -107,6 +117,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .from('submissions')
       .update({ hmrc_status: 'rejected', hmrc_response_message: errorSummary })
       .eq('id', submissionId)
+
+    await logActivity({
+      userId: operator.id,
+      userEmail: operator.email,
+      action: 'claim_sent_to_ets',
+      targetType: 'submission',
+      targetId: submissionId,
+      success: false,
+      details: errorSummary,
+    })
 
     return send(res, 400, { ok: false, error: 'ETS rejected the submission immediately.', errors: parsed.businessErrors, rawResponse: responseXml })
 
