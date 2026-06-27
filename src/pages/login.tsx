@@ -27,8 +27,23 @@ export default function Login() {
     setError(null);
     setLoading(true);
     try {
-      const { error: authError } = await supabase.auth.signInWithPassword({ email: email.trim(), password });
-      if (authError) throw authError;
+      // Goes through our own backend rather than calling Supabase directly —
+      // this is what allows login lockout and audit logging to exist at all.
+      const loginResp = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: email.trim(), password }),
+      });
+      const loginJson = await loginResp.json();
+      if (!loginResp.ok || !loginJson.ok) throw new Error(loginJson?.error ?? "Login failed");
+
+      // Hydrate the local Supabase client with the session our backend just
+      // verified — everything below this line is unchanged from before.
+      const { error: setSessionError } = await supabase.auth.setSession({
+        access_token: loginJson.access_token,
+        refresh_token: loginJson.refresh_token,
+      });
+      if (setSessionError) throw setSessionError;
 
       // ── MFA check ──────────────────────────────────────────
       const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
