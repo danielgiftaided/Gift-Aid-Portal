@@ -199,7 +199,6 @@ export default function AdminCharityDetail() {
   const [submitSuccess, setSubmitSuccess] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [buildingId, setBuildingId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
@@ -232,14 +231,6 @@ export default function AdminCharityDetail() {
       )
       setSubmissions(subData)
     } catch (e: any) { setPageError(e.message) } finally { setLoading(false) }
-  }
-
-  const handleUpdateStatus = async (submissionId: string, newStatus: string) => {
-    setUpdatingId(submissionId)
-    const { error } = await supabase.from('submissions').update({ status: newStatus }).eq('id', submissionId)
-    if (error) setPageError(error.message)
-    else setSubmissions(prev => prev.map(s => s.id === submissionId ? { ...s, status: newStatus } : s))
-    setUpdatingId(null)
   }
 
   const handleSaveAgentRef = async () => {
@@ -662,23 +653,28 @@ export default function AdminCharityDetail() {
                       </td>
                       <td className="px-4 py-3 text-sm font-bold text-brand-accent whitespace-nowrap">£{parseFloat(String(s.amount_claimed || 0)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{s.number_of_donations}</td>
-                      <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <select value={s.status} disabled={updatingId === s.id} onChange={e => handleUpdateStatus(s.id, e.target.value)}
-                          className={`text-xs font-semibold rounded px-2 py-1 border-0 cursor-pointer focus:ring-2 focus:ring-brand-accent ${statusColor(s.status)}`}>
-                          <option value="pending">Pending</option><option value="submitted">Submitted</option>
-                          <option value="approved">Approved</option><option value="rejected">Rejected</option>
-                        </select>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={`text-xs font-semibold rounded px-2 py-1 ${statusColor(s.status)}`}>
+                          {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
+                        </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-400 font-mono whitespace-nowrap">{s.hmrc_reference || '—'}</td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                         {hmrcStatusBadge(s.hmrc_status || 'not_submitted')}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        <div className="flex items-center gap-3">
-                          <button onClick={() => handleBuildClaim(s.id)} disabled={buildingId === s.id}
-                            className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40">
-                            {buildingId === s.id ? 'Building…' : 'Build HMRC Claim'}
-                          </button>
+                        {(() => {
+                          const deadline = getTaxYearClaimDeadline(s.tax_year)
+                          const deadlinePassed = !!(deadline && new Date() > deadline)
+                          return (
+                            <div className="flex items-center gap-3">
+                              <button
+                                onClick={() => handleBuildClaim(s.id)}
+                                disabled={buildingId === s.id || deadlinePassed}
+                                title={deadlinePassed ? `HMRC's 4-year claim deadline for tax year ${s.tax_year} has passed — this can no longer be claimed.` : undefined}
+                                className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40 disabled:cursor-not-allowed">
+                                {buildingId === s.id ? 'Building…' : deadlinePassed ? 'Deadline passed' : 'Build HMRC Claim'}
+                              </button>
                           {s.hmrc_claim_xml && (
                             <button onClick={() => setViewingXmlFor(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
                               View XML
@@ -699,7 +695,9 @@ export default function AdminCharityDetail() {
                           <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
                             {deletingId === s.id ? 'Deleting…' : 'Delete'}
                           </button>
-                        </div>
+                            </div>
+                          )
+                        })()}
                       </td>
                     </tr>
                   ))}
