@@ -151,6 +151,20 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
   })
 }
 
+// Confirmed directly by HMRC: <GatewayTimestamp> must be POPULATED for LTS
+// submissions specifically (LTS uses it to evaluate donation dates), but
+// must be OMITTED for ETS and live submissions. This only ever transforms
+// what's displayed for manual LTS testing — it never touches the stored
+// claim XML or anything actually sent to ETS.
+function addGatewayTimestampForLts(xml: string): string {
+  if (!xml) return xml
+  const timestamp = new Date().toISOString()
+  return xml.replace(
+    /<\/MessageDetails>/,
+    `<GatewayTimestamp>${timestamp}</GatewayTimestamp>\n</MessageDetails>`
+  )
+}
+
 const statusColor = (s: string) => {
   if (s === 'approved') return 'bg-green-100 text-green-700'
   if (s === 'rejected') return 'bg-red-100 text-red-700'
@@ -179,6 +193,7 @@ export default function AdminCharityDetail() {
   const [checkingId, setCheckingId] = useState<string | null>(null)
   const [buildResult, setBuildResult] = useState<{ submissionId: string; ok: boolean; message: string; errors?: string[]; warnings?: string[] } | null>(null)
   const [viewingXmlFor, setViewingXmlFor] = useState<Submission | null>(null)
+  const [showLtsVersion, setShowLtsVersion] = useState(false)
   const [agentRefInput, setAgentRefInput] = useState('')
   const [savingAgentRef, setSavingAgentRef] = useState(false)
   const [agentRefSaved, setAgentRefSaved] = useState(false)
@@ -770,12 +785,32 @@ export default function AdminCharityDetail() {
               <button onClick={() => setViewingXmlFor(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
             <div className="p-6">
-              <p className="text-xs text-gray-400 mb-3">
-                Select all (Ctrl/Cmd+A) and copy this into a plain text editor, save it with a .xml extension, then upload it through your Local Test Service page to validate it against HMRC's real schema.
-              </p>
+              <div className="flex items-center gap-2 mb-3">
+                <button
+                  onClick={() => setShowLtsVersion(false)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${!showLtsVersion ? 'bg-brand-accent text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                >
+                  As sent to ETS
+                </button>
+                <button
+                  onClick={() => setShowLtsVersion(true)}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${showLtsVersion ? 'bg-brand-accent text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
+                >
+                  For LTS testing
+                </button>
+              </div>
+              {showLtsVersion ? (
+                <p className="text-xs text-amber-600 mb-3">
+                  LTS specifically requires a populated &lt;GatewayTimestamp&gt; to correctly evaluate donation dates (confirmed directly by HMRC) — ETS and live submissions require it omitted instead. This view adds one with the current time, for local testing only; it is not what actually gets sent to ETS.
+                </p>
+              ) : (
+                <p className="text-xs text-gray-400 mb-3">
+                  This is the exact XML already sent (or ready to send) to HMRC's External Test Service. Switch to "For LTS testing" above if you want a version suitable for HMRC's standalone Local Test Service instead.
+                </p>
+              )}
               <textarea
                 readOnly
-                value={viewingXmlFor.hmrc_claim_xml || ''}
+                value={showLtsVersion ? addGatewayTimestampForLts(viewingXmlFor.hmrc_claim_xml || '') : (viewingXmlFor.hmrc_claim_xml || '')}
                 className="w-full h-96 font-mono text-xs border border-gray-200 rounded-lg p-3 bg-gray-50"
                 onClick={(e) => (e.target as HTMLTextAreaElement).select()}
               />
