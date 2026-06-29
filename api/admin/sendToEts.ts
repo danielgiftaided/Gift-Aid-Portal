@@ -20,6 +20,7 @@ import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
 import { postToTransactionEngine, parseGovTalkResponse, ETS_SUBMISSION_ENDPOINT } from '../_utils/transactionEngine.js'
 import { logActivity } from '../_utils/activityLog.js'
+import { deriveStatus } from '../_utils/deriveStatus.js'
 
 function send(res: VercelResponse, status: number, body: object) {
   return res.status(status).json(body)
@@ -71,7 +72,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     } catch (e: any) {
       await supabaseAdmin
         .from('submissions')
-        .update({ hmrc_status: 'error', hmrc_response_message: `Network error sending to ETS: ${e.message}` })
+        .update({ hmrc_status: 'error', status: deriveStatus('error'), hmrc_response_message: `Network error sending to ETS: ${e.message}` })
         .eq('id', submissionId)
       return send(res, 502, { ok: false, error: `Failed to reach the External Test Service: ${e.message}` })
     }
@@ -83,6 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('submissions')
         .update({
           hmrc_status: 'sent',
+          status: deriveStatus('sent'),
           hmrc_correlation_id: parsed.correlationId,
           hmrc_response_endpoint: parsed.responseEndpoint,
           hmrc_poll_interval_seconds: parsed.pollIntervalSeconds || 10,
@@ -115,7 +117,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     await supabaseAdmin
       .from('submissions')
-      .update({ hmrc_status: 'rejected', hmrc_response_message: errorSummary })
+      .update({ hmrc_status: 'rejected', status: deriveStatus('rejected'), hmrc_response_message: errorSummary })
       .eq('id', submissionId)
 
     await logActivity({
