@@ -34,6 +34,7 @@ import { requireOperator } from '../_utils/requireOperator.js'
 import { buildClaimFromSubmission, CharityRow, SubmissionRow, DonationRow } from '../_utils/buildClaimFromSubmission.js'
 import { buildR68Submission, SubmissionCredentials } from '../_utils/r68XmlBuilder.js'
 import { generateIrmark } from '../_utils/irmark.js'
+import { deriveStatus } from '../_utils/deriveStatus.js'
 import { logActivity } from '../_utils/activityLog.js'
 
 function send(res: VercelResponse, status: number, body: object) {
@@ -128,6 +129,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('submissions')
         .update({
           hmrc_status: 'validation_failed',
+          status: deriveStatus('validation_failed'),
           hmrc_response_message: mapping.errors.join(' | '),
         })
         .eq('id', submissionId)
@@ -180,6 +182,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('submissions')
         .update({
           hmrc_status: 'error',
+          status: deriveStatus('error'),
           hmrc_response_message: `IRmark generation failed: ${e.message}`,
         })
         .eq('id', submissionId)
@@ -193,6 +196,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .from('submissions')
       .update({
         hmrc_status: 'ready_to_send',
+        status: deriveStatus('ready_to_send'),
         hmrc_claim_xml: finalXml,
         hmrc_built_at: new Date().toISOString(),
         hmrc_response_message: mapping.warnings.length > 0 ? `Built with warnings: ${mapping.warnings.join(' | ')}` : null,
