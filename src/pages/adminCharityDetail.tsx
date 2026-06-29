@@ -165,6 +165,19 @@ function addGatewayTimestampForLts(xml: string): string {
   )
 }
 
+// Mirrors the same rule enforced server-side in buildClaimFromSubmission.ts —
+// HMRC's 4-year claim window runs from the END of the tax year, not from
+// any individual donation date within it. Duplicated here deliberately,
+// since frontend code can't import from api/_utils/ (separate Vercel
+// function bundles) — see the date-parsing helpers elsewhere in this file
+// for the same established pattern.
+function getTaxYearClaimDeadline(taxYear: string): Date | null {
+  const match = taxYear.match(/^(\d{4})\/(\d{2})$/)
+  if (!match) return null
+  const taxYearEndCalendarYear = parseInt(match[1], 10) + 1
+  return new Date(taxYearEndCalendarYear + 4, 3, 5)
+}
+
 const statusColor = (s: string) => {
   if (s === 'approved') return 'bg-green-100 text-green-700'
   if (s === 'rejected') return 'bg-red-100 text-red-700'
@@ -631,7 +644,22 @@ export default function AdminCharityDetail() {
                     <tr key={s.id} className="hover:bg-brand-surface/40 cursor-pointer transition-colors"
                       onClick={() => navigate(`/submissions/${s.id}`, { state: { backUrl: `/admin/charities/${id}` } })}>
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{new Date(s.submission_date).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{s.tax_year}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                        {s.tax_year}
+                        {(() => {
+                          const deadline = getTaxYearClaimDeadline(s.tax_year)
+                          if (!deadline) return null
+                          const isPast = new Date() > deadline
+                          const daysUntil = Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
+                          if (isPast) {
+                            return <span title={`HMRC's 4-year claim deadline for this tax year passed on ${deadline.toLocaleDateString('en-GB')} — this can no longer be claimed.`} className="ml-1.5 text-xs font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">Deadline passed</span>
+                          }
+                          if (daysUntil <= 90) {
+                            return <span title={`HMRC's 4-year claim deadline for this tax year is ${deadline.toLocaleDateString('en-GB')} — ${daysUntil} days left.`} className="ml-1.5 text-xs font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">{daysUntil}d left</span>
+                          }
+                          return null
+                        })()}
+                      </td>
                       <td className="px-4 py-3 text-sm font-bold text-brand-accent whitespace-nowrap">£{parseFloat(String(s.amount_claimed || 0)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{s.number_of_donations}</td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
