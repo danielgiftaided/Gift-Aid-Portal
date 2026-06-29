@@ -21,6 +21,7 @@ import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
 import { postToTransactionEngine, parseGovTalkResponse, buildPollMessage, buildDeleteMessage } from '../_utils/transactionEngine.js'
 import { logActivity } from '../_utils/activityLog.js'
+import { deriveStatus } from '../_utils/deriveStatus.js'
 
 const CLAIM_CLASS = 'HMRC-CHAR-CLM'
 
@@ -85,6 +86,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('submissions')
         .update({
           hmrc_status: 'polling',
+          status: deriveStatus('polling'),
           hmrc_response_endpoint: parsed.responseEndpoint || submission.hmrc_response_endpoint,
           hmrc_poll_interval_seconds: parsed.pollIntervalSeconds || 10,
         })
@@ -113,6 +115,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('submissions')
         .update({
           hmrc_status: 'accepted',
+          status: deriveStatus('accepted'),
           hmrc_response_message: 'Accepted by HMRC.',
           hmrc_response_at: new Date().toISOString(),
         })
@@ -136,6 +139,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .from('submissions')
       .update({
         hmrc_status: 'rejected',
+        status: deriveStatus('rejected'),
         hmrc_response_message: errorSummary,
         hmrc_response_at: new Date().toISOString(),
       })
