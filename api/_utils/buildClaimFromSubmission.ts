@@ -142,6 +142,16 @@ function parseAndFormatDonationDate(raw: string): string | null {
 function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor | null; errors: string[] } {
   const errors: string[] = []
 
+  // A single "X" in the postcode column is the established convention for
+  // a UK taxpayer living abroad — Gift Aid is still claimable for them,
+  // every other field is populated normally, and the ONLY difference is
+  // that no real postcode exists. HMRC's schema reflects this directly:
+  // Donor offers a choice between <Postcode> and <Overseas>yes</Overseas>
+  // (see r68XmlBuilder.ts) — "X" must route to the latter, never be sent
+  // as a literal postcode, since it wouldn't pass HMRC's postcode format
+  // validation at all.
+  const isOverseas = row.postcode?.trim().toUpperCase() === 'X'
+
   if (!row.first_name) errors.push(`Donation ${row.id}: missing first name`)
   if (!row.last_name) errors.push(`Donation ${row.id}: missing last name`)
   if (!row.address) errors.push(`Donation ${row.id}: missing address`)
@@ -190,7 +200,8 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
       firstName: row.first_name!,
       lastName: row.last_name!,
       houseNameOrNumber: house,
-      postcode: row.postcode!.trim().toUpperCase(),
+      overseas: isOverseas,
+      postcode: isOverseas ? undefined : row.postcode!.trim().toUpperCase(),
       donationDate: formattedDate!,
       amount: Math.round(row.amount! * 100) / 100,
     },
