@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabase";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import * as XLSX from "xlsx";
 import { fetchAllRows } from '../utils/fetchAll'
 
@@ -189,6 +189,7 @@ const statusColor = (s: string) => {
 export default function AdminCharityDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [charity, setCharity] = useState<Charity | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [loading, setLoading] = useState(true)
@@ -209,7 +210,9 @@ export default function AdminCharityDetail() {
   const [agentRefInput, setAgentRefInput] = useState('')
   const [savingAgentRef, setSavingAgentRef] = useState(false)
   const [agentRefSaved, setAgentRefSaved] = useState(false)
-  const [activeTab, setActiveTab] = useState<'submissions' | 'insights' | 'chv1'>('submissions')
+  const [activeTab, setActiveTab] = useState<'submissions' | 'insights' | 'chv1'>(
+    searchParams.get('tab') === 'chv1' ? 'chv1' : 'submissions'
+  )
   const [authOfficialInput, setAuthOfficialInput] = useState('')
   const [savingAuthOfficial, setSavingAuthOfficial] = useState(false)
   const [authOfficialSaved, setAuthOfficialSaved] = useState(false)
