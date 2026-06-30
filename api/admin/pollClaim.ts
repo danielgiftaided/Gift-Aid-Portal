@@ -111,12 +111,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (parsed.qualifier === 'response') {
+      // IMPORTANT: HMRC's acceptance response may contain a genuine claim
+      // reference number somewhere in its body — but we've never actually
+      // seen a real acceptance response's raw content, only the generic
+      // "accepted" qualifier. Rather than guess at a field name, the full
+      // raw body is captured here so it can be read directly next time a
+      // real claim is accepted, and hmrc_reference can then be wired up
+      // properly based on what's actually there (see hmrc_reference
+      // remaining unset below — deliberately not populated with a guess).
+      const rawBodySnippet = parsed.rawBody ? parsed.rawBody.slice(0, 2000) : null
+
       await supabaseAdmin
         .from('submissions')
         .update({
           hmrc_status: 'accepted',
           status: deriveStatus('accepted'),
-          hmrc_response_message: 'Accepted by HMRC.',
+          hmrc_response_message: rawBodySnippet
+            ? `Accepted by HMRC. Raw response body (for identifying any claim reference): ${rawBodySnippet}`
+            : 'Accepted by HMRC. (No response body was returned to inspect for a claim reference.)',
           hmrc_response_at: new Date().toISOString(),
         })
         .eq('id', submissionId)
