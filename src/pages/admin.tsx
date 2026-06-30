@@ -72,31 +72,19 @@ export default function Admin() {
       <PageShapes />
       <div className="relative" style={{ zIndex: 10 }}>
         <nav className="bg-white border-b border-gray-100">
-          <div className="max-w-4xl mx-auto px-6 py-4 flex justify-between items-center">
+          <div className="w-full px-8 py-4 flex justify-between items-center">
             <Logo />
-            <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
+            <div className="flex items-center gap-6">
+              <button onClick={() => navigate('/admin/pending-charities')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Pending Charities</button>
+              <button onClick={() => navigate('/admin/activity-log')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Activity Log</button>
+              <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
+            </div>
           </div>
         </nav>
 
-        <div className="max-w-4xl mx-auto px-6 pt-12 pb-4 flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-brand-primary">Admin Dashboard</h1>
-            <p className="text-gray-400 text-sm mt-1">Manage charities and Gift Aid submissions</p>
-          </div>
-          <div className="flex gap-3 flex-shrink-0">
-            <button
-              onClick={() => navigate('/admin/activity-log')}
-              className="px-4 py-2 text-sm font-semibold rounded-lg border border-brand-primary/20 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors"
-            >
-              Activity Log
-            </button>
-            <button
-              onClick={() => navigate('/admin/pending-charities')}
-              className="px-4 py-2 text-sm font-semibold rounded-lg border border-brand-primary/20 text-brand-primary hover:bg-brand-primary hover:text-white transition-colors"
-            >
-              Pending Charities
-            </button>
-          </div>
+        <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
+          <h1 className="text-3xl font-bold text-brand-primary">Admin Dashboard</h1>
+          <p className="text-gray-400 text-sm mt-1">Manage charities and Gift Aid submissions</p>
         </div>
 
         <div className="max-w-4xl mx-auto px-6 pb-12">
