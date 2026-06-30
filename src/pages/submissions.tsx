@@ -59,7 +59,7 @@ export default function Submissions() {
       <PageShapes />
       <div className="relative" style={{ zIndex: 10 }}>
         <nav className="bg-white border-b border-gray-100">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <div className="w-full px-8 py-4 flex justify-between items-center">
             <Logo />
                         <div className="flex items-center gap-5">
               <button onClick={() => navigate('/insights')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Insights</button>
