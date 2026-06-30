@@ -66,6 +66,23 @@ export interface GiftAidClaimInput {
   // CCNI) registration number, which is a DIFFERENT number from the HMRC
   // Gift Aid reference (charityHmrcReference) above.
   regulatorNumber?: string
+  // GASDS is structurally unlike everything else in this claim — a
+  // lump-sum amount with no individual donor records at all, rather than
+  // a list of named donations. Entirely optional: a claim with no gasds
+  // field produces byte-for-byte identical XML to before this existed.
+  gasds?: GasdsClaimInput
+}
+
+export interface GasdsClaimInput {
+  claimYear: number       // calendar year the tax year STARTS in, e.g. tax year "2025/26" -> 2025
+  amount: number          // total small-donations amount claimed for this year, always 2dp
+  connectedCharities: boolean  // mandatory yes/no per HMRC's schema, regardless of the actual answer
+  communityBuildings: boolean  // mandatory yes/no per HMRC's schema, regardless of the actual answer
+  // NOTE: the real schema also allows listing specific connected charities
+  // and specific community buildings, each with their own claimed amounts.
+  // Deliberately not supported yet — this covers the common case of a
+  // single charity claiming a simple lump sum. Revisit if a real charity
+  // needs the connected-charities or community-buildings detail.
 }
 
 export interface SubmissionCredentials {
@@ -138,9 +155,16 @@ export function buildR68Submission(
   // EarliestGAdate is confirmed conditionally mandatory by business rule
   // 7034 whenever any GAD entries are present. donationDate strings are
   // already ccyy-mm-dd, so a plain string min() sorts correctly.
-  const earliestDonationDate = claim.donations
-    .map(d => d.donationDate)
-    .reduce((earliest, current) => (current < earliest ? current : earliest))
+  //
+  // The real schema marks <Repayment> itself as OPTIONAL — a charity can
+  // legitimately submit a GASDS-only claim with zero individual donors at
+  // all (e.g. bucket collections only, no named Gift Aid declarations).
+  // .reduce() with no seed throws on an empty array, so this must be
+  // guarded explicitly rather than assumed donations.length > 0.
+  const hasDonations = claim.donations.length > 0
+  const earliestDonationDate = hasDonations
+    ? claim.donations.map(d => d.donationDate).reduce((earliest, current) => (current < earliest ? current : earliest))
+    : null
 
   // Adjustment sits INSIDE <Repayment>, after the GAD entries — confirmed
   // by the real schema. The explanation (if any) goes in the separate,
@@ -150,6 +174,15 @@ export function buildR68Submission(
     : ''
   const otherInfoElement = claim.adjustment?.explanation
     ? `<OtherInfo>${escapeXml(claim.adjustment.explanation.slice(0, 350))}</OtherInfo>`
+    : ''
+
+  // GASDS sits as its own block at the Claim level, a SIBLING of
+  // <Repayment> (not nested inside it) — confirmed by the real schema
+  // order: OrgName, HMRCref, Regulator, Repayment, GASDS, OtherInfo.
+  // Entirely absent from the XML when no gasds data is provided, so this
+  // can never affect a claim that doesn't use it.
+  const gasdsElement = claim.gasds
+    ? `<GASDS><ConnectedCharities>${claim.gasds.connectedCharities ? 'yes' : 'no'}</ConnectedCharities><GASDSClaim><Year>${claim.gasds.claimYear}</Year><Amount>${formatAmount(claim.gasds.amount)}</Amount></GASDSClaim><CommBldgs>${claim.gasds.communityBuildings ? 'yes' : 'no'}</CommBldgs></GASDS>`
     : ''
 
   const gatewayTestElement = credentials.isLive ? '' : `<GatewayTest>1</GatewayTest>`
@@ -222,11 +255,12 @@ ${gatewayTestElement}
 <RegName>${escapeXml(claim.regulatorName || 'CCEW')}</RegName>
 <RegNo>${escapeXml(claim.regulatorNumber || '')}</RegNo>
 </Regulator>
-<Repayment>
+${hasDonations ? `<Repayment>
 ${gadElements}
 <EarliestGAdate>${earliestDonationDate}</EarliestGAdate>
 ${adjustmentElement}
-</Repayment>
+</Repayment>` : ''}
+${gasdsElement}
 ${otherInfoElement}
 </Claim>
 </R68>
