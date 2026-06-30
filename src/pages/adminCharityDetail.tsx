@@ -874,7 +874,7 @@ export default function AdminCharityDetail() {
                     <tr key={s.id} className="hover:bg-brand-surface/40 cursor-pointer transition-colors"
                       onClick={() => navigate(`/submissions/${s.id}`, { state: { backUrl: `/admin/charities/${id}` } })}>
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{new Date(s.submission_date).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
+                      <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap" onClick={e => gasdsClaims[s.id] && e.stopPropagation()}>
                         {s.tax_year}
                         {(() => {
                           const deadline = getTaxYearClaimDeadline(s.tax_year)
@@ -889,6 +889,15 @@ export default function AdminCharityDetail() {
                           }
                           return null
                         })()}
+                        {gasdsClaims[s.id] && (
+                          <button
+                            onClick={() => openGasdsModal(s)}
+                            title="View or edit this submission's GASDS claim"
+                            className="ml-1.5 text-xs font-semibold text-teal-700 bg-teal-50 hover:bg-teal-100 px-1.5 py-0.5 rounded"
+                          >
+                            GASDS: £{gasdsClaims[s.id].amount.toLocaleString('en-GB', { minimumFractionDigits: 2 })}
+                          </button>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-sm font-bold text-brand-accent whitespace-nowrap">£{parseFloat(String(s.amount_claimed || 0)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{s.number_of_donations}</td>
@@ -914,9 +923,6 @@ export default function AdminCharityDetail() {
                                 className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40 disabled:cursor-not-allowed">
                                 {buildingId === s.id ? 'Building…' : deadlinePassed ? 'Deadline passed' : 'Build HMRC Claim'}
                               </button>
-                          <button onClick={() => openGasdsModal(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
-                            {gasdsClaims[s.id] ? `GASDS: £${gasdsClaims[s.id].amount.toLocaleString('en-GB', { minimumFractionDigits: 2 })}` : '+ GASDS'}
-                          </button>
                           {s.hmrc_claim_xml && (
                             <button onClick={() => setViewingXmlFor(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
                               View XML
