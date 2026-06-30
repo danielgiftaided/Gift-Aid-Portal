@@ -66,6 +66,13 @@ export interface SubmissionRow {
   status: string
 }
 
+export interface GasdsRow {
+  claim_year: number
+  amount: number
+  connected_charities: boolean
+  community_buildings: boolean
+}
+
 export interface DonationRow {
   id: string
   title: string | null
@@ -232,7 +239,8 @@ function isPastClaimDeadline(taxYear: string, asOf: Date = new Date()): boolean 
 export function buildClaimFromSubmission(
   charity: CharityRow,
   submission: SubmissionRow,
-  donations: DonationRow[]
+  donations: DonationRow[],
+  gasds?: GasdsRow | null
 ): MappingResult {
   const errors: string[] = []
   const warnings: string[] = []
@@ -258,8 +266,26 @@ export function buildClaimFromSubmission(
     )
   }
 
-  if (donations.length === 0) {
-    errors.push(`Submission ${submission.id} has no donations to claim.`)
+  // A submission with neither regular Gift Aid donations NOR a GASDS claim
+  // has nothing to actually claim. But GASDS-only is legitimate — many
+  // charities run bucket collections with no individual declarations at
+  // all — so this only blocks when BOTH are genuinely empty.
+  if (donations.length === 0 && !gasds) {
+    errors.push(`Submission ${submission.id} has no donations and no GASDS claim to submit.`)
+  }
+
+  // claim_year and tax_year are entered somewhat independently (GASDS data
+  // entry vs the submission's own tax year), so it's worth catching a
+  // mismatch explicitly rather than silently submitting the wrong year to
+  // HMRC — e.g. someone entering 2025 when they meant tax year "2024/25".
+  if (gasds) {
+    const taxYearMatch = submission.tax_year.match(/^(\d{4})\/\d{2}$/)
+    const expectedClaimYear = taxYearMatch ? parseInt(taxYearMatch[1], 10) : null
+    if (expectedClaimYear !== null && gasds.claim_year !== expectedClaimYear) {
+      errors.push(
+        `GASDS claim year (${gasds.claim_year}) doesn't match this submission's tax year (${submission.tax_year}, which should correspond to claim year ${expectedClaimYear}). Check the GASDS entry before building this claim.`
+      )
+    }
   }
 
   // HMRC's 4-year claim window — once passed, this tax year's donations
@@ -297,6 +323,12 @@ export function buildClaimFromSubmission(
       taxYear: submission.tax_year,
       regulatorNumber: charity.charity_number || undefined,
       donations: mappedDonors,
+      gasds: gasds ? {
+        claimYear: gasds.claim_year,
+        amount: Math.round(gasds.amount * 100) / 100,
+        connectedCharities: gasds.connected_charities,
+        communityBuildings: gasds.community_buildings,
+      } : undefined,
     },
     errors: [],
     warnings,
