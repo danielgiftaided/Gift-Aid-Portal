@@ -20,6 +20,7 @@ import PendingCharities from './pages/pendingCharities'
 import PendingCharityInsights from './pages/pendingCharityInsights'
 import ActivityLog from './pages/activityLog'
 import AdminInsights from './pages/adminInsights'
+import AdminDonorMatching from './pages/adminDonorMatching'
 import IdleTimeoutMonitor from './components/IdleTimeoutMonitor'
 
 function App() {
@@ -48,6 +49,7 @@ function App() {
         <Route path="/admin/pending-charities/:email/insights" element={<PendingCharityInsights />} />
         <Route path="/admin/activity-log" element={<ActivityLog />} />
         <Route path="/admin/insights" element={<AdminInsights />} />
+        <Route path="/admin/donor-matching" element={<AdminDonorMatching />} />
         <Route path="/" element={<Navigate to="/login" />} />
         <Route path="*" element={<Navigate to="/login" />} />
       </Routes>
