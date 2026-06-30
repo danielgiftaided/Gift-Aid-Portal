@@ -183,7 +183,7 @@ export default function PendingCharityInsights() {
       <div className="relative" style={{ zIndex: 10 }}>
 
         <nav className="bg-white border-b border-gray-100">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <div className="w-full px-8 py-4 flex justify-between items-center">
             <Logo />
             <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
           </div>
