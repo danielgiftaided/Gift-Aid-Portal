@@ -185,7 +185,11 @@ export default function PendingCharityInsights() {
         <nav className="bg-white border-b border-gray-100">
           <div className="w-full px-8 py-4 flex justify-between items-center">
             <Logo />
-            <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
+            <div className="flex items-center gap-6">
+              <button onClick={() => navigate('/admin/pending-charities')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Pending Charities</button>
+              <button onClick={() => navigate('/admin/activity-log')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Activity Log</button>
+              <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
+            </div>
           </div>
         </nav>
 
