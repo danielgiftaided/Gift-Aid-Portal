@@ -31,7 +31,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
-import { buildClaimFromSubmission, CharityRow, SubmissionRow, DonationRow } from '../_utils/buildClaimFromSubmission.js'
+import { buildClaimFromSubmission, CharityRow, SubmissionRow, DonationRow, GasdsRow } from '../_utils/buildClaimFromSubmission.js'
 import { buildR68Submission, SubmissionCredentials } from '../_utils/r68XmlBuilder.js'
 import { generateIrmark } from '../_utils/irmark.js'
 import { deriveStatus } from '../_utils/deriveStatus.js'
@@ -117,11 +117,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 500, { ok: false, error: donErr.message })
     }
 
+    // GASDS is entirely separate from donations — fetch it independently.
+    // .maybeSingle() rather than .single() since most submissions won't
+    // have one at all, which is normal, not an error.
+    const { data: gasdsRow, error: gasdsErr } = await supabaseAdmin
+      .from('gasds_claims')
+      .select('claim_year, amount, connected_charities, community_buildings')
+      .eq('submission_id', submissionId)
+      .maybeSingle()
+
+    if (gasdsErr) {
+      return send(res, 500, { ok: false, error: gasdsErr.message })
+    }
+
     // ── Step 1: map + validate ──────────────────────────────
     const mapping = buildClaimFromSubmission(
       charity as CharityRow,
       submission as SubmissionRow,
-      (donations || []) as DonationRow[]
+      (donations || []) as DonationRow[],
+      gasdsRow as GasdsRow | null
     )
 
     if (mapping.errors.length > 0 || !mapping.claim) {
