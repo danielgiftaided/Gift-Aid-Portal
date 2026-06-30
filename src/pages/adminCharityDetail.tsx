@@ -6,7 +6,13 @@ import { fetchAllRows } from '../utils/fetchAll'
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; charity_id: string | null; authorised_official_name: string | null; agent_nominee_reference: string | null }
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null }
-interface GasdsClaim { id: string; submission_id: string; claim_year: number; amount: number; connected_charities: boolean; community_buildings: boolean }
+interface GasdsClaim {
+  id: string; submission_id: string; claim_year: number; amount: number
+  connected_charities: boolean; community_buildings: boolean
+  collection_dates: string[]; banked_dates: string[]
+  building_address: string | null; building_postcode: string | null
+  event_type: string | null; number_of_events: number | null; estimated_attendance: number | null
+}
 
 interface ParsedRow {
   rowNum: number
@@ -204,10 +210,25 @@ export default function AdminCharityDetail() {
   const [charity, setCharity] = useState<Charity | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [gasdsClaims, setGasdsClaims] = useState<Record<string, GasdsClaim>>({}) // keyed by submission_id
+  // gasdsModalFor: an existing submission, when editing GASDS attached to it.
+  // gasdsModalMode 'standalone' with gasdsModalFor null means creating a
+  // brand new GASDS-only claim that isn't attached to any existing
+  // donor-based submission at all.
+  const [gasdsModalMode, setGasdsModalMode] = useState<'attached' | 'standalone' | null>(null)
   const [gasdsModalFor, setGasdsModalFor] = useState<Submission | null>(null)
+  const [gasdsStandaloneTaxYear, setGasdsStandaloneTaxYear] = useState('')
   const [gasdsAmountInput, setGasdsAmountInput] = useState('')
   const [gasdsConnectedInput, setGasdsConnectedInput] = useState(false)
   const [gasdsCommunityInput, setGasdsCommunityInput] = useState(false)
+  const [gasdsCollectionDates, setGasdsCollectionDates] = useState<string[]>([])
+  const [gasdsCollectionDateInput, setGasdsCollectionDateInput] = useState('')
+  const [gasdsBankedDates, setGasdsBankedDates] = useState<string[]>([])
+  const [gasdsBankedDateInput, setGasdsBankedDateInput] = useState('')
+  const [gasdsBuildingAddress, setGasdsBuildingAddress] = useState('')
+  const [gasdsBuildingPostcode, setGasdsBuildingPostcode] = useState('')
+  const [gasdsEventType, setGasdsEventType] = useState('')
+  const [gasdsNumberOfEvents, setGasdsNumberOfEvents] = useState('')
+  const [gasdsEstimatedAttendance, setGasdsEstimatedAttendance] = useState('')
   const [savingGasds, setSavingGasds] = useState(false)
   const [gasdsError, setGasdsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
@@ -258,7 +279,7 @@ export default function AdminCharityDetail() {
       if (subData.length > 0) {
         const { data: gasdsData, error: gasdsErr } = await supabase
           .from('gasds_claims')
-          .select('id, submission_id, claim_year, amount, connected_charities, community_buildings')
+          .select('id, submission_id, claim_year, amount, connected_charities, community_buildings, collection_dates, banked_dates, building_address, building_postcode, event_type, number_of_events, estimated_attendance')
           .in('submission_id', subData.map(s => s.id))
         if (gasdsErr) throw new Error(gasdsErr.message)
         const keyed: Record<string, GasdsClaim> = {}
@@ -300,54 +321,184 @@ export default function AdminCharityDetail() {
     setSavingAuthOfficial(false)
   }
 
+  const resetGasdsModalFields = () => {
+    setGasdsAmountInput('')
+    setGasdsConnectedInput(false)
+    setGasdsCommunityInput(false)
+    setGasdsCollectionDates([])
+    setGasdsCollectionDateInput('')
+    setGasdsBankedDates([])
+    setGasdsBankedDateInput('')
+    setGasdsBuildingAddress('')
+    setGasdsBuildingPostcode('')
+    setGasdsEventType('')
+    setGasdsNumberOfEvents('')
+    setGasdsEstimatedAttendance('')
+    setGasdsError(null)
+  }
+
+  // Editing GASDS attached to an EXISTING submission (whether that
+  // submission also has real donor declarations, or was itself originally
+  // created as a standalone GASDS-only claim — both end up here, since
+  // both already have a real submission_id by this point).
   const openGasdsModal = (submission: Submission) => {
     const existing = gasdsClaims[submission.id]
-    setGasdsAmountInput(existing ? String(existing.amount) : '')
-    setGasdsConnectedInput(existing ? existing.connected_charities : false)
-    setGasdsCommunityInput(existing ? existing.community_buildings : false)
-    setGasdsError(null)
+    resetGasdsModalFields()
+    setGasdsModalMode('attached')
     setGasdsModalFor(submission)
+    if (existing) {
+      setGasdsAmountInput(String(existing.amount))
+      setGasdsConnectedInput(existing.connected_charities)
+      setGasdsCommunityInput(existing.community_buildings)
+      setGasdsCollectionDates(existing.collection_dates || [])
+      setGasdsBankedDates(existing.banked_dates || [])
+      setGasdsBuildingAddress(existing.building_address || '')
+      setGasdsBuildingPostcode(existing.building_postcode || '')
+      setGasdsEventType(existing.event_type || '')
+      setGasdsNumberOfEvents(existing.number_of_events != null ? String(existing.number_of_events) : '')
+      setGasdsEstimatedAttendance(existing.estimated_attendance != null ? String(existing.estimated_attendance) : '')
+    }
+  }
+
+  // Creating a brand new GASDS claim with NO existing donor-based
+  // submission at all — e.g. a charity that only ever runs bucket
+  // collections for a given tax year. A new lightweight submission (zero
+  // donations) is created behind the scenes on save, so this still flows
+  // through the exact same build/send/poll pipeline as everything else.
+  const openStandaloneGasdsModal = () => {
+    resetGasdsModalFields()
+    setGasdsModalMode('standalone')
+    setGasdsModalFor(null)
+    setGasdsStandaloneTaxYear(getTaxYearForDate(new Date()))
+  }
+
+  const closeGasdsModal = () => {
+    setGasdsModalMode(null)
+    setGasdsModalFor(null)
+  }
+
+  const addGasdsDate = (kind: 'collection' | 'banked') => {
+    const value = kind === 'collection' ? gasdsCollectionDateInput : gasdsBankedDateInput
+    if (!value) return
+    if (kind === 'collection') {
+      setGasdsCollectionDates(prev => [...prev, value].sort())
+      setGasdsCollectionDateInput('')
+    } else {
+      setGasdsBankedDates(prev => [...prev, value].sort())
+      setGasdsBankedDateInput('')
+    }
+  }
+
+  const removeGasdsDate = (kind: 'collection' | 'banked', index: number) => {
+    if (kind === 'collection') setGasdsCollectionDates(prev => prev.filter((_, i) => i !== index))
+    else setGasdsBankedDates(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleSaveGasds = async () => {
-    if (!gasdsModalFor) return
     const amount = parseFloat(gasdsAmountInput)
     if (isNaN(amount) || amount <= 0) {
       setGasdsError('Enter a valid amount greater than zero.')
       return
     }
-    const claimYear = deriveGasdsClaimYear(gasdsModalFor.tax_year)
-    if (claimYear === null) {
-      setGasdsError(`Couldn't determine a GASDS claim year from this submission's tax year (${gasdsModalFor.tax_year}).`)
+    if (gasdsCommunityInput && (!gasdsBuildingAddress.trim() || !gasdsBuildingPostcode.trim())) {
+      setGasdsError('Building address and postcode are required when this claim relates to a community building.')
       return
     }
+
+    let claimYear: number | null = null
+    if (gasdsModalMode === 'standalone') {
+      if (!/^\d{4}\/\d{2}$/.test(gasdsStandaloneTaxYear.trim())) {
+        setGasdsError('Enter a valid tax year in the format YYYY/YY, e.g. 2025/26.')
+        return
+      }
+      claimYear = deriveGasdsClaimYear(gasdsStandaloneTaxYear.trim())
+    } else if (gasdsModalFor) {
+      claimYear = deriveGasdsClaimYear(gasdsModalFor.tax_year)
+    }
+    if (claimYear === null) {
+      setGasdsError('Could not determine a GASDS claim year from the tax year provided.')
+      return
+    }
+
     setSavingGasds(true)
     setGasdsError(null)
-    const { error } = await supabase.from('gasds_claims').upsert({
-      submission_id: gasdsModalFor.id,
+
+    const gasdsFields = {
       claim_year: claimYear,
       amount,
       connected_charities: gasdsConnectedInput,
       community_buildings: gasdsCommunityInput,
-    }, { onConflict: 'submission_id' })
-    if (error) {
-      setGasdsError(error.message)
-    } else {
-      setGasdsModalFor(null)
-      await loadData()
+      collection_dates: gasdsCollectionDates,
+      banked_dates: gasdsBankedDates,
+      building_address: gasdsCommunityInput ? (gasdsBuildingAddress.trim() || null) : null,
+      building_postcode: gasdsCommunityInput ? (gasdsBuildingPostcode.trim() || null) : null,
+      event_type: gasdsCommunityInput ? (gasdsEventType.trim() || null) : null,
+      number_of_events: gasdsCommunityInput && gasdsNumberOfEvents ? parseInt(gasdsNumberOfEvents, 10) : null,
+      estimated_attendance: gasdsCommunityInput && gasdsEstimatedAttendance ? parseInt(gasdsEstimatedAttendance, 10) : null,
     }
+
+    if (gasdsModalMode === 'standalone') {
+      // Create the lightweight carrier submission first, then attach the
+      // GASDS claim to it — see comment on openStandaloneGasdsModal above.
+      const { data: newSub, error: subErr } = await supabase.from('submissions').insert({
+        charity_id: id,
+        submission_date: new Date().toISOString().split('T')[0],
+        tax_year: gasdsStandaloneTaxYear.trim(),
+        amount_claimed: Math.round(amount * 0.25 * 100) / 100,
+        number_of_donations: 0,
+        status: 'pending',
+      }).select('id').single()
+
+      if (subErr || !newSub) {
+        setGasdsError(subErr?.message || 'Failed to create a submission for this GASDS claim.')
+        setSavingGasds(false)
+        return
+      }
+
+      const { error: gasdsErr } = await supabase.from('gasds_claims').insert({ submission_id: newSub.id, ...gasdsFields })
+      if (gasdsErr) {
+        setGasdsError(gasdsErr.message)
+        setSavingGasds(false)
+        return
+      }
+    } else {
+      if (!gasdsModalFor) { setSavingGasds(false); return }
+      const { error } = await supabase.from('gasds_claims').upsert(
+        { submission_id: gasdsModalFor.id, ...gasdsFields },
+        { onConflict: 'submission_id' }
+      )
+      if (error) {
+        setGasdsError(error.message)
+        setSavingGasds(false)
+        return
+      }
+    }
+
+    closeGasdsModal()
+    await loadData()
     setSavingGasds(false)
   }
 
   const handleDeleteGasds = async () => {
     if (!gasdsModalFor) return
-    if (!window.confirm('Remove the GASDS claim from this submission?')) return
+    // If this submission only ever existed to carry a GASDS claim (zero
+    // real donations), remove the whole submission rather than leaving an
+    // empty, donation-less row behind — the GASDS row goes with it
+    // automatically (ON DELETE CASCADE). Otherwise, only the GASDS data
+    // is removed and the submission (with its real donations) stays.
+    const gasdsOnly = gasdsModalFor.number_of_donations === 0
+    const confirmMsg = gasdsOnly
+      ? 'This GASDS claim has no other donations attached to its submission — removing it will delete the submission entirely. Continue?'
+      : 'Remove the GASDS claim from this submission? The submission and its donations will be kept.'
+    if (!window.confirm(confirmMsg)) return
     setSavingGasds(true)
-    const { error } = await supabase.from('gasds_claims').delete().eq('submission_id', gasdsModalFor.id)
+    const { error } = gasdsOnly
+      ? await supabase.from('submissions').delete().eq('id', gasdsModalFor.id)
+      : await supabase.from('gasds_claims').delete().eq('submission_id', gasdsModalFor.id)
     if (error) {
       setGasdsError(error.message)
     } else {
-      setGasdsModalFor(null)
+      closeGasdsModal()
       await loadData()
     }
     setSavingGasds(false)
@@ -696,7 +847,12 @@ export default function AdminCharityDetail() {
 
           {/* Submissions table */}
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-            <div className="px-6 py-4 border-b border-gray-50"><h2 className="font-semibold text-brand-primary">Submissions</h2></div>
+            <div className="px-6 py-4 border-b border-gray-50 flex items-center justify-between">
+              <h2 className="font-semibold text-brand-primary">Submissions</h2>
+              <button onClick={openStandaloneGasdsModal} className="text-xs font-semibold text-brand-accent hover:text-brand-primary">
+                + New GASDS Claim
+              </button>
+            </div>
             {buildResult && (
               <div className={`px-6 py-3 text-sm ${buildResult.ok ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
                 <p className="font-medium">{buildResult.message}</p>
@@ -934,22 +1090,40 @@ export default function AdminCharityDetail() {
         </div>
       )}
 
-      {/* GASDS entry modal — lump-sum small donations claim, entirely
-          separate from the donor-by-donor donations on this submission */}
-      {gasdsModalFor && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+      {/* GASDS entry modal — lump-sum small donations claim, structurally
+          unlike everything else in this portal: no individual donor
+          records at all. Can either be created standalone (its own
+          lightweight submission, created on save) or attached to an
+          existing submission's donor-by-donor donations. */}
+      {gasdsModalMode && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overflow-y-auto py-8">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full my-auto">
             <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-brand-primary">GASDS Claim</h3>
-                <p className="text-xs text-gray-400 mt-0.5">Tax year {gasdsModalFor.tax_year}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {gasdsModalMode === 'standalone' ? 'New standalone claim — no donor-based submission required' : `Tax year ${gasdsModalFor?.tax_year}`}
+                </p>
               </div>
-              <button onClick={() => setGasdsModalFor(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+              <button onClick={closeGasdsModal} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
               <p className="text-xs text-gray-400">
-                Gift Aid Small Donations Scheme — a lump-sum claim on small cash collections (e.g. bucket collections) with no individual donor declarations. This is entirely separate from the donor records on this submission, and is optional.
+                Gift Aid Small Donations Scheme — a lump-sum claim on small cash collections (e.g. bucket collections) with no individual donor declarations. Only the amount and the two yes/no questions below are ever sent to HMRC; everything else here is record-keeping evidence kept on file in case of a compliance check.
               </p>
+
+              {gasdsModalMode === 'standalone' && (
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Tax year</label>
+                  <input
+                    type="text"
+                    value={gasdsStandaloneTaxYear}
+                    onChange={e => setGasdsStandaloneTaxYear(e.target.value)}
+                    placeholder="e.g. 2025/26"
+                    className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Total amount collected (£)</label>
@@ -972,10 +1146,85 @@ export default function AdminCharityDetail() {
                 <span>Some or all of this claim relates to donations collected in a community building (e.g. a village hall)</span>
               </label>
 
+              {/* Record-keeping: collection dates */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Dates the collections took place</label>
+                <div className="flex gap-2">
+                  <input type="date" value={gasdsCollectionDateInput} onChange={e => setGasdsCollectionDateInput(e.target.value)}
+                    className="flex-1 text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                  <button type="button" onClick={() => addGasdsDate('collection')} className="px-3 py-1.5 text-xs font-semibold text-brand-accent border border-brand-accent/30 rounded hover:bg-brand-accent/5">Add</button>
+                </div>
+                {gasdsCollectionDates.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {gasdsCollectionDates.map((d, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                        {new Date(d).toLocaleDateString('en-GB')}
+                        <button type="button" onClick={() => removeGasdsDate('collection', i)} className="text-gray-400 hover:text-red-500 leading-none">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Record-keeping: banked dates */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Dates the cash was paid into the charity's UK bank account</label>
+                <div className="flex gap-2">
+                  <input type="date" value={gasdsBankedDateInput} onChange={e => setGasdsBankedDateInput(e.target.value)}
+                    className="flex-1 text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                  <button type="button" onClick={() => addGasdsDate('banked')} className="px-3 py-1.5 text-xs font-semibold text-brand-accent border border-brand-accent/30 rounded hover:bg-brand-accent/5">Add</button>
+                </div>
+                {gasdsBankedDates.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mt-2">
+                    {gasdsBankedDates.map((d, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded">
+                        {new Date(d).toLocaleDateString('en-GB')}
+                        <button type="button" onClick={() => removeGasdsDate('banked', i)} className="text-gray-400 hover:text-red-500 leading-none">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Community building detail — only relevant when that checkbox is ticked */}
+              {gasdsCommunityInput && (
+                <div className="bg-brand-surface/60 border border-gray-100 rounded-lg p-4 space-y-3">
+                  <p className="text-xs font-semibold text-brand-primary uppercase tracking-wide">Community building detail</p>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Building address</label>
+                    <input type="text" value={gasdsBuildingAddress} onChange={e => setGasdsBuildingAddress(e.target.value)}
+                      className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Postcode</label>
+                    <input type="text" value={gasdsBuildingPostcode} onChange={e => setGasdsBuildingPostcode(e.target.value)}
+                      className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Type of event</label>
+                    <input type="text" value={gasdsEventType} onChange={e => setGasdsEventType(e.target.value)}
+                      placeholder="e.g. Coffee morning, Carol service"
+                      className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Number of events</label>
+                      <input type="number" min="1" value={gasdsNumberOfEvents} onChange={e => setGasdsNumberOfEvents(e.target.value)}
+                        className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Estimated attendance</label>
+                      <input type="number" min="0" value={gasdsEstimatedAttendance} onChange={e => setGasdsEstimatedAttendance(e.target.value)}
+                        className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {gasdsError && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{gasdsError}</div>}
 
               <div className="flex items-center justify-between pt-2">
-                {gasdsClaims[gasdsModalFor.id] ? (
+                {gasdsModalMode === 'attached' && gasdsModalFor && gasdsClaims[gasdsModalFor.id] ? (
                   <button onClick={handleDeleteGasds} disabled={savingGasds} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
                     Remove GASDS claim
                   </button>
