@@ -6,6 +6,7 @@ import { fetchAllRows } from '../utils/fetchAll'
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; charity_id: string | null; authorised_official_name: string | null; agent_nominee_reference: string | null }
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null }
+interface GasdsClaim { id: string; submission_id: string; claim_year: number; amount: number; connected_charities: boolean; community_buildings: boolean }
 
 interface ParsedRow {
   rowNum: number
@@ -178,6 +179,16 @@ function getTaxYearClaimDeadline(taxYear: string): Date | null {
   return new Date(taxYearEndCalendarYear + 4, 3, 5)
 }
 
+// GASDS's "claim_year" is the calendar year a tax year STARTS in (e.g. tax
+// year "2025/26" -> 2025), per HMRC's own schema. Deriving this from the
+// submission's own tax_year — rather than letting an admin type it in
+// separately — removes an entire class of mismatch that would otherwise
+// only be caught later, server-side, when building the claim.
+function deriveGasdsClaimYear(taxYear: string): number | null {
+  const match = taxYear.match(/^(\d{4})\/\d{2}$/)
+  return match ? parseInt(match[1], 10) : null
+}
+
 const statusColor = (s: string) => {
   if (s === 'approved') return 'bg-green-100 text-green-700'
   if (s === 'rejected') return 'bg-red-100 text-red-700'
@@ -192,6 +203,13 @@ export default function AdminCharityDetail() {
   const [searchParams] = useSearchParams()
   const [charity, setCharity] = useState<Charity | null>(null)
   const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [gasdsClaims, setGasdsClaims] = useState<Record<string, GasdsClaim>>({}) // keyed by submission_id
+  const [gasdsModalFor, setGasdsModalFor] = useState<Submission | null>(null)
+  const [gasdsAmountInput, setGasdsAmountInput] = useState('')
+  const [gasdsConnectedInput, setGasdsConnectedInput] = useState(false)
+  const [gasdsCommunityInput, setGasdsCommunityInput] = useState(false)
+  const [savingGasds, setSavingGasds] = useState(false)
+  const [gasdsError, setGasdsError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([])
@@ -233,6 +251,22 @@ export default function AdminCharityDetail() {
         supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml').eq('charity_id', id).order('submission_date', { ascending: false })
       )
       setSubmissions(subData)
+
+      // GASDS claims are entirely separate from donations — fetched
+      // independently and keyed by submission_id for quick lookup in the
+      // table below. Most submissions won't have one, which is normal.
+      if (subData.length > 0) {
+        const { data: gasdsData, error: gasdsErr } = await supabase
+          .from('gasds_claims')
+          .select('id, submission_id, claim_year, amount, connected_charities, community_buildings')
+          .in('submission_id', subData.map(s => s.id))
+        if (gasdsErr) throw new Error(gasdsErr.message)
+        const keyed: Record<string, GasdsClaim> = {}
+        for (const row of gasdsData || []) keyed[row.submission_id] = row as GasdsClaim
+        setGasdsClaims(keyed)
+      } else {
+        setGasdsClaims({})
+      }
     } catch (e: any) { setPageError(e.message) } finally { setLoading(false) }
   }
 
@@ -264,6 +298,59 @@ export default function AdminCharityDetail() {
       setTimeout(() => setAuthOfficialSaved(false), 3000)
     }
     setSavingAuthOfficial(false)
+  }
+
+  const openGasdsModal = (submission: Submission) => {
+    const existing = gasdsClaims[submission.id]
+    setGasdsAmountInput(existing ? String(existing.amount) : '')
+    setGasdsConnectedInput(existing ? existing.connected_charities : false)
+    setGasdsCommunityInput(existing ? existing.community_buildings : false)
+    setGasdsError(null)
+    setGasdsModalFor(submission)
+  }
+
+  const handleSaveGasds = async () => {
+    if (!gasdsModalFor) return
+    const amount = parseFloat(gasdsAmountInput)
+    if (isNaN(amount) || amount <= 0) {
+      setGasdsError('Enter a valid amount greater than zero.')
+      return
+    }
+    const claimYear = deriveGasdsClaimYear(gasdsModalFor.tax_year)
+    if (claimYear === null) {
+      setGasdsError(`Couldn't determine a GASDS claim year from this submission's tax year (${gasdsModalFor.tax_year}).`)
+      return
+    }
+    setSavingGasds(true)
+    setGasdsError(null)
+    const { error } = await supabase.from('gasds_claims').upsert({
+      submission_id: gasdsModalFor.id,
+      claim_year: claimYear,
+      amount,
+      connected_charities: gasdsConnectedInput,
+      community_buildings: gasdsCommunityInput,
+    }, { onConflict: 'submission_id' })
+    if (error) {
+      setGasdsError(error.message)
+    } else {
+      setGasdsModalFor(null)
+      await loadData()
+    }
+    setSavingGasds(false)
+  }
+
+  const handleDeleteGasds = async () => {
+    if (!gasdsModalFor) return
+    if (!window.confirm('Remove the GASDS claim from this submission?')) return
+    setSavingGasds(true)
+    const { error } = await supabase.from('gasds_claims').delete().eq('submission_id', gasdsModalFor.id)
+    if (error) {
+      setGasdsError(error.message)
+    } else {
+      setGasdsModalFor(null)
+      await loadData()
+    }
+    setSavingGasds(false)
   }
 
   const handleDelete = async (submissionId: string) => {
@@ -671,6 +758,9 @@ export default function AdminCharityDetail() {
                                 className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40 disabled:cursor-not-allowed">
                                 {buildingId === s.id ? 'Building…' : deadlinePassed ? 'Deadline passed' : 'Build HMRC Claim'}
                               </button>
+                          <button onClick={() => openGasdsModal(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
+                            {gasdsClaims[s.id] ? `GASDS: £${gasdsClaims[s.id].amount.toLocaleString('en-GB', { minimumFractionDigits: 2 })}` : '+ GASDS'}
+                          </button>
                           {s.hmrc_claim_xml && (
                             <button onClick={() => setViewingXmlFor(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
                               View XML
@@ -839,6 +929,61 @@ export default function AdminCharityDetail() {
               {viewingXmlFor.hmrc_response_message && (
                 <p className="text-xs text-amber-600 mt-3">{viewingXmlFor.hmrc_response_message}</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* GASDS entry modal — lump-sum small donations claim, entirely
+          separate from the donor-by-donor donations on this submission */}
+      {gasdsModalFor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-brand-primary">GASDS Claim</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Tax year {gasdsModalFor.tax_year}</p>
+              </div>
+              <button onClick={() => setGasdsModalFor(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-gray-400">
+                Gift Aid Small Donations Scheme — a lump-sum claim on small cash collections (e.g. bucket collections) with no individual donor declarations. This is entirely separate from the donor records on this submission, and is optional.
+              </p>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Total amount collected (£)</label>
+                <input
+                  type="number" min="0" step="0.01"
+                  value={gasdsAmountInput}
+                  onChange={e => setGasdsAmountInput(e.target.value)}
+                  placeholder="e.g. 450.00"
+                  className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                />
+              </div>
+
+              <label className="flex items-start gap-2 text-sm text-gray-600">
+                <input type="checkbox" checked={gasdsConnectedInput} onChange={e => setGasdsConnectedInput(e.target.checked)} className="mt-0.5" />
+                <span>This charity is part of a group of connected charities sharing the small-donations allowance</span>
+              </label>
+
+              <label className="flex items-start gap-2 text-sm text-gray-600">
+                <input type="checkbox" checked={gasdsCommunityInput} onChange={e => setGasdsCommunityInput(e.target.checked)} className="mt-0.5" />
+                <span>Some or all of this claim relates to donations collected in a community building (e.g. a village hall)</span>
+              </label>
+
+              {gasdsError && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{gasdsError}</div>}
+
+              <div className="flex items-center justify-between pt-2">
+                {gasdsClaims[gasdsModalFor.id] ? (
+                  <button onClick={handleDeleteGasds} disabled={savingGasds} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
+                    Remove GASDS claim
+                  </button>
+                ) : <span />}
+                <button onClick={handleSaveGasds} disabled={savingGasds} className="bg-brand-accent text-white rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-40">
+                  {savingGasds ? 'Saving…' : 'Save GASDS Claim'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
