@@ -209,7 +209,7 @@ export default function AdminCharityDetail() {
   const [agentRefInput, setAgentRefInput] = useState('')
   const [savingAgentRef, setSavingAgentRef] = useState(false)
   const [agentRefSaved, setAgentRefSaved] = useState(false)
-  const [activeTab, setActiveTab] = useState<'submissions' | 'chv1'>('submissions')
+  const [activeTab, setActiveTab] = useState<'submissions' | 'insights' | 'chv1'>('submissions')
   const [authOfficialInput, setAuthOfficialInput] = useState('')
   const [savingAuthOfficial, setSavingAuthOfficial] = useState(false)
   const [authOfficialSaved, setAuthOfficialSaved] = useState(false)
@@ -492,25 +492,18 @@ export default function AdminCharityDetail() {
 
         <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
           <button onClick={() => navigate('/admin')} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Admin</button>
-          <div className="flex items-start justify-between gap-4">
-            <h1 className="text-3xl font-bold text-brand-primary">{charity?.name}</h1>
-            <button
-              onClick={() => navigate(`/admin/charities/${id}/insights`)}
-              className="flex-shrink-0 px-4 py-2 text-sm font-semibold rounded-lg bg-brand-accent text-white hover:opacity-90 transition-opacity"
-            >
-              View Insights
-            </button>
-          </div>
+          <h1 className="text-3xl font-bold text-brand-primary">{charity?.name}</h1>
 
           {/* Tabs */}
           <div className="flex gap-6 mt-6 border-b border-gray-100">
             {[
               { key: 'submissions' as const, label: 'Submissions' },
+              { key: 'insights' as const, label: 'Insights' },
               { key: 'chv1' as const, label: 'Charity Information' },
             ].map(tab => (
               <button
                 key={tab.key}
-                onClick={() => setActiveTab(tab.key)}
+                onClick={() => tab.key === 'insights' ? navigate(`/admin/charities/${id}/insights`) : setActiveTab(tab.key)}
                 className={`pb-3 text-sm font-semibold border-b-2 -mb-px transition-colors ${
                   activeTab === tab.key
                     ? 'border-brand-accent text-brand-accent'
