@@ -14,6 +14,7 @@ interface Candidate {
   title: string | null; firstName: string | null; lastName: string | null
   address: string | null; postcode: string | null; donationDate: string | null
   amount: number | null; recordStatus: string; confidence: 'high' | 'medium' | 'low'
+  appearsInRecords: number
 }
 
 function Logo() {
@@ -57,6 +58,7 @@ export default function AdminDonorMatching() {
 
   const [searchingFor, setSearchingFor] = useState<IncompleteRecord | null>(null)
   const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [searchCriteria, setSearchCriteria] = useState<string[]>([])
   const [searchMessage, setSearchMessage] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
   const [applyingId, setApplyingId] = useState<string | null>(null)
@@ -87,6 +89,7 @@ export default function AdminDonorMatching() {
   const openSearch = async (record: IncompleteRecord) => {
     setSearchingFor(record)
     setCandidates([])
+    setSearchCriteria([])
     setSearchMessage(null)
     setSearching(true)
     try {
@@ -100,6 +103,7 @@ export default function AdminDonorMatching() {
       const json = await resp.json()
       if (!resp.ok || !json.ok) throw new Error(json.error || 'Search failed')
       setCandidates(json.candidates || [])
+      setSearchCriteria(json.searchCriteria || [])
       if (json.message) setSearchMessage(json.message)
     } catch (e: any) {
       setSearchMessage(e.message)
@@ -193,8 +197,8 @@ export default function AdminDonorMatching() {
                       <td className="px-4 py-3 whitespace-nowrap">
                         <button
                           onClick={() => openSearch(r)}
-                          disabled={!r.firstName || !r.lastName}
-                          title={(!r.firstName || !r.lastName) ? 'No name on file — nothing to search by' : undefined}
+                          disabled={!r.firstName && !r.lastName}
+                          title={(!r.firstName && !r.lastName) ? 'No name on file — nothing specific enough to search by' : `Search using: ${[r.firstName && 'first name', r.lastName && 'last name', r.postcode && 'postcode'].filter(Boolean).join(', ')}`}
                           className="text-xs font-semibold text-brand-accent hover:text-brand-primary disabled:opacity-30 disabled:cursor-not-allowed"
                         >
                           Search for matches
@@ -230,7 +234,10 @@ export default function AdminDonorMatching() {
                 <h3 className="font-semibold text-brand-primary">
                   Matches for {searchingFor.firstName} {searchingFor.lastName}
                 </h3>
-                <p className="text-xs text-gray-400 mt-0.5">{searchingFor.charityName} — missing {searchingFor.missingFields.join(', ')}</p>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {searchingFor.charityName} — missing {searchingFor.missingFields.join(', ')}
+                  {searchCriteria.length > 0 && ` · Searched by: ${searchCriteria.join(' + ')}`}
+                </p>
               </div>
               <button onClick={() => setSearchingFor(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
             </div>
@@ -253,7 +260,10 @@ export default function AdminDonorMatching() {
                           <span className="text-xs text-gray-400">{c.recordStatus === 'opt_out' ? 'Opted out' : 'Valid claim'}</span>
                         </div>
                         <p className="text-gray-500">{c.address}, {c.postcode}</p>
-                        <p className="text-xs text-gray-400 mt-0.5">From: {c.charityName}</p>
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          From: {c.charityName}
+                          {c.appearsInRecords > 1 && <span className="ml-1 text-gray-300">· seen in {c.appearsInRecords} records</span>}
+                        </p>
                       </div>
                       <button
                         onClick={() => applyMatch(c)}
