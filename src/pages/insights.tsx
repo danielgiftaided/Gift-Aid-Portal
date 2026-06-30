@@ -275,15 +275,19 @@ export default function Insights() {
             <div className="space-y-6">
 
               {/* Summary strip */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
-                  { label: 'Total records',         value: String(totalRecords) },
-                  { label: 'Gift Aid Claimed',      value: totalDonorCount > 0 ? fmt(totalDonationAmount * 0.25) : '—' },
-                  { label: 'Avg Gift Aid / donor',  value: totalDonorCount > 0 ? fmt(avgGiftAidPerDonor) : '—' },
+                  { label: 'Total records',         value: String(totalRecords), color: 'text-brand-primary', border: 'border-brand-accent' },
+                  { label: 'Gift Aid Claimed',      value: totalDonorCount > 0 ? fmt(totalDonationAmount * 0.25) : '—', color: 'text-brand-primary', border: 'border-brand-accent' },
+                  { label: 'Avg Gift Aid / donor',  value: totalDonorCount > 0 ? fmt(avgGiftAidPerDonor) : '—', color: 'text-brand-primary', border: 'border-brand-accent' },
+                  { label: 'Potential Missed Gift Aid', value: missedRecords.length > 0 ? fmt(potentialMissedGiftAid) : '—', color: 'text-amber-600', border: 'border-amber-400' },
                 ].map(c => (
-                  <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
+                  <div key={c.label} className={`bg-white rounded-xl border-l-4 ${c.border} border-t border-r border-b border-gray-100 shadow-sm p-5`}>
                     <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
-                    <div className="text-2xl font-bold text-brand-primary">{c.value}</div>
+                    <div className={`text-2xl font-bold ${c.color}`}>{c.value}</div>
+                    {c.label === 'Potential Missed Gift Aid' && missedRecords.length > 0 && (
+                      <div className="text-xs text-gray-400 mt-1">{missedRecords.length} record{missedRecords.length !== 1 ? 's' : ''} ({incompleteCount} incomplete, {optOutCount} opted out)</div>
+                    )}
                   </div>
                 ))}
               </div>
@@ -383,24 +387,6 @@ export default function Insights() {
                       </div>
                     ))}
                   </div>
-
-                  {/* Potential missed Gift Aid — incomplete + opt-out combined */}
-                  {missedRecords.length > 0 && (
-                    <div className="bg-white rounded-xl border-l-4 border-amber-400 border-t border-r border-b border-gray-100 shadow-sm p-6">
-                      <div className="flex flex-wrap items-start justify-between gap-4">
-                        <div>
-                          <h2 className="font-semibold text-brand-primary mb-1">Potential Missed Gift Aid</h2>
-                          <p className="text-xs text-gray-400 max-w-md">
-                            Gift Aid value not currently being captured — combining donations with incomplete data and donors who opted out.
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-2xl font-bold text-amber-600">{fmt(potentialMissedGiftAid)}</p>
-                          <p className="text-xs text-gray-400 mt-0.5">{missedRecords.length} record{missedRecords.length !== 1 ? 's' : ''} ({incompleteCount} incomplete, {optOutCount} opted out)</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
 
