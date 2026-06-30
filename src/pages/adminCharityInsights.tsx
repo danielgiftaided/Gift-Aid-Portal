@@ -251,19 +251,39 @@ export default function AdminCharityInsights() {
       <div className="relative" style={{ zIndex: 10 }}>
 
         <nav className="bg-white border-b border-gray-100">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <div className="max-w-4xl mx-auto px-6 py-4 flex justify-between items-center">
             <Logo />
             <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
           </div>
         </nav>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-4">
-          <button onClick={() => navigate(`/admin/charities/${id}`)} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to {charityName}</button>
-          <h1 className="text-3xl font-bold text-brand-primary">Insights</h1>
-          <p className="text-gray-400 text-sm mt-1">{charityName}</p>
+        <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
+          <button onClick={() => navigate('/admin')} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Admin</button>
+          <h1 className="text-3xl font-bold text-brand-primary">{charityName || 'Insights'}</h1>
+
+          {/* Tabs — mirrors adminCharityDetail.tsx; Insights is the active tab here */}
+          <div className="flex gap-6 mt-6 border-b border-gray-100">
+            {[
+              { key: 'submissions', label: 'Submissions', action: () => navigate(`/admin/charities/${id}`) },
+              { key: 'insights',    label: 'Insights',    action: () => {} },
+              { key: 'chv1',        label: 'Charity Information', action: () => navigate(`/admin/charities/${id}?tab=chv1`) },
+            ].map(tab => (
+              <button
+                key={tab.key}
+                onClick={tab.action}
+                className={`pb-3 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+                  tab.key === 'insights'
+                    ? 'border-brand-accent text-brand-accent'
+                    : 'border-transparent text-gray-400 hover:text-gray-600'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
+        <div className="max-w-4xl mx-auto px-6 pb-12">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">{error}</div>}
 
           {submissions.length === 0 && records.length === 0 ? (
