@@ -77,23 +77,19 @@ export default function SubmissionDetail() {
       <PageShapes />
       <div className="relative" style={{ zIndex: 10 }}>
         <nav className="bg-white border-b border-gray-100">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
+          <div className="max-w-4xl mx-auto px-6 py-4 flex justify-between items-center">
             <Logo />
-                        <div className="flex items-center gap-5">
-              <button onClick={() => navigate('/insights')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Insights</button>
-              <button onClick={() => navigate('/profile')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">My Profile</button>
-              <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
-            </div>
+            <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
           </div>
         </nav>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-4">
+        <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
+          <button onClick={() => navigate(backUrl)} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Submissions</button>
           <h1 className="text-3xl font-bold text-brand-primary">Submission Detail</h1>
           <p className="text-gray-400 text-sm mt-1">Read-only view of donor records</p>
         </div>
 
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
-          <button onClick={() => navigate(backUrl)} className="text-sm font-medium text-brand-accent hover:underline mb-6 inline-block">← Back</button>
+        <div className="max-w-4xl mx-auto px-6 pb-12">
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
 
           {submission && (
