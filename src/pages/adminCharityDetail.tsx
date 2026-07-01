@@ -13,6 +13,10 @@ interface GasdsClaim {
   building_address: string | null; building_postcode: string | null
   event_type: string | null; number_of_events: number | null; estimated_attendance: number | null
 }
+interface OtherIncomeEntry {
+  id: string; submission_id: string
+  payer: string; date: string; gross_amount: number; tax_deducted: number
+}
 
 interface ParsedRow {
   rowNum: number
@@ -231,6 +235,18 @@ export default function AdminCharityDetail() {
   const [gasdsEstimatedAttendance, setGasdsEstimatedAttendance] = useState('')
   const [savingGasds, setSavingGasds] = useState(false)
   const [gasdsError, setGasdsError] = useState<string | null>(null)
+  // Other income — keyed by submission_id, each value is an array since
+  // a submission can have multiple other income entries (unlike GASDS which
+  // is one row per submission).
+  const [otherIncomeMap, setOtherIncomeMap] = useState<Record<string, OtherIncomeEntry[]>>({})
+  const [oiModalFor, setOiModalFor] = useState<Submission | null>(null)
+  const [oiEntries, setOiEntries] = useState<OtherIncomeEntry[]>([]) // entries being edited in the modal
+  const [oiPayerInput, setOiPayerInput] = useState('')
+  const [oiDateInput, setOiDateInput] = useState('')
+  const [oiGrossInput, setOiGrossInput] = useState('')
+  const [oiTaxInput, setOiTaxInput] = useState('')
+  const [savingOi, setSavingOi] = useState(false)
+  const [oiError, setOiError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([])
@@ -285,8 +301,25 @@ export default function AdminCharityDetail() {
         const keyed: Record<string, GasdsClaim> = {}
         for (const row of gasdsData || []) keyed[row.submission_id] = row as GasdsClaim
         setGasdsClaims(keyed)
+
+        // Other income — multiple entries per submission, so grouped into
+        // arrays rather than a one-to-one map. Silently skipped if the
+        // table doesn't exist yet.
+        try {
+          const { data: oiData } = await supabase
+            .from('other_income')
+            .select('id, submission_id, payer, date, gross_amount, tax_deducted')
+            .in('submission_id', subData.map(s => s.id))
+          const oiKeyed: Record<string, OtherIncomeEntry[]> = {}
+          for (const row of oiData || []) {
+            if (!oiKeyed[row.submission_id]) oiKeyed[row.submission_id] = []
+            oiKeyed[row.submission_id].push(row as OtherIncomeEntry)
+          }
+          setOtherIncomeMap(oiKeyed)
+        } catch { setOtherIncomeMap({}) }
       } else {
         setGasdsClaims({})
+        setOtherIncomeMap({})
       }
     } catch (e: any) { setPageError(e.message) } finally { setLoading(false) }
   }
@@ -502,6 +535,54 @@ export default function AdminCharityDetail() {
       await loadData()
     }
     setSavingGasds(false)
+  }
+
+  const openOiModal = (submission: Submission) => {
+    setOiModalFor(submission)
+    setOiEntries(otherIncomeMap[submission.id] || [])
+    setOiPayerInput('')
+    setOiDateInput('')
+    setOiGrossInput('')
+    setOiTaxInput('')
+    setOiError(null)
+  }
+
+  const closeOiModal = () => { setOiModalFor(null) }
+
+  const handleAddOiEntry = async () => {
+    if (!oiModalFor) return
+    const payer = oiPayerInput.trim()
+    const gross = parseFloat(oiGrossInput)
+    const tax = parseFloat(oiTaxInput)
+    if (!payer) { setOiError('Payer name is required.'); return }
+    if (payer.length > 40) { setOiError('Payer name must be 40 characters or fewer.'); return }
+    if (!oiDateInput) { setOiError('Date is required.'); return }
+    if (isNaN(gross) || gross < 0.01) { setOiError('Enter a valid gross amount of at least £0.01.'); return }
+    if (isNaN(tax) || tax < 0.01) { setOiError('Enter a valid tax deducted amount of at least £0.01.'); return }
+    setSavingOi(true); setOiError(null)
+    const { data, error } = await supabase.from('other_income').insert({
+      submission_id: oiModalFor.id,
+      payer,
+      date: oiDateInput,
+      gross_amount: Math.round(gross * 100) / 100,
+      tax_deducted: Math.round(tax * 100) / 100,
+    }).select('id, submission_id, payer, date, gross_amount, tax_deducted').single()
+    if (error) {
+      setOiError(error.message)
+    } else {
+      setOiEntries(prev => [...prev, data as OtherIncomeEntry])
+      setOiPayerInput(''); setOiDateInput(''); setOiGrossInput(''); setOiTaxInput('')
+      await loadData()
+    }
+    setSavingOi(false)
+  }
+
+  const handleDeleteOiEntry = async (entryId: string) => {
+    if (!window.confirm('Remove this other income entry?')) return
+    const { error } = await supabase.from('other_income').delete().eq('id', entryId)
+    if (error) { setOiError(error.message); return }
+    setOiEntries(prev => prev.filter(e => e.id !== entryId))
+    await loadData()
   }
 
   const handleDelete = async (submissionId: string) => {
@@ -928,6 +1009,11 @@ export default function AdminCharityDetail() {
                               View XML
                             </button>
                           )}
+                          <button onClick={() => openOiModal(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
+                            {(otherIncomeMap[s.id]?.length || 0) > 0
+                              ? `Other Income (${otherIncomeMap[s.id].length})`
+                              : '+ Other Income'}
+                          </button>
                           {s.hmrc_status === 'ready_to_send' && (
                             <button onClick={() => handleSendToEts(s.id)} disabled={sendingId === s.id}
                               className="text-xs text-amber-600 hover:text-amber-800 font-semibold disabled:opacity-40">
@@ -1239,6 +1325,119 @@ export default function AdminCharityDetail() {
                   {savingGasds ? 'Saving…' : 'Save GASDS Claim'}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Other Income entry modal — covenanted payments or other income
+          where tax has already been deducted at source. Maps to the
+          <OtherInc> elements inside <Repayment> in the R68 XML.
+          Multiple entries per submission are fully supported. */}
+      {oiModalFor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50 overflow-y-auto py-8">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full my-auto">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-brand-primary">Other Income</h3>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Tax year {oiModalFor.tax_year} — other income received under Gift Aid where tax has already been deducted at source (e.g. covenanted payments)
+                </p>
+              </div>
+              <button onClick={closeOiModal} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
+
+              {/* Existing entries */}
+              {oiEntries.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">Entries on this submission</p>
+                  <div className="space-y-2">
+                    {oiEntries.map(e => (
+                      <div key={e.id} className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2">
+                        <div className="text-sm">
+                          <span className="font-medium text-brand-primary">{e.payer}</span>
+                          <span className="text-gray-400 mx-2">·</span>
+                          <span className="text-gray-500">{e.date}</span>
+                          <span className="text-gray-400 mx-2">·</span>
+                          <span className="text-gray-600">Gross: £{Number(e.gross_amount).toFixed(2)}</span>
+                          <span className="text-gray-400 mx-2">·</span>
+                          <span className="text-gray-600">Tax: £{Number(e.tax_deducted).toFixed(2)}</span>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteOiEntry(e.id)}
+                          className="text-xs text-red-400 hover:text-red-600 font-medium ml-3 flex-shrink-0"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Add a new entry */}
+              <div className="border-t border-gray-100 pt-4 space-y-3">
+                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wide">Add an entry</p>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Payer name (max 40 characters)</label>
+                  <input
+                    type="text" maxLength={40}
+                    value={oiPayerInput}
+                    onChange={e => setOiPayerInput(e.target.value)}
+                    placeholder="e.g. Lloyds TSB"
+                    className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Date received (DD/MM/YYYY)</label>
+                  <input
+                    type="text"
+                    value={oiDateInput}
+                    onChange={e => setOiDateInput(e.target.value)}
+                    placeholder="e.g. 05/04/2015"
+                    className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Gross amount (£)</label>
+                    <input
+                      type="number" min="0.01" step="0.01"
+                      value={oiGrossInput}
+                      onChange={e => setOiGrossInput(e.target.value)}
+                      placeholder="e.g. 1000.00"
+                      className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Tax deducted (£)</label>
+                    <input
+                      type="number" min="0.01" step="0.01"
+                      value={oiTaxInput}
+                      onChange={e => setOiTaxInput(e.target.value)}
+                      placeholder="e.g. 250.00"
+                      className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                    />
+                  </div>
+                </div>
+
+                {oiError && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{oiError}</div>}
+
+                <div className="flex justify-end pt-1">
+                  <button
+                    onClick={handleAddOiEntry}
+                    disabled={savingOi}
+                    className="bg-brand-accent text-white rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-40"
+                  >
+                    {savingOi ? 'Saving…' : 'Add Entry'}
+                  </button>
+                </div>
+              </div>
+
+              {oiEntries.length === 0 && (
+                <p className="text-xs text-gray-300 text-center py-2">No other income entries yet — add one above.</p>
+              )}
             </div>
           </div>
         </div>
