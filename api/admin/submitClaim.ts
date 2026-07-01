@@ -31,7 +31,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
-import { buildClaimFromSubmission, CharityRow, SubmissionRow, DonationRow, GasdsRow } from '../_utils/buildClaimFromSubmission.js'
+import { buildClaimFromSubmission, CharityRow, SubmissionRow, DonationRow, GasdsRow, OtherIncomeRow } from '../_utils/buildClaimFromSubmission.js'
 import { buildR68Submission, SubmissionCredentials } from '../_utils/r68XmlBuilder.js'
 import { generateIrmark } from '../_utils/irmark.js'
 import { deriveStatus } from '../_utils/deriveStatus.js'
@@ -122,7 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // have one at all, which is normal, not an error.
     const { data: gasdsRow, error: gasdsErr } = await supabaseAdmin
       .from('gasds_claims')
-      .select('claim_year, amount, connected_charities, community_buildings')
+      .select('claim_year, amount, connected_charities, community_buildings, adjustment')
       .eq('submission_id', submissionId)
       .maybeSingle()
 
@@ -130,12 +130,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 500, { ok: false, error: gasdsErr.message })
     }
 
+    // Other income (e.g. covenanted payments) — also separate from donations.
+    // Gracefully treated as empty if the table doesn't exist yet.
+    let otherIncomeRows: OtherIncomeRow[] = []
+    try {
+      const { data: oiData } = await supabaseAdmin
+        .from('other_income')
+        .select('id, payer, date, gross_amount, tax_deducted')
+        .eq('submission_id', submissionId)
+      otherIncomeRows = (oiData || []) as OtherIncomeRow[]
+    } catch {
+      // Table doesn't exist yet — not a blocking error, simply no other income
+    }
+
     // ── Step 1: map + validate ──────────────────────────────
     const mapping = buildClaimFromSubmission(
       charity as CharityRow,
       submission as SubmissionRow,
       (donations || []) as DonationRow[],
-      gasdsRow as GasdsRow | null
+      gasdsRow as GasdsRow | null,
+      otherIncomeRows
     )
 
     if (mapping.errors.length > 0 || !mapping.claim) {
