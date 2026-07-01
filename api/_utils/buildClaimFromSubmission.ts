@@ -71,6 +71,18 @@ export interface GasdsRow {
   amount: number
   connected_charities: boolean
   community_buildings: boolean
+  adjustment?: number | null  // <Adj> inside <GASDS> — separate from Gift Aid <Adjustment>
+}
+
+// Other income under Gift Aid (e.g. covenanted payments with tax deducted
+// at source) — maps to the <OtherInc> elements inside <Repayment>.
+// Stored in a separate table, not in the donations table.
+export interface OtherIncomeRow {
+  id: string
+  payer: string
+  date: string          // ccyy-mm-dd or DD/MM/YYYY — parsed the same way as donation dates
+  gross_amount: number
+  tax_deducted: number
 }
 
 export interface DonationRow {
@@ -82,6 +94,8 @@ export interface DonationRow {
   postcode: string | null
   donation_date: string | null
   amount: number | null
+  aggregated?: boolean | null                // true when this is an AggDonation row
+  aggregated_description?: string | null     // required when aggregated is true
 }
 
 export interface MappingResult {
@@ -142,14 +156,35 @@ function parseAndFormatDonationDate(raw: string): string | null {
 function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor | null; errors: string[] } {
   const errors: string[] = []
 
-  // A single "X" in the postcode column is the established convention for
-  // a UK taxpayer living abroad — Gift Aid is still claimable for them,
-  // every other field is populated normally, and the ONLY difference is
-  // that no real postcode exists. HMRC's schema reflects this directly:
-  // Donor offers a choice between <Postcode> and <Overseas>yes</Overseas>
-  // (see r68XmlBuilder.ts) — "X" must route to the latter, never be sent
-  // as a literal postcode, since it wouldn't pass HMRC's postcode format
-  // validation at all.
+  // ── Aggregated donations ─────────────────────────────────
+  // These use <AggDonation> instead of <Donor> — no individual name or
+  // address needed or expected. A description is required (e.g. "200 x £5
+  // payments from members"), plus a date and amount as normal.
+  if (row.aggregated) {
+    if (!row.aggregated_description) {
+      errors.push(`Donation ${row.id}: aggregated donation is missing a description — enter something like "200 x £5 payments from members"`)
+    }
+    if (row.amount == null || row.amount <= 0) errors.push(`Donation ${row.id}: missing or invalid amount`)
+    let formattedDate: string | null = null
+    if (!row.donation_date) {
+      errors.push(`Donation ${row.id}: missing donation date`)
+    } else {
+      formattedDate = parseAndFormatDonationDate(row.donation_date)
+      if (!formattedDate) errors.push(`Donation ${row.id}: donation date "${row.donation_date}" could not be parsed`)
+    }
+    if (errors.length > 0) return { donor: null, errors }
+    return {
+      donor: {
+        aggregated: true,
+        aggregatedDescription: row.aggregated_description || '',
+        donationDate: formattedDate!,
+        amount: Math.round(row.amount! * 100) / 100,
+      },
+      errors: [],
+    }
+  }
+
+  // ── Named donor ─────────────────────────────────────────
   const isOverseas = row.postcode?.trim().toUpperCase() === 'X'
 
   if (!row.first_name) errors.push(`Donation ${row.id}: missing first name`)
@@ -181,15 +216,11 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
     }
   }
 
-  // House field: 40-character limit, confirmed by the real R68 schema.
-  // Truncate at the last whole word rather than mid-word — the postcode is
-  // a separate field and unaffected, so this is purely cosmetic, but a
-  // submission ending mid-word looks sloppy on an official document.
   let house = row.address!.trim()
   if (house.length > 40) {
     const hardCut = house.slice(0, 40)
     const lastSpace = hardCut.lastIndexOf(' ')
-    const wordBoundaryCut = lastSpace > 20 ? hardCut.slice(0, lastSpace) : hardCut // don't over-shorten if the last word break is too early
+    const wordBoundaryCut = lastSpace > 20 ? hardCut.slice(0, lastSpace) : hardCut
     warnings.push(`Donation ${row.id}: address truncated to fit HMRC's 40-character limit ("${house}" -> "${wordBoundaryCut}"). Review before submitting.`)
     house = wordBoundaryCut
   }
@@ -251,7 +282,8 @@ export function buildClaimFromSubmission(
   charity: CharityRow,
   submission: SubmissionRow,
   donations: DonationRow[],
-  gasds?: GasdsRow | null
+  gasds?: GasdsRow | null,
+  otherIncome?: OtherIncomeRow[] | null
 ): MappingResult {
   const errors: string[] = []
   const warnings: string[] = []
@@ -334,11 +366,21 @@ export function buildClaimFromSubmission(
       taxYear: submission.tax_year,
       regulatorNumber: charity.charity_number || undefined,
       donations: mappedDonors,
+      otherIncome: (otherIncome && otherIncome.length > 0) ? otherIncome.map(oi => {
+        const formattedDate = parseAndFormatDonationDate(oi.date) || oi.date
+        return {
+          payer: oi.payer,
+          date: formattedDate,
+          grossAmount: Math.round(oi.gross_amount * 100) / 100,
+          taxDeducted: Math.round(oi.tax_deducted * 100) / 100,
+        }
+      }) : undefined,
       gasds: gasds ? {
         claimYear: gasds.claim_year,
         amount: Math.round(gasds.amount * 100) / 100,
         connectedCharities: gasds.connected_charities,
         communityBuildings: gasds.community_buildings,
+        adjustment: gasds.adjustment != null ? Math.round(gasds.adjustment * 100) / 100 : undefined,
       } : undefined,
     },
     errors: [],
