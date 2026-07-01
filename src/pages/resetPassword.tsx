@@ -21,8 +21,32 @@ export default function ResetPassword() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => { if (event === 'PASSWORD_RECOVERY') setReady(true) })
-    supabase.auth.getSession().then(({ data: { session } }) => { if (session) setReady(true) })
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (event === 'PASSWORD_RECOVERY' || session) {
+        // A password reset email only establishes an AAL1 session. If the
+        // user has MFA enrolled, Supabase requires AAL2 before allowing a
+        // password update — which is exactly the error shown to the user.
+        // Detect this and redirect through MFA challenge first, carrying a
+        // returnTo so the challenge page sends them straight back here
+        // rather than into the normal role-based post-login flow.
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+        if (aal?.currentLevel === 'aal1' && aal?.nextLevel === 'aal2') {
+          navigate('/mfa-challenge', { state: { returnTo: '/reset-password' } })
+          return
+        }
+        setReady(true)
+      }
+    })
+    supabase.auth.getSession().then(async ({ data: { session } }) => {
+      if (session) {
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel()
+        if (aal?.currentLevel === 'aal1' && aal?.nextLevel === 'aal2') {
+          navigate('/mfa-challenge', { state: { returnTo: '/reset-password' } })
+          return
+        }
+        setReady(true)
+      }
+    })
     return () => subscription.unsubscribe()
   }, [])
 
