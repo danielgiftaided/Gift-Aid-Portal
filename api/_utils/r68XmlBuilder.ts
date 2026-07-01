@@ -35,54 +35,54 @@
 
 export interface GiftAidDonor {
   title?: string        // 1-4 chars, upper/lower alpha + backslash/hyphen only
-  firstName: string
-  lastName: string
-  houseNameOrNumber: string
-  postcode?: string      // required for UK residents
+  firstName?: string    // not required when aggregated is true (AggDonation has no name)
+  lastName?: string     // not required when aggregated is true
+  houseNameOrNumber?: string  // not required when aggregated is true
+  postcode?: string      // required for UK residents; omit for overseas or aggregated
   overseas?: boolean     // set true for non-UK residents (then postcode omitted, full address in house field)
-  donationDate: string   // ccyy-mm-dd — confirmed mandatory by LTS validation, positioned right after donor/sponsored
-  aggregated?: boolean   // true if this row represents aggregated small donations (<=£20 each, max £1000/line) — UNVERIFIED position, see note in buildGadElement
-  aggregatedDescription?: string
+  donationDate: string   // ccyy-mm-dd — confirmed mandatory by LTS validation
+  aggregated?: boolean   // true when this row represents aggregated small donations (<=£20 each,
+                         // max £1000/line, max £1000 per claim) — uses <AggDonation> instead of <Donor>
+  aggregatedDescription?: string  // mandatory when aggregated is true — free text up to 35 chars
+                                  // e.g. "200 x £5 payments from members"
   sponsoredEvent?: boolean
   amount: number         // always 2dp; if <£10 still needs a leading zero e.g. 9.99
 }
 
+/**
+ * Other income received under Gift Aid (e.g. a covenanted payment with tax
+ * deducted at source) — sits inside <Repayment> after all GAD entries.
+ * Different from regular Gift Aid donations: has a named payer, gross amount,
+ * and the tax already deducted, rather than a donation amount and declaration.
+ */
+export interface OtherIncome {
+  payer: string          // name of the payer — up to 40 chars
+  date: string           // ccyy-mm-dd
+  grossAmount: number    // gross income received — always 2dp
+  taxDeducted: number    // tax deducted at source — always 2dp
+}
+
 export interface GiftAidClaimInput {
-  charityHmrcReference: string   // e.g. "AB12345" — the charity's own HMRC Charities reference
-  agentOrNomineeReference: string // required — must match enrolment exactly (error 7020 otherwise)
+  charityHmrcReference: string
+  agentOrNomineeReference: string
   claimingOrganisationName: string
-  taxYear: string                 // for our own reference; not itself an R68 field, used to derive PeriodEnd
+  taxYear: string
   donations: GiftAidDonor[]
+  otherIncome?: OtherIncome[]  // sits inside <Repayment> after GAD entries, before <Adjustment>
   adjustment?: { amount: number; explanation: string }
-  // Confirmed conditionally mandatory by business rule 7029: required
-  // whenever the charity's HMRC reference doesn't start with CH or CF and
-  // no Collecting Agent is involved. Defaults to CCEW (England & Wales)
-  // since that covers most charities — NOT yet configurable per charity,
-  // so Scottish (OSCR) or Northern Irish (CCNI) charities will need this
-  // overridden before a real submission for them specifically.
   regulatorName?: 'CCEW' | 'CCNI' | 'OSCR'
-  // Confirmed mandatory (business rule 7031) whenever regulatorName/RegName
-  // is present — this is the charity's actual Charity Commission (or OSCR/
-  // CCNI) registration number, which is a DIFFERENT number from the HMRC
-  // Gift Aid reference (charityHmrcReference) above.
   regulatorNumber?: string
-  // GASDS is structurally unlike everything else in this claim — a
-  // lump-sum amount with no individual donor records at all, rather than
-  // a list of named donations. Entirely optional: a claim with no gasds
-  // field produces byte-for-byte identical XML to before this existed.
   gasds?: GasdsClaimInput
 }
 
 export interface GasdsClaimInput {
-  claimYear: number       // calendar year the tax year STARTS in, e.g. tax year "2025/26" -> 2025
-  amount: number          // total small-donations amount claimed for this year, always 2dp
-  connectedCharities: boolean  // mandatory yes/no per HMRC's schema, regardless of the actual answer
-  communityBuildings: boolean  // mandatory yes/no per HMRC's schema, regardless of the actual answer
-  // NOTE: the real schema also allows listing specific connected charities
-  // and specific community buildings, each with their own claimed amounts.
-  // Deliberately not supported yet — this covers the common case of a
-  // single charity claiming a simple lump sum. Revisit if a real charity
-  // needs the connected-charities or community-buildings detail.
+  claimYear: number
+  amount: number
+  connectedCharities: boolean
+  communityBuildings: boolean
+  adjustment?: number  // <Adj> inside <GASDS> — separate from the Gift Aid <Adjustment>
+                       // inside <Repayment>. Confirmed by the real schema as the last
+                       // optional child of <GASDS>, after <Building> entries.
 }
 
 export interface SubmissionCredentials {
@@ -129,16 +129,23 @@ function buildDonorElement(d: GiftAidDonor): string {
 }
 
 function buildGadElement(d: GiftAidDonor): string {
-  const inner: string[] = [buildDonorElement(d)]
-  // Confirmed order by LTS schema validation: Donor -> [Sponsored] -> Date -> Total
+  const inner: string[] = []
+
+  // The real schema defines GAD as a choice between <Donor> (named individual)
+  // and <AggDonation> (a short description string for small aggregated donations
+  // where individual names are not collected). These are mutually exclusive —
+  // never both in the same GAD entry. AggDonation max 35 chars per schema.
+  if (d.aggregated) {
+    const desc = (d.aggregatedDescription || '').slice(0, 35)
+    inner.push(`<AggDonation>${escapeXml(desc)}</AggDonation>`)
+  } else {
+    inner.push(buildDonorElement(d as Required<Pick<GiftAidDonor, 'firstName' | 'lastName' | 'houseNameOrNumber'>> & GiftAidDonor))
+  }
+
+  // Confirmed order by LTS schema validation: [Donor|AggDonation] -> [Sponsored] -> Date -> Total
   if (d.sponsoredEvent) inner.push(`<Sponsored>yes</Sponsored>`)
   inner.push(`<Date>${d.donationDate}</Date>`)
   inner.push(`<Total>${formatAmount(d.amount)}</Total>`)
-  // NOTE: aggregated-donation handling removed here pending schema
-  // verification — LTS only told us about the Sponsored/Date/Total
-  // sequence since none of our real test data used aggregation yet.
-  // Do not re-add <AggregatedDonations> without checking its real
-  // position against the actual XSD first.
   return `<GAD>${inner.join('')}</GAD>`
 }
 
@@ -166,9 +173,9 @@ export function buildR68Submission(
     ? claim.donations.map(d => d.donationDate).reduce((earliest, current) => (current < earliest ? current : earliest))
     : null
 
-  // Adjustment sits INSIDE <Repayment>, after the GAD entries — confirmed
-  // by the real schema. The explanation (if any) goes in the separate,
-  // Claim-level <OtherInfo> free-text field, not bundled with Adjustment.
+  // Adjustment sits INSIDE <Repayment>, after OtherInc entries — confirmed
+  // by the real schema order: GAD..., EarliestGAdate, OtherInc..., Adjustment.
+  // The explanation (if any) goes in the separate Claim-level <OtherInfo>.
   const adjustmentElement = claim.adjustment
     ? `<Adjustment>${formatAmount(claim.adjustment.amount)}</Adjustment>`
     : ''
@@ -176,13 +183,20 @@ export function buildR68Submission(
     ? `<OtherInfo>${escapeXml(claim.adjustment.explanation.slice(0, 350))}</OtherInfo>`
     : ''
 
+  // OtherInc entries sit inside <Repayment> after all GAD entries and
+  // EarliestGAdate, before <Adjustment> — per the real R68 schema order.
+  // Each entry represents other income received under Gift Aid (e.g. a
+  // covenanted payment with tax already deducted at source).
+  const otherIncElements = (claim.otherIncome || []).map(oi =>
+    `<OtherInc><Payer>${escapeXml(oi.payer.slice(0, 40))}</Payer><OIDate>${oi.date}</OIDate><Gross>${formatAmount(oi.grossAmount)}</Gross><Tax>${formatAmount(oi.taxDeducted)}</Tax></OtherInc>`
+  ).join('')
+
   // GASDS sits as its own block at the Claim level, a SIBLING of
-  // <Repayment> (not nested inside it) — confirmed by the real schema
-  // order: OrgName, HMRCref, Regulator, Repayment, GASDS, OtherInfo.
-  // Entirely absent from the XML when no gasds data is provided, so this
-  // can never affect a claim that doesn't use it.
+  // <Repayment> — schema order: OrgName, HMRCref, Regulator, Repayment,
+  // GASDS, OtherInfo. <Adj> (GASDS adjustment) is the last optional child
+  // of <GASDS>, separate from <Adjustment> inside <Repayment>.
   const gasdsElement = claim.gasds
-    ? `<GASDS><ConnectedCharities>${claim.gasds.connectedCharities ? 'yes' : 'no'}</ConnectedCharities><GASDSClaim><Year>${claim.gasds.claimYear}</Year><Amount>${formatAmount(claim.gasds.amount)}</Amount></GASDSClaim><CommBldgs>${claim.gasds.communityBuildings ? 'yes' : 'no'}</CommBldgs></GASDS>`
+    ? `<GASDS><ConnectedCharities>${claim.gasds.connectedCharities ? 'yes' : 'no'}</ConnectedCharities><GASDSClaim><Year>${claim.gasds.claimYear}</Year><Amount>${formatAmount(claim.gasds.amount)}</Amount></GASDSClaim><CommBldgs>${claim.gasds.communityBuildings ? 'yes' : 'no'}</CommBldgs>${claim.gasds.adjustment != null ? `<Adj>${formatAmount(claim.gasds.adjustment)}</Adj>` : ''}</GASDS>`
     : ''
 
   const gatewayTestElement = credentials.isLive ? '' : `<GatewayTest>1</GatewayTest>`
@@ -258,6 +272,7 @@ ${gatewayTestElement}
 ${hasDonations ? `<Repayment>
 ${gadElements}
 <EarliestGAdate>${earliestDonationDate}</EarliestGAdate>
+${otherIncElements}
 ${adjustmentElement}
 </Repayment>` : ''}
 ${gasdsElement}
