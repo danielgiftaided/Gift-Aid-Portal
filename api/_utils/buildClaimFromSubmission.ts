@@ -64,6 +64,8 @@ export interface SubmissionRow {
   charity_id: string
   tax_year: string
   status: string
+  adjustment_amount?: number | null
+  adjustment_explanation?: string | null
 }
 
 export interface GasdsRow {
@@ -371,6 +373,12 @@ export function buildClaimFromSubmission(
       taxYear: submission.tax_year,
       regulatorNumber: charity.charity_number || undefined,
       donations: mappedDonors,
+      // Repayment adjustment — stored on the submission itself, wired into
+      // <Adjustment> inside <Repayment>. Explanation goes into <OtherInfo>.
+      adjustment: submission.adjustment_amount != null ? {
+        amount: Math.round(submission.adjustment_amount * 100) / 100,
+        explanation: submission.adjustment_explanation || '',
+      } : undefined,
       otherIncome: (otherIncome && otherIncome.length > 0) ? otherIncome.map(oi => {
         const formattedDate = parseAndFormatDonationDate(oi.date) || oi.date
         return {
