@@ -71,7 +71,12 @@ export interface GasdsRow {
   amount: number
   connected_charities: boolean
   community_buildings: boolean
-  adjustment?: number | null  // <Adj> inside <GASDS> — separate from Gift Aid <Adjustment>
+  adjustment?: number | null
+  // JSONB arrays from the DB — parsed and mapped into the XML sub-elements.
+  // Shape: [{ charityName, hmrcRef, year, amount }]
+  connected_charity_details?: Array<{ charityName: string; hmrcRef: string; year: number; amount: number }> | null
+  // Shape: [{ buildingName, address, postcode, year, amount }]
+  community_building_details?: Array<{ buildingName: string; address: string; postcode: string; year: number; amount: number }> | null
 }
 
 // Other income under Gift Aid (e.g. covenanted payments with tax deducted
@@ -379,7 +384,20 @@ export function buildClaimFromSubmission(
         claimYear: gasds.claim_year,
         amount: Math.round(gasds.amount * 100) / 100,
         connectedCharities: gasds.connected_charities,
+        connectedCharityList: (gasds.connected_charity_details || []).map(c => ({
+          charityName: c.charityName,
+          hmrcRef: c.hmrcRef,
+          year: c.year,
+          amount: Math.round(c.amount * 100) / 100,
+        })),
         communityBuildings: gasds.community_buildings,
+        communityBuildingList: (gasds.community_building_details || []).map(b => ({
+          buildingName: b.buildingName,
+          address: b.address,
+          postcode: b.postcode,
+          year: b.year,
+          amount: Math.round(b.amount * 100) / 100,
+        })),
         adjustment: gasds.adjustment != null ? Math.round(gasds.adjustment * 100) / 100 : undefined,
       } : undefined,
     },
