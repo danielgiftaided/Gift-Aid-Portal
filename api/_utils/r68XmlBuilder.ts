@@ -75,14 +75,33 @@ export interface GiftAidClaimInput {
   gasds?: GasdsClaimInput
 }
 
+export interface GasdsConnectedCharity {
+  charityName: string
+  hmrcRef: string    // the connected charity's own HMRC Gift Aid reference, e.g. AB98765
+  year: number       // calendar year the claim covers
+  amount: number     // amount claimed for this connected charity, always 2dp
+}
+
+export interface GasdsCommunityBuilding {
+  buildingName: string
+  address: string
+  postcode: string
+  year: number
+  amount: number
+}
+
 export interface GasdsClaimInput {
   claimYear: number
   amount: number
   connectedCharities: boolean
+  // When connectedCharities is true, the actual charity detail goes here.
+  // The schema wraps these in <ConnectedCharities> after the yes/no flag.
+  connectedCharityList?: GasdsConnectedCharity[]
   communityBuildings: boolean
-  adjustment?: number  // <Adj> inside <GASDS> — separate from the Gift Aid <Adjustment>
-                       // inside <Repayment>. Confirmed by the real schema as the last
-                       // optional child of <GASDS>, after <Building> entries.
+  // When communityBuildings is true, each building gets its own <Building>
+  // element. The schema places these inside <CommBldgs> after the yes/no.
+  communityBuildingList?: GasdsCommunityBuilding[]
+  adjustment?: number  // <Adj> inside <GASDS>, last optional child of <GASDS>
 }
 
 export interface SubmissionCredentials {
@@ -193,11 +212,24 @@ export function buildR68Submission(
 
   // GASDS sits as its own block at the Claim level, a SIBLING of
   // <Repayment> — schema order: OrgName, HMRCref, Regulator, Repayment,
-  // GASDS, OtherInfo. <Adj> (GASDS adjustment) is the last optional child
-  // of <GASDS>, separate from <Adjustment> inside <Repayment>.
-  const gasdsElement = claim.gasds
-    ? `<GASDS><ConnectedCharities>${claim.gasds.connectedCharities ? 'yes' : 'no'}</ConnectedCharities><GASDSClaim><Year>${claim.gasds.claimYear}</Year><Amount>${formatAmount(claim.gasds.amount)}</Amount></GASDSClaim><CommBldgs>${claim.gasds.communityBuildings ? 'yes' : 'no'}</CommBldgs>${claim.gasds.adjustment != null ? `<Adj>${formatAmount(claim.gasds.adjustment)}</Adj>` : ''}</GASDS>`
-    : ''
+  // GASDS, OtherInfo. The internal structure of <GASDS> per the real XSD:
+  //   <ConnectedCharities> yes|no </ConnectedCharities>
+  //   [ <Charity> ... </Charity> ... ]   ← one per connected charity
+  //   <GASDSClaim> <Year/> <Amount/> </GASDSClaim>
+  //   <CommBldgs> yes|no </CommBldgs>
+  //   [ <Building> ... </Building> ... ] ← one per community building
+  //   [ <Adj> ... </Adj> ]              ← GASDS-specific adjustment
+  const gasdsElement = claim.gasds ? (() => {
+    const g = claim.gasds
+    const charityElements = (g.connectedCharityList || []).map(c =>
+      `<Charity><Name>${escapeXml(c.charityName)}</Name><HMRCref>${escapeXml(c.hmrcRef)}</HMRCref><Year>${c.year}</Year><Amount>${formatAmount(c.amount)}</Amount></Charity>`
+    ).join('')
+    const buildingElements = (g.communityBuildingList || []).map(b =>
+      `<Building><BldgName>${escapeXml(b.buildingName)}</BldgName><Address>${escapeXml(b.address)}</Address><Postcode>${escapeXml(b.postcode)}</Postcode><Year>${b.year}</Year><BldgClaim>${formatAmount(b.amount)}</BldgClaim></Building>`
+    ).join('')
+    const adjElement = g.adjustment != null ? `<Adj>${formatAmount(g.adjustment)}</Adj>` : ''
+    return `<GASDS><ConnectedCharities>${g.connectedCharities ? 'yes' : 'no'}</ConnectedCharities>${charityElements}<GASDSClaim><Year>${g.claimYear}</Year><Amount>${formatAmount(g.amount)}</Amount></GASDSClaim><CommBldgs>${g.communityBuildings ? 'yes' : 'no'}</CommBldgs>${buildingElements}${adjElement}</GASDS>`
+  })() : ''
 
   const gatewayTestElement = credentials.isLive ? '' : `<GatewayTest>1</GatewayTest>`
 
