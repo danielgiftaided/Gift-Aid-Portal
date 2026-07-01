@@ -172,3 +172,33 @@ export function buildDeleteMessage(classValue: string, correlationId: string): s
 <Body/>
 </GovTalkMessage>`
 }
+
+/**
+ * Builds a DATA_REQUEST message — used to query the current status of a
+ * submission by CorrelationID without consuming it (unlike SUBMISSION_POLL,
+ * which is part of the primary handshake). Required by HMRC's recognition
+ * process as one of the seven Transaction Engine message files to submit.
+ *
+ * Per the Transaction Engine protocol: the Function is "list" rather than
+ * "submit" or "delete", and the Class identifies the submission type.
+ */
+export function buildDataRequestMessage(classValue: string, correlationId: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
+<EnvelopeVersion>2.0</EnvelopeVersion>
+<Header>
+<MessageDetails>
+<Class>${escapeXml(classValue)}</Class>
+<Qualifier>request</Qualifier>
+<Function>list</Function>
+<CorrelationID>${escapeXml(correlationId)}</CorrelationID>
+<Transformation>XML</Transformation>
+</MessageDetails>
+<SenderDetails/>
+</Header>
+<GovTalkDetails>
+<Keys/>
+</GovTalkDetails>
+<Body/>
+</GovTalkMessage>`
+}
