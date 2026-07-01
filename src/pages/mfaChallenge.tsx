@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { daysSincePasswordChange, stampPasswordChanged, PASSWORD_EXPIRY_DAYS } from '../utils/hibp'
 
 function AuthShapes() {
@@ -43,6 +43,11 @@ async function redirectAfterAuth(navigate: ReturnType<typeof useNavigate>) {
 
 export default function MfaChallenge() {
   const navigate = useNavigate()
+  const location = useLocation()
+  // returnTo is set by pages that need MFA elevation before proceeding —
+  // e.g. /reset-password redirects here when the user's session is only
+  // AAL1 and Supabase needs AAL2 before allowing a password update.
+  const returnTo = (location.state as any)?.returnTo ?? null
   const [factorId, setFactorId] = useState<string | null>(null)
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
@@ -63,7 +68,13 @@ export default function MfaChallenge() {
     try {
       const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code })
       if (error) throw error
-      await redirectAfterAuth(navigate)
+      // If a specific return destination was requested (e.g. password reset),
+      // go there directly rather than the normal role-based redirect.
+      if (returnTo) {
+        navigate(returnTo)
+      } else {
+        await redirectAfterAuth(navigate)
+      }
     } catch (e: any) {
       setError(e.message === 'Invalid TOTP code entered' ? 'Incorrect code — check your app and try again' : e.message)
       setLoading(false)
@@ -101,7 +112,7 @@ export default function MfaChallenge() {
               </div>
               <button type="submit" disabled={loading || code.length !== 6 || !factorId}
                 className="w-full bg-brand-accent text-white rounded-lg px-4 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50">
-                {loading ? 'Verifying…' : 'Verify and sign in'}
+                {loading ? 'Verifying…' : returnTo ? 'Verify and continue' : 'Verify and sign in'}
               </button>
             </form>
 
