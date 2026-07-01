@@ -5,7 +5,7 @@ import * as XLSX from "xlsx";
 import { fetchAllRows } from '../utils/fetchAll'
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; charity_id: string | null; authorised_official_name: string | null; agent_nominee_reference: string | null }
-interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null }
+interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null; hmrc_correlation_id: string | null; adjustment_amount: number | null; adjustment_explanation: string | null }
 interface GasdsClaim {
   id: string; submission_id: string; claim_year: number; amount: number
   connected_charities: boolean; community_buildings: boolean
@@ -290,6 +290,21 @@ export default function AdminCharityDetail() {
   const [ltsTimestampInput, setLtsTimestampInput] = useState('01/05/2015')
   const [sendingDataRequest, setSendingDataRequest] = useState(false)
   const [dataRequestResult, setDataRequestResult] = useState<string | null>(null)
+
+  // Repayment adjustment modal
+  const [adjModalFor, setAdjModalFor] = useState<Submission | null>(null)
+  const [adjAmountInput, setAdjAmountInput] = useState('')
+  const [adjExplanationInput, setAdjExplanationInput] = useState('')
+  const [savingAdj, setSavingAdj] = useState(false)
+  const [adjError, setAdjError] = useState<string | null>(null)
+
+  // Aggregated donation modal
+  const [aggModalFor, setAggModalFor] = useState<Submission | null>(null)
+  const [aggDescription, setAggDescription] = useState('')
+  const [aggDate, setAggDate] = useState('')
+  const [aggAmount, setAggAmount] = useState('')
+  const [savingAgg, setSavingAgg] = useState(false)
+  const [aggError, setAggError] = useState<string | null>(null)
   const [agentRefInput, setAgentRefInput] = useState('')
   const [savingAgentRef, setSavingAgentRef] = useState(false)
   const [agentRefSaved, setAgentRefSaved] = useState(false)
@@ -313,7 +328,7 @@ export default function AdminCharityDetail() {
       setAgentRefInput(charityData?.agent_nominee_reference || '')
       setAuthOfficialInput(charityData?.authorised_official_name || '')
       const subData = await fetchAllRows<Submission>(() =>
-        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml').eq('charity_id', id).order('submission_date', { ascending: false })
+        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml, hmrc_correlation_id, adjustment_amount, adjustment_explanation').eq('charity_id', id).order('submission_date', { ascending: false })
       )
       setSubmissions(subData)
 
@@ -749,6 +764,70 @@ export default function AdminCharityDetail() {
     }
   }
 
+  const openAdjModal = (submission: Submission) => {
+    setAdjModalFor(submission)
+    setAdjAmountInput(submission.adjustment_amount != null ? String(submission.adjustment_amount) : '')
+    setAdjExplanationInput(submission.adjustment_explanation || '')
+    setAdjError(null)
+  }
+
+  const handleSaveAdjustment = async () => {
+    if (!adjModalFor) return
+    const amount = parseFloat(adjAmountInput)
+    if (adjAmountInput.trim() && isNaN(amount)) {
+      setAdjError('Enter a valid number, or leave blank to remove the adjustment.')
+      return
+    }
+    setSavingAdj(true); setAdjError(null)
+    const { error } = await supabase
+      .from('submissions')
+      .update({
+        adjustment_amount: adjAmountInput.trim() ? amount : null,
+        adjustment_explanation: adjExplanationInput.trim() || null,
+      })
+      .eq('id', adjModalFor.id)
+    if (error) {
+      setAdjError(error.message)
+    } else {
+      setAdjModalFor(null)
+      await loadData()
+    }
+    setSavingAdj(false)
+  }
+
+  const openAggModal = (submission: Submission) => {
+    setAggModalFor(submission)
+    setAggDescription(''); setAggDate(''); setAggAmount(''); setAggError(null)
+  }
+
+  const handleSaveAggregated = async () => {
+    if (!aggModalFor) return
+    const desc = aggDescription.trim()
+    const amount = parseFloat(aggAmount)
+    if (!desc) { setAggError('Description is required — e.g. "200 x £5 payments from members".'); return }
+    if (desc.length > 35) { setAggError('Description must be 35 characters or fewer (HMRC schema limit).'); return }
+    if (!aggDate) { setAggError('Donation date is required.'); return }
+    if (isNaN(amount) || amount <= 0) { setAggError('Enter a valid amount greater than zero.'); return }
+    setSavingAgg(true); setAggError(null)
+    const { error } = await supabase.from('donations').insert({
+      submission_id: aggModalFor.id,
+      charity_id: id,
+      aggregated: true,
+      aggregated_description: desc,
+      donation_date: aggDate,
+      amount,
+      // Name/address not required for aggregated entries — left null
+      first_name: null, last_name: null, address: null, postcode: null, title: null,
+    })
+    if (error) {
+      setAggError(error.message)
+    } else {
+      setAggModalFor(null)
+      await loadData()
+    }
+    setSavingAgg(false)
+  }
+
   function hmrcStatusBadge(status: string) {
     const styles: Record<string, string> = {
       not_submitted: 'bg-gray-100 text-gray-500',
@@ -1086,6 +1165,12 @@ export default function AdminCharityDetail() {
                             {(otherIncomeMap[s.id]?.length || 0) > 0
                               ? `Other Income (${otherIncomeMap[s.id].length})`
                               : '+ Other Income'}
+                          </button>
+                          <button onClick={() => openAdjModal(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
+                            {s.adjustment_amount != null ? `Adj: £${Number(s.adjustment_amount).toFixed(2)}` : '+ Adjustment'}
+                          </button>
+                          <button onClick={() => openAggModal(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
+                            + Aggregated
                           </button>
                           {s.hmrc_status === 'ready_to_send' && (
                             <button onClick={() => handleSendToEts(s.id)} disabled={sendingId === s.id}
@@ -1603,6 +1688,108 @@ export default function AdminCharityDetail() {
               {oiEntries.length === 0 && (
                 <p className="text-xs text-gray-300 text-center py-2">No other income entries yet — add one above.</p>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Repayment adjustment modal — sets <Adjustment> inside <Repayment>
+          in the R68 XML, and optionally <OtherInfo> at the Claim level. */}
+      {adjModalFor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-brand-primary">Repayment Adjustment</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Tax year {adjModalFor.tax_year} — adjusts the total repayment claim. Separate from the GASDS adjustment.</p>
+              </div>
+              <button onClick={() => setAdjModalFor(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Adjustment amount (£)</label>
+                <input
+                  type="number" step="0.01"
+                  value={adjAmountInput}
+                  onChange={e => setAdjAmountInput(e.target.value)}
+                  placeholder="e.g. 50.00"
+                  className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                />
+                <p className="text-xs text-gray-300 mt-1">Leave blank to remove an existing adjustment. Positive = HMRC owes more; negative = correcting an overclaim.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Explanation (optional, max 350 chars)</label>
+                <textarea
+                  value={adjExplanationInput}
+                  onChange={e => setAdjExplanationInput(e.target.value)}
+                  maxLength={350}
+                  rows={3}
+                  placeholder="e.g. Correcting an error on a previous submission"
+                  className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30 resize-none"
+                />
+              </div>
+              {adjError && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{adjError}</div>}
+              <div className="flex justify-end">
+                <button onClick={handleSaveAdjustment} disabled={savingAdj} className="bg-brand-accent text-white rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-40">
+                  {savingAdj ? 'Saving…' : 'Save Adjustment'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Aggregated donation modal — creates a row in the donations table
+          with aggregated=true, which maps to <AggDonation> in the R68 XML
+          instead of a named <Donor>. No name or address is required. */}
+      {aggModalFor && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full">
+            <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-brand-primary">Aggregated Donation</h3>
+                <p className="text-xs text-gray-400 mt-0.5">Tax year {aggModalFor.tax_year} — a lump sum covering multiple small donations where individual names are not collected. Maps to &lt;AggDonation&gt; in the R68 XML.</p>
+              </div>
+              <button onClick={() => setAggModalFor(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Description (max 35 characters)</label>
+                <input
+                  type="text" maxLength={35}
+                  value={aggDescription}
+                  onChange={e => setAggDescription(e.target.value)}
+                  placeholder='e.g. 200 x £5 payments from members'
+                  className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                />
+                <p className="text-xs text-gray-300 mt-1">{aggDescription.length}/35 characters</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Date (DD/MM/YYYY)</label>
+                <input
+                  type="text"
+                  value={aggDate}
+                  onChange={e => setAggDate(e.target.value)}
+                  placeholder="e.g. 05/04/2015"
+                  className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Total amount (£)</label>
+                <input
+                  type="number" min="0.01" step="0.01"
+                  value={aggAmount}
+                  onChange={e => setAggAmount(e.target.value)}
+                  placeholder="e.g. 1000.00"
+                  className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                />
+              </div>
+              {aggError && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{aggError}</div>}
+              <div className="flex justify-end">
+                <button onClick={handleSaveAggregated} disabled={savingAgg} className="bg-brand-accent text-white rounded-lg px-4 py-2 text-sm font-semibold hover:opacity-90 disabled:opacity-40">
+                  {savingAgg ? 'Saving…' : 'Add Aggregated Donation'}
+                </button>
+              </div>
             </div>
           </div>
         </div>
