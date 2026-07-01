@@ -85,7 +85,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Fetch the submission
     const { data: submission, error: subErr } = await supabaseAdmin
       .from('submissions')
-      .select('id, charity_id, tax_year, status, hmrc_status')
+      .select('id, charity_id, tax_year, status, hmrc_status, adjustment_amount, adjustment_explanation')
       .eq('id', submissionId)
       .single()
 
@@ -110,7 +110,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // created)
     const { data: donations, error: donErr } = await supabaseAdmin
       .from('donations')
-      .select('id, title, first_name, last_name, address, postcode, donation_date, amount')
+      .select('id, title, first_name, last_name, address, postcode, donation_date, amount, aggregated, aggregated_description')
       .eq('submission_id', submissionId)
 
     if (donErr) {
