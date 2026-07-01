@@ -122,7 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // have one at all, which is normal, not an error.
     const { data: gasdsRow, error: gasdsErr } = await supabaseAdmin
       .from('gasds_claims')
-      .select('claim_year, amount, connected_charities, community_buildings, adjustment')
+      .select('claim_year, amount, connected_charities, connected_charity_details, community_buildings, community_building_details, adjustment')
       .eq('submission_id', submissionId)
       .maybeSingle()
 
