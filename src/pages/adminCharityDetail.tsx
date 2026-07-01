@@ -9,6 +9,8 @@ interface Submission { id: string; submission_date: string; status: string; hmrc
 interface GasdsClaim {
   id: string; submission_id: string; claim_year: number; amount: number
   connected_charities: boolean; community_buildings: boolean
+  connected_charity_details: Array<{charityName:string;hmrcRef:string;year:number;amount:number}> | null
+  community_building_details: Array<{buildingName:string;address:string;postcode:string;year:number;amount:number}> | null
   collection_dates: string[]; banked_dates: string[]
   building_address: string | null; building_postcode: string | null
   event_type: string | null; number_of_events: number | null; estimated_attendance: number | null
@@ -167,9 +169,19 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
 // must be OMITTED for ETS and live submissions. This only ever transforms
 // what's displayed for manual LTS testing — it never touches the stored
 // claim XML or anything actually sent to ETS.
-function addGatewayTimestampForLts(xml: string): string {
+// For HMRC's recognition submission specifically, the date must be exactly
+// 01/05/2015 as specified in the recognition document (v1.7, p4).
+function addGatewayTimestampForLts(xml: string, customDate?: string): string {
   if (!xml) return xml
-  const timestamp = new Date().toISOString()
+  // If a custom date is provided (DD/MM/YYYY), convert it to ISO format.
+  // Otherwise use the current datetime.
+  let timestamp: string
+  if (customDate && /^\d{2}\/\d{2}\/\d{4}$/.test(customDate.trim())) {
+    const [d, m, y] = customDate.trim().split('/')
+    timestamp = `${y}-${m}-${d}T00:00:00`
+  } else {
+    timestamp = new Date().toISOString()
+  }
   return xml.replace(
     /<\/MessageDetails>/,
     `<GatewayTimestamp>${timestamp}</GatewayTimestamp>\n</MessageDetails>`
@@ -224,6 +236,19 @@ export default function AdminCharityDetail() {
   const [gasdsAmountInput, setGasdsAmountInput] = useState('')
   const [gasdsConnectedInput, setGasdsConnectedInput] = useState(false)
   const [gasdsCommunityInput, setGasdsCommunityInput] = useState(false)
+  // Connected charity list — populated when connectedCharities is true
+  const [gasdsConnectedCharities, setGasdsConnectedCharities] = useState<Array<{charityName:string;hmrcRef:string;year:string;amount:string}>>([])
+  const [gasdsCcName, setGasdsCcName] = useState('')
+  const [gasdsCcRef, setGasdsCcRef] = useState('')
+  const [gasdsCcYear, setGasdsCcYear] = useState('')
+  const [gasdsCcAmount, setGasdsCcAmount] = useState('')
+  // Community building list — populated when communityBuildings is true
+  const [gasdsBuildingList, setGasdsBuildingList] = useState<Array<{buildingName:string;address:string;postcode:string;year:string;amount:string}>>([])
+  const [gasdsBldName, setGasdsBldName] = useState('')
+  const [gasdsBldAddress, setGasdsBldAddress] = useState('')
+  const [gasdsBldPostcode, setGasdsBldPostcode] = useState('')
+  const [gasdsBldYear, setGasdsBldYear] = useState('')
+  const [gasdsBldAmount, setGasdsBldAmount] = useState('')
   const [gasdsCollectionDates, setGasdsCollectionDates] = useState<string[]>([])
   const [gasdsCollectionDateInput, setGasdsCollectionDateInput] = useState('')
   const [gasdsBankedDates, setGasdsBankedDates] = useState<string[]>([])
@@ -262,6 +287,9 @@ export default function AdminCharityDetail() {
   const [buildResult, setBuildResult] = useState<{ submissionId: string; ok: boolean; message: string; errors?: string[]; warnings?: string[] } | null>(null)
   const [viewingXmlFor, setViewingXmlFor] = useState<Submission | null>(null)
   const [showLtsVersion, setShowLtsVersion] = useState(false)
+  const [ltsTimestampInput, setLtsTimestampInput] = useState('01/05/2015')
+  const [sendingDataRequest, setSendingDataRequest] = useState(false)
+  const [dataRequestResult, setDataRequestResult] = useState<string | null>(null)
   const [agentRefInput, setAgentRefInput] = useState('')
   const [savingAgentRef, setSavingAgentRef] = useState(false)
   const [agentRefSaved, setAgentRefSaved] = useState(false)
@@ -295,7 +323,7 @@ export default function AdminCharityDetail() {
       if (subData.length > 0) {
         const { data: gasdsData, error: gasdsErr } = await supabase
           .from('gasds_claims')
-          .select('id, submission_id, claim_year, amount, connected_charities, community_buildings, collection_dates, banked_dates, building_address, building_postcode, event_type, number_of_events, estimated_attendance')
+          .select('id, submission_id, claim_year, amount, connected_charities, connected_charity_details, community_buildings, community_building_details, collection_dates, banked_dates, building_address, building_postcode, event_type, number_of_events, estimated_attendance')
           .in('submission_id', subData.map(s => s.id))
         if (gasdsErr) throw new Error(gasdsErr.message)
         const keyed: Record<string, GasdsClaim> = {}
@@ -358,6 +386,10 @@ export default function AdminCharityDetail() {
     setGasdsAmountInput('')
     setGasdsConnectedInput(false)
     setGasdsCommunityInput(false)
+    setGasdsConnectedCharities([])
+    setGasdsCcName(''); setGasdsCcRef(''); setGasdsCcYear(''); setGasdsCcAmount('')
+    setGasdsBuildingList([])
+    setGasdsBldName(''); setGasdsBldAddress(''); setGasdsBldPostcode(''); setGasdsBldYear(''); setGasdsBldAmount('')
     setGasdsCollectionDates([])
     setGasdsCollectionDateInput('')
     setGasdsBankedDates([])
@@ -390,6 +422,19 @@ export default function AdminCharityDetail() {
       setGasdsEventType(existing.event_type || '')
       setGasdsNumberOfEvents(existing.number_of_events != null ? String(existing.number_of_events) : '')
       setGasdsEstimatedAttendance(existing.estimated_attendance != null ? String(existing.estimated_attendance) : '')
+      // Restore connected charity and building lists from the stored JSONB
+      if (existing.connected_charity_details) {
+        setGasdsConnectedCharities(existing.connected_charity_details.map(c => ({
+          charityName: c.charityName, hmrcRef: c.hmrcRef,
+          year: String(c.year), amount: String(c.amount)
+        })))
+      }
+      if (existing.community_building_details) {
+        setGasdsBuildingList(existing.community_building_details.map(b => ({
+          buildingName: b.buildingName, address: b.address,
+          postcode: b.postcode, year: String(b.year), amount: String(b.amount)
+        })))
+      }
     }
   }
 
@@ -460,7 +505,15 @@ export default function AdminCharityDetail() {
       claim_year: claimYear,
       amount,
       connected_charities: gasdsConnectedInput,
+      connected_charity_details: gasdsConnectedInput ? gasdsConnectedCharities.map(c => ({
+        charityName: c.charityName, hmrcRef: c.hmrcRef,
+        year: parseInt(c.year, 10), amount: parseFloat(c.amount)
+      })) : [],
       community_buildings: gasdsCommunityInput,
+      community_building_details: gasdsCommunityInput ? gasdsBuildingList.map(b => ({
+        buildingName: b.buildingName, address: b.address, postcode: b.postcode,
+        year: parseInt(b.year, 10), amount: parseFloat(b.amount)
+      })) : [],
       collection_dates: gasdsCollectionDates,
       banked_dates: gasdsBankedDates,
       building_address: gasdsCommunityInput ? (gasdsBuildingAddress.trim() || null) : null,
@@ -673,6 +726,26 @@ export default function AdminCharityDetail() {
       setBuildResult({ submissionId, ok: false, message: e.message, errors: [] })
     } finally {
       setCheckingId(null)
+    }
+  }
+
+  const handleSendDataRequest = async (submissionId: string) => {
+    setSendingDataRequest(true)
+    setDataRequestResult(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) return
+      const resp = await fetch('/api/admin/sendDataRequest', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ submission_id: submissionId }),
+      })
+      const json = await resp.json()
+      setDataRequestResult(json.ok ? json.message : `Error: ${json.error}`)
+    } catch (e: any) {
+      setDataRequestResult(`Error: ${e.message}`)
+    } finally {
+      setSendingDataRequest(false)
     }
   }
 
@@ -1156,21 +1229,52 @@ export default function AdminCharityDetail() {
                   onClick={() => setShowLtsVersion(true)}
                   className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors ${showLtsVersion ? 'bg-brand-accent text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}
                 >
-                  For LTS testing
+                  For LTS / Recognition
                 </button>
               </div>
               {showLtsVersion ? (
-                <p className="text-xs text-amber-600 mb-3">
-                  LTS specifically requires a populated &lt;GatewayTimestamp&gt; to correctly evaluate donation dates (confirmed directly by HMRC) — ETS and live submissions require it omitted instead. This view adds one with the current time, for local testing only; it is not what actually gets sent to ETS.
-                </p>
+                <div className="mb-3 space-y-2">
+                  <p className="text-xs text-amber-600">
+                    LTS specifically requires a populated &lt;GatewayTimestamp&gt; — ETS and live submissions require it omitted. For HMRC's recognition submission, the timestamp must be exactly <strong>01/05/2015</strong> as specified in the recognition document (v1.7).
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <label className="text-xs font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">GatewayTimestamp date</label>
+                    <input
+                      type="text"
+                      value={ltsTimestampInput}
+                      onChange={e => setLtsTimestampInput(e.target.value)}
+                      placeholder="DD/MM/YYYY"
+                      className="text-xs border border-gray-200 rounded px-2 py-1 w-32 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
+                    />
+                    <span className="text-xs text-gray-300">Use 01/05/2015 for HMRC recognition</span>
+                  </div>
+                </div>
               ) : (
-                <p className="text-xs text-gray-400 mb-3">
-                  This is the exact XML already sent (or ready to send) to HMRC's External Test Service. Switch to "For LTS testing" above if you want a version suitable for HMRC's standalone Local Test Service instead.
-                </p>
+                <div className="mb-3 space-y-2">
+                  <p className="text-xs text-gray-400">
+                    This is the exact XML sent (or ready to send) to HMRC's External Test Service. Switch to "For LTS / Recognition" to add a GatewayTimestamp for LTS validation or the HMRC recognition submission.
+                  </p>
+                  {viewingXmlFor.hmrc_correlation_id && (
+                    <div className="flex items-center gap-3">
+                      <button
+                        onClick={() => handleSendDataRequest(viewingXmlFor.id)}
+                        disabled={sendingDataRequest}
+                        className="text-xs font-semibold text-brand-accent hover:text-brand-primary disabled:opacity-40"
+                      >
+                        {sendingDataRequest ? 'Sending…' : 'Send DATA_REQUEST (for HMRC recognition)'}
+                      </button>
+                      {dataRequestResult && (
+                        <span className="text-xs text-gray-500">{dataRequestResult}</span>
+                      )}
+                    </div>
+                  )}
+                </div>
               )}
               <textarea
                 readOnly
-                value={showLtsVersion ? addGatewayTimestampForLts(viewingXmlFor.hmrc_claim_xml || '') : (viewingXmlFor.hmrc_claim_xml || '')}
+                value={showLtsVersion
+                  ? addGatewayTimestampForLts(viewingXmlFor.hmrc_claim_xml || '', ltsTimestampInput)
+                  : (viewingXmlFor.hmrc_claim_xml || '')}
                 className="w-full h-96 font-mono text-xs border border-gray-200 rounded-lg p-3 bg-gray-50"
                 onClick={(e) => (e.target as HTMLTextAreaElement).select()}
               />
@@ -1233,10 +1337,71 @@ export default function AdminCharityDetail() {
                 <span>This charity is part of a group of connected charities sharing the small-donations allowance</span>
               </label>
 
+              {/* Connected charity detail — one row per connected charity */}
+              {gasdsConnectedInput && (
+                <div className="bg-brand-surface/60 border border-gray-100 rounded-lg p-4 space-y-3">
+                  <p className="text-xs font-semibold text-brand-primary uppercase tracking-wide">Connected charities</p>
+                  {gasdsConnectedCharities.length > 0 && (
+                    <div className="space-y-1">
+                      {gasdsConnectedCharities.map((c, i) => (
+                        <div key={i} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-xs text-gray-600">
+                          <span>{c.charityName} · {c.hmrcRef} · {c.year} · £{parseFloat(c.amount).toFixed(2)}</span>
+                          <button type="button" onClick={() => setGasdsConnectedCharities(prev => prev.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-600 ml-3">×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" value={gasdsCcName} onChange={e => setGasdsCcName(e.target.value)} placeholder="Charity name" className="col-span-2 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <input type="text" value={gasdsCcRef} onChange={e => setGasdsCcRef(e.target.value)} placeholder="HMRC Ref (e.g. AB98765)" className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <input type="number" value={gasdsCcYear} onChange={e => setGasdsCcYear(e.target.value)} placeholder="Year (e.g. 2014)" className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <input type="number" value={gasdsCcAmount} onChange={e => setGasdsCcAmount(e.target.value)} placeholder="Amount (£)" className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <button type="button" onClick={() => {
+                      if (!gasdsCcName || !gasdsCcRef || !gasdsCcYear || !gasdsCcAmount) return
+                      setGasdsConnectedCharities(prev => [...prev, { charityName: gasdsCcName, hmrcRef: gasdsCcRef, year: gasdsCcYear, amount: gasdsCcAmount }])
+                      setGasdsCcName(''); setGasdsCcRef(''); setGasdsCcYear(''); setGasdsCcAmount('')
+                    }} className="text-xs font-semibold text-brand-accent border border-brand-accent/30 rounded px-2 py-1 hover:bg-brand-accent/5">
+                      Add charity
+                    </button>
+                  </div>
+                </div>
+              )}
+
               <label className="flex items-start gap-2 text-sm text-gray-600">
                 <input type="checkbox" checked={gasdsCommunityInput} onChange={e => setGasdsCommunityInput(e.target.checked)} className="mt-0.5" />
                 <span>Some or all of this claim relates to donations collected in a community building (e.g. a village hall)</span>
               </label>
+
+              {/* Community building detail — one row per building */}
+              {gasdsCommunityInput && (
+                <div className="bg-brand-surface/60 border border-gray-100 rounded-lg p-4 space-y-3">
+                  <p className="text-xs font-semibold text-brand-primary uppercase tracking-wide">Community buildings</p>
+                  {gasdsBuildingList.length > 0 && (
+                    <div className="space-y-1">
+                      {gasdsBuildingList.map((b, i) => (
+                        <div key={i} className="flex items-center justify-between bg-white rounded px-3 py-1.5 text-xs text-gray-600">
+                          <span>{b.buildingName} · {b.address} · {b.postcode} · {b.year} · £{parseFloat(b.amount).toFixed(2)}</span>
+                          <button type="button" onClick={() => setGasdsBuildingList(prev => prev.filter((_, idx) => idx !== i))} className="text-red-400 hover:text-red-600 ml-3">×</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="text" value={gasdsBldName} onChange={e => setGasdsBldName(e.target.value)} placeholder="Building name" className="col-span-2 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <input type="text" value={gasdsBldAddress} onChange={e => setGasdsBldAddress(e.target.value)} placeholder="Address" className="col-span-2 text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <input type="text" value={gasdsBldPostcode} onChange={e => setGasdsBldPostcode(e.target.value)} placeholder="Postcode" className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <input type="number" value={gasdsBldYear} onChange={e => setGasdsBldYear(e.target.value)} placeholder="Year (e.g. 2014)" className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <input type="number" value={gasdsBldAmount} onChange={e => setGasdsBldAmount(e.target.value)} placeholder="Amount (£)" className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                    <button type="button" onClick={() => {
+                      if (!gasdsBldName || !gasdsBldAddress || !gasdsBldPostcode || !gasdsBldYear || !gasdsBldAmount) return
+                      setGasdsBuildingList(prev => [...prev, { buildingName: gasdsBldName, address: gasdsBldAddress, postcode: gasdsBldPostcode, year: gasdsBldYear, amount: gasdsBldAmount }])
+                      setGasdsBldName(''); setGasdsBldAddress(''); setGasdsBldPostcode(''); setGasdsBldYear(''); setGasdsBldAmount('')
+                    }} className="text-xs font-semibold text-brand-accent border border-brand-accent/30 rounded px-2 py-1 hover:bg-brand-accent/5">
+                      Add building
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Record-keeping: collection dates */}
               <div>
