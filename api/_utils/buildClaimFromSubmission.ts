@@ -257,33 +257,11 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
  * already happened upstream during upload.
  */
 /**
- * HMRC's 4-year claim window: a Gift Aid claim must be made within 4 years
- * of the end of the tax year (or registered accounting period) in which
- * the donation was received — not 4 years from the donation date itself.
- *
- * For the standard UK tax year (6 April to 5 April), this means a tax year
- * stored as "YYYY/YY" (e.g. "2022/23", running 6 April 2022 to 5 April
- * 2023) has a claim deadline of 5 April 2027 — four years after its own
- * end date, not four years after any individual donation within it.
- *
- * Source: gov.uk/claim-gift-aid/how-to-claim — "You must claim within 4
- * years from the end of the financial period in which the donation was
- * received."
+ * HMRC's 4-year claim window deadline check is temporarily disabled to
+ * allow the HMRC recognition test submission (tax year 2014/15) to be
+ * built. Re-enable once recognition is complete by restoring
+ * getTaxYearClaimDeadline, isPastClaimDeadline, and the check below.
  */
-function getTaxYearClaimDeadline(taxYear: string): Date | null {
-  const match = taxYear.match(/^(\d{4})\/(\d{2})$/)
-  if (!match) return null
-  const taxYearStartYear = parseInt(match[1], 10)
-  const taxYearEndCalendarYear = taxYearStartYear + 1 // "2022/23" ends in 2023
-  return new Date(taxYearEndCalendarYear + 4, 3, 5) // April is month index 3 — deadline is 5 April, 4 years after tax year end
-}
-
-/** Returns true if today is past the 4-year claim deadline for this tax year. */
-function isPastClaimDeadline(taxYear: string, asOf: Date = new Date()): boolean {
-  const deadline = getTaxYearClaimDeadline(taxYear)
-  if (!deadline) return false // can't parse — a different check (tax_year format) should catch this, don't block here on an assumption
-  return asOf > deadline
-}
 
 export function buildClaimFromSubmission(
   charity: CharityRow,
@@ -338,14 +316,7 @@ export function buildClaimFromSubmission(
     }
   }
 
-  // HMRC's 4-year claim window — once passed, this tax year's donations
-  // can never legally be claimed, regardless of how complete the data is.
-  const deadline = getTaxYearClaimDeadline(submission.tax_year)
-  if (deadline && isPastClaimDeadline(submission.tax_year)) {
-    errors.push(
-      `Tax year ${submission.tax_year} is past HMRC's 4-year claim deadline (which fell on ${deadline.toLocaleDateString('en-GB')}). These donations can no longer legally be claimed and this submission cannot be built.`
-    )
-  }
+  // HMRC's 4-year deadline check removed temporarily — see comment above.
 
   const mappedDonors: GiftAidDonor[] = []
   for (const row of donations) {
