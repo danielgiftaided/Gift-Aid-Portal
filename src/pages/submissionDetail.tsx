@@ -36,7 +36,7 @@ export default function SubmissionDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const location = useLocation()
-  const backUrl = (location.state as any)?.backUrl ?? '/submissions'
+  const backUrl = (location.state as any)?.backUrl ?? '/dashboard'
   const isAdminContext = backUrl.startsWith('/admin')
   const [submission, setSubmission] = useState<Submission | null>(null)
   const [donations, setDonations] = useState<Donation[]>([])
