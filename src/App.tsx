@@ -8,7 +8,6 @@ import MfaSetup from './pages/mfaSetup'
 import MfaChallenge from './pages/mfaChallenge'
 import PasswordExpired from './pages/passwordExpired'
 import Dashboard from './pages/dashboard'
-import Submissions from './pages/submissions'
 import SubmissionDetail from './pages/submissionDetail'
 import Insights from './pages/insights'
 import CharityProfile from './pages/charityProfile'
@@ -37,7 +36,6 @@ function App() {
         <Route path="/mfa-challenge" element={<MfaChallenge />} />
         <Route path="/password-expired" element={<PasswordExpired />} />
         <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/submissions" element={<Submissions />} />
         <Route path="/submissions/:id" element={<SubmissionDetail />} />
         <Route path="/insights" element={<Insights />} />
         <Route path="/profile" element={<CharityProfile />} />
