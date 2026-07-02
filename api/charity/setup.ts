@@ -170,30 +170,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const body = parseBody(req);
     const name = String(body.name || "").trim();
     const contact_email = String(body.contact_email || "").trim();
-    const charity_number = String(body.charity_number || "").trim().toUpperCase();
+    const hmrc_ref = String(body.hmrc_ref || "").trim().toUpperCase();
+    const charity_commission_number = String(body.charity_commission_number || "").trim();
     const authorised_official_name = String(body.authorised_official_name || "").trim();
 
     if (!name) return send(res, 400, { ok: false, error: "Charity name is required" });
     if (!contact_email) return send(res, 400, { ok: false, error: "Contact email is required" });
-    if (!charity_number) return send(res, 400, { ok: false, error: "HMRC Charities reference is required" });
+    if (!hmrc_ref) return send(res, 400, { ok: false, error: "HMRC Charities Ref is required" });
+    if (!charity_commission_number) return send(res, 400, { ok: false, error: "Charity Commission Number is required" });
     if (!authorised_official_name) return send(res, 400, { ok: false, error: "Authorised Official's name is required" });
 
-    // HMRC's actual Charities Online reference format: 1-2 letters followed
-    // by 1-5 numbers (e.g. "AB12345"). This is NOT the same as a Charity
-    // Commission registration number, which is numeric only — charities
-    // onboarded before this validation existed may have a number that
-    // doesn't match this format and will need correcting before any HMRC
-    // submission can be attempted on their behalf.
-    if (!/^[A-Z]{1,2}[0-9]{1,5}$/.test(charity_number)) {
+    // HMRC Charities Ref format: 1-2 letters followed by 1-5 numbers (e.g. "AB12345").
+    // Distinct from the Charity Commission number, which is numeric only.
+    if (!/^[A-Z]{1,2}[0-9]{1,5}$/.test(hmrc_ref)) {
       return send(res, 400, {
         ok: false,
-        error: 'Charity reference must be 1-2 letters followed by 1-5 numbers (e.g. "AB12345"). This is your HMRC Gift Aid reference, not your Charity Commission number.',
+        error: 'HMRC Charities Ref must be 1-2 letters followed by 1-5 numbers (e.g. "AB12345"). This is your HMRC Gift Aid reference, not your Charity Commission number.',
       });
     }
-    if (/\/(0|1|2)$/.test(charity_number)) {
+    if (/\/(0|1|2)$/.test(hmrc_ref)) {
       return send(res, 400, {
         ok: false,
-        error: "Charity reference cannot end in /0, /1 or /2 — HMRC no longer accepts these sub-fund suffixes.",
+        error: "HMRC Charities Ref cannot end in /0, /1 or /2 — HMRC no longer accepts these sub-fund suffixes.",
       });
     }
 
@@ -215,7 +213,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: existingCharity, error: checkErr } = await supabaseAdmin
       .from("charities")
       .select("id")
-      .eq("charity_id", charity_number)
+      .eq("charity_id", hmrc_ref)
       .maybeSingle();
 
     if (checkErr) return send(res, 500, { ok: false, error: checkErr.message });
@@ -228,8 +226,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .insert({
           name,
           contact_email,
-          charity_id: charity_number,
-          charity_number: charity_number,
+          charity_id: hmrc_ref,              // HMRC Gift Aid reference, e.g. AB12345
+          charity_number: charity_commission_number, // Charity Commission number, e.g. 1234567
           authorised_official_name,
           created_by: userId,
           self_submit_enabled: false,
