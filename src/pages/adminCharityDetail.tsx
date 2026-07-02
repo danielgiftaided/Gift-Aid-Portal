@@ -188,19 +188,6 @@ function addGatewayTimestampForLts(xml: string, customDate?: string): string {
   )
 }
 
-// Mirrors the same rule enforced server-side in buildClaimFromSubmission.ts —
-// HMRC's 4-year claim window runs from the END of the tax year, not from
-// any individual donation date within it. Duplicated here deliberately,
-// since frontend code can't import from api/_utils/ (separate Vercel
-// function bundles) — see the date-parsing helpers elsewhere in this file
-// for the same established pattern.
-function getTaxYearClaimDeadline(taxYear: string): Date | null {
-  const match = taxYear.match(/^(\d{4})\/(\d{2})$/)
-  if (!match) return null
-  const taxYearEndCalendarYear = parseInt(match[1], 10) + 1
-  return new Date(taxYearEndCalendarYear + 4, 3, 5)
-}
-
 // GASDS's "claim_year" is the calendar year a tax year STARTS in (e.g. tax
 // year "2025/26" -> 2025), per HMRC's own schema. Deriving this from the
 // submission's own tax_year — rather than letting an admin type it in
@@ -1109,19 +1096,6 @@ export default function AdminCharityDetail() {
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">{new Date(s.submission_date).toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' })}</td>
                       <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap" onClick={e => gasdsClaims[s.id] && e.stopPropagation()}>
                         {s.tax_year}
-                        {(() => {
-                          const deadline = getTaxYearClaimDeadline(s.tax_year)
-                          if (!deadline) return null
-                          const isPast = new Date() > deadline
-                          const daysUntil = Math.ceil((deadline.getTime() - Date.now()) / (1000 * 60 * 60 * 24))
-                          if (isPast) {
-                            return <span title={`HMRC's 4-year claim deadline for this tax year passed on ${deadline.toLocaleDateString('en-GB')} — this can no longer be claimed.`} className="ml-1.5 text-xs font-semibold text-red-600 bg-red-50 px-1.5 py-0.5 rounded">Deadline passed</span>
-                          }
-                          if (daysUntil <= 90) {
-                            return <span title={`HMRC's 4-year claim deadline for this tax year is ${deadline.toLocaleDateString('en-GB')} — ${daysUntil} days left.`} className="ml-1.5 text-xs font-semibold text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">{daysUntil}d left</span>
-                          }
-                          return null
-                        })()}
                         {gasdsClaims[s.id] && (
                           <button
                             onClick={() => openGasdsModal(s)}
@@ -1144,18 +1118,13 @@ export default function AdminCharityDetail() {
                         {hmrcStatusBadge(s.hmrc_status || 'not_submitted')}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        {(() => {
-                          const deadline = getTaxYearClaimDeadline(s.tax_year)
-                          const deadlinePassed = !!(deadline && new Date() > deadline)
-                          return (
-                            <div className="flex items-center gap-3">
-                              <button
-                                onClick={() => handleBuildClaim(s.id)}
-                                disabled={buildingId === s.id || deadlinePassed}
-                                title={deadlinePassed ? `HMRC's 4-year claim deadline for tax year ${s.tax_year} has passed — this can no longer be claimed.` : undefined}
-                                className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40 disabled:cursor-not-allowed">
-                                {buildingId === s.id ? 'Building…' : deadlinePassed ? 'Deadline passed' : 'Build HMRC Claim'}
-                              </button>
+                        <div className="flex items-center gap-3">
+                          <button
+                            onClick={() => handleBuildClaim(s.id)}
+                            disabled={buildingId === s.id}
+                            className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40">
+                            {buildingId === s.id ? 'Building…' : 'Build HMRC Claim'}
+                          </button>
                           {s.hmrc_claim_xml && (
                             <button onClick={() => setViewingXmlFor(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
                               View XML
@@ -1187,9 +1156,7 @@ export default function AdminCharityDetail() {
                           <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
                             {deletingId === s.id ? 'Deleting…' : 'Delete'}
                           </button>
-                            </div>
-                          )
-                        })()}
+                        </div>
                       </td>
                     </tr>
                   ))}
