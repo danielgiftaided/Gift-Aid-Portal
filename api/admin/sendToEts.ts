@@ -90,6 +90,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           hmrc_poll_interval_seconds: parsed.pollIntervalSeconds || 10,
           hmrc_submitted_at: new Date().toISOString(),
           hmrc_response_message: null,
+          hmrc_acknowledgement_xml: responseXml, // SUBMISSION_ACKNOWLEDGEMENT
         })
         .eq('id', submissionId)
 
