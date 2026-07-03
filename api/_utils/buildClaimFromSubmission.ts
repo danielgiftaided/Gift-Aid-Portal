@@ -314,6 +314,15 @@ export function buildClaimFromSubmission(
     errors.push(`Submission ${submission.id} has no donations and no GASDS claim to submit.`)
   }
 
+  // HMRC business rule 7059: if <Adjustment> is present inside <Repayment>
+  // then <OtherInfo> at the Claim level MUST also be present. Catching this
+  // here gives a clear message rather than discovering it via LTS later.
+  if (submission.adjustment_amount != null && !submission.adjustment_explanation?.trim()) {
+    errors.push(
+      `This submission has a repayment adjustment of £${submission.adjustment_amount.toFixed(2)} but no explanation. HMRC business rule 7059 requires Other Information (OtherInfo) to be present whenever an Adjustment is included — add an explanation via the Adj button on this submission before building the claim.`
+    )
+  }
+
   // claim_year and tax_year are entered somewhat independently (GASDS data
   // entry vs the submission's own tax year), so it's worth catching a
   // mismatch explicitly rather than silently submitting the wrong year to
