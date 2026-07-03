@@ -78,6 +78,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 502, { ok: false, error: `Failed to reach the Transaction Engine for polling: ${e.message}` })
     }
 
+    // Store the SUBMISSION_POLL message we sent — needed for recognition package.
+    await supabaseAdmin.from('submissions')
+      .update({ hmrc_submission_poll_xml: pollXml })
+      .eq('id', submissionId)
+
     const parsed = parseGovTalkResponse(responseXml)
 
     // Still processing — another acknowledgement, not a final result yet.
@@ -99,26 +104,23 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
     }
 
-    // Final result reached — clean up with a DELETE_REQUEST regardless of
-    // success or failure, then record the outcome.
+    // Final result reached — clean up with a DELETE_REQUEST and store both
+    // the outgoing request and HMRC's DELETE_RESPONSE for the recognition package.
+    let deleteResponseXml: string | null = null
     try {
       const deleteXml = buildDeleteMessage(CLAIM_CLASS, submission.hmrc_correlation_id)
-      await postToTransactionEngine(deleteXml, submission.hmrc_response_endpoint)
+      deleteResponseXml = await postToTransactionEngine(deleteXml, submission.hmrc_response_endpoint)
+      await supabaseAdmin.from('submissions')
+        .update({
+          hmrc_delete_request_xml: deleteXml,
+          hmrc_delete_response_xml: deleteResponseXml,
+        })
+        .eq('id', submissionId)
     } catch (e: any) {
-      // Don't fail the whole request over cleanup failing — HMRC auto-
-      // deletes after 30/60 days regardless, this is just tidiness.
       console.error('DELETE_REQUEST failed (non-fatal):', e.message)
     }
 
     if (parsed.qualifier === 'response') {
-      // IMPORTANT: HMRC's acceptance response may contain a genuine claim
-      // reference number somewhere in its body — but we've never actually
-      // seen a real acceptance response's raw content, only the generic
-      // "accepted" qualifier. Rather than guess at a field name, the full
-      // raw body is captured here so it can be read directly next time a
-      // real claim is accepted, and hmrc_reference can then be wired up
-      // properly based on what's actually there (see hmrc_reference
-      // remaining unset below — deliberately not populated with a guess).
       const rawBodySnippet = parsed.rawBody ? parsed.rawBody.slice(0, 2000) : null
 
       await supabaseAdmin
@@ -126,9 +128,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .update({
           hmrc_status: 'accepted',
           status: deriveStatus('accepted'),
+          hmrc_submission_response_xml: responseXml, // SUBMISSION_RESPONSE — full raw XML
           hmrc_response_message: rawBodySnippet
             ? `Accepted by HMRC. Raw response body (for identifying any claim reference): ${rawBodySnippet}`
-            : 'Accepted by HMRC. (No response body was returned to inspect for a claim reference.)',
+            : 'Accepted by HMRC.',
           hmrc_response_at: new Date().toISOString(),
         })
         .eq('id', submissionId)
@@ -152,6 +155,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .update({
         hmrc_status: 'rejected',
         status: deriveStatus('rejected'),
+        hmrc_submission_response_xml: responseXml,
         hmrc_response_message: errorSummary,
         hmrc_response_at: new Date().toISOString(),
       })
