@@ -212,14 +212,17 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
     return { donor: null, errors }
   }
 
-  // Title: 1-4 chars, upper/lower alpha plus backslash and hyphen only.
+  // Title: HMRC's own recognition test data includes "Captain" (7 chars),
+  // so the schema is more permissive than the abbreviated 1-4 char format
+  // originally assumed. Allowing up to 35 chars (letters, backslash, hyphen)
+  // to cover all reasonable titles while still filtering genuinely bad data.
   let title: string | undefined
   if (row.title) {
     const cleanedTitle = row.title.trim()
-    if (/^[A-Za-z\\-]{1,4}$/.test(cleanedTitle)) {
+    if (/^[A-Za-z\\-]{1,35}$/.test(cleanedTitle)) {
       title = cleanedTitle
     } else {
-      warnings.push(`Donation ${row.id}: title "${row.title}" doesn't meet HMRC's format (1-4 letters, backslash or hyphen only) — omitted from submission.`)
+      warnings.push(`Donation ${row.id}: title "${row.title}" contains unsupported characters — omitted from submission.`)
     }
   }
 
