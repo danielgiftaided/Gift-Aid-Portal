@@ -221,11 +221,16 @@ export function buildR68Submission(
   //   [ <Adj> ... </Adj> ]              ← GASDS-specific adjustment
   const gasdsElement = claim.gasds ? (() => {
     const g = claim.gasds
+    // <Charity> inside <ConnectedCharities> only accepts <Name> and <HMRCref>
+    // per the real schema — confirmed by LTS error 4051. Year and Amount
+    // belong to the main <GASDSClaim> block, not the individual charity entry.
     const charityElements = (g.connectedCharityList || []).map(c =>
-      `<Charity><Name>${escapeXml(c.charityName)}</Name><HMRCref>${escapeXml(c.hmrcRef)}</HMRCref><Year>${c.year}</Year><Amount>${formatAmount(c.amount)}</Amount></Charity>`
+      `<Charity><Name>${escapeXml(c.charityName)}</Name><HMRCref>${escapeXml(c.hmrcRef)}</HMRCref></Charity>`
     ).join('')
+    // <BldgClaim> is a complex element type — confirmed by LTS errors 4053/4065/4066.
+    // Year and Amount must be child elements INSIDE <BldgClaim>, not siblings alongside it.
     const buildingElements = (g.communityBuildingList || []).map(b =>
-      `<Building><BldgName>${escapeXml(b.buildingName)}</BldgName><Address>${escapeXml(b.address)}</Address><Postcode>${escapeXml(b.postcode)}</Postcode><Year>${b.year}</Year><BldgClaim>${formatAmount(b.amount)}</BldgClaim></Building>`
+      `<Building><BldgName>${escapeXml(b.buildingName)}</BldgName><Address>${escapeXml(b.address)}</Address><Postcode>${escapeXml(b.postcode)}</Postcode><BldgClaim><Year>${b.year}</Year><Amount>${formatAmount(b.amount)}</Amount></BldgClaim></Building>`
     ).join('')
     const adjElement = g.adjustment != null ? `<Adj>${formatAmount(g.adjustment)}</Adj>` : ''
     return `<GASDS><ConnectedCharities>${g.connectedCharities ? 'yes' : 'no'}</ConnectedCharities>${charityElements}<GASDSClaim><Year>${g.claimYear}</Year><Amount>${formatAmount(g.amount)}</Amount></GASDSClaim><CommBldgs>${g.communityBuildings ? 'yes' : 'no'}</CommBldgs>${buildingElements}${adjElement}</GASDS>`
