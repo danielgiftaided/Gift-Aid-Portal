@@ -391,11 +391,6 @@ export default function AdminCharityDetail() {
     setGasdsCollectionDateInput('')
     setGasdsBankedDates([])
     setGasdsBankedDateInput('')
-    setGasdsBuildingAddress('')
-    setGasdsBuildingPostcode('')
-    setGasdsEventType('')
-    setGasdsNumberOfEvents('')
-    setGasdsEstimatedAttendance('')
     setGasdsError(null)
   }
 
@@ -414,11 +409,6 @@ export default function AdminCharityDetail() {
       setGasdsCommunityInput(existing.community_buildings)
       setGasdsCollectionDates(existing.collection_dates || [])
       setGasdsBankedDates(existing.banked_dates || [])
-      setGasdsBuildingAddress(existing.building_address || '')
-      setGasdsBuildingPostcode(existing.building_postcode || '')
-      setGasdsEventType(existing.event_type || '')
-      setGasdsNumberOfEvents(existing.number_of_events != null ? String(existing.number_of_events) : '')
-      setGasdsEstimatedAttendance(existing.estimated_attendance != null ? String(existing.estimated_attendance) : '')
       // Restore connected charity and building lists from the stored JSONB
       if (existing.connected_charity_details) {
         setGasdsConnectedCharities(existing.connected_charity_details.map(c => ({
