@@ -192,7 +192,12 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
   }
 
   // ── Named donor ─────────────────────────────────────────
-  const isOverseas = row.postcode?.trim().toUpperCase() === 'X'
+  // "X" is the portal convention for an overseas UK taxpayer.
+  // BFPO (British Forces Post Office) addresses also don't match the UK
+  // postcode regex — confirmed by LTS error 4085. BFPO personnel are
+  // physically overseas, so <Overseas>yes</Overseas> is the correct path.
+  const rawPostcode = row.postcode?.trim().toUpperCase() ?? ''
+  const isOverseas = rawPostcode === 'X' || rawPostcode.startsWith('BFPO')
 
   if (!row.first_name) errors.push(`Donation ${row.id}: missing first name`)
   if (!row.last_name) errors.push(`Donation ${row.id}: missing last name`)
@@ -212,15 +217,19 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
     return { donor: null, errors }
   }
 
-  // Title: HMRC's own recognition test data includes "Captain" (7 chars),
-  // so the schema is more permissive than the abbreviated 1-4 char format
-  // originally assumed. Allowing up to 35 chars (letters, backslash, hyphen)
-  // to cover all reasonable titles while still filtering genuinely bad data.
+  // Title: schema type TtlDonorGADRepaymentClaimR68 has a hard maxLength of 4
+  // confirmed by LTS error 4083. Truncate to 4 rather than omitting, so
+  // "Captain" → "Capt" preserves intent. Warning added for transparency.
   let title: string | undefined
   if (row.title) {
     const cleanedTitle = row.title.trim()
-    if (/^[A-Za-z\\-]{1,35}$/.test(cleanedTitle)) {
-      title = cleanedTitle
+    if (/^[A-Za-z\\-]+$/.test(cleanedTitle)) {
+      if (cleanedTitle.length > 4) {
+        title = cleanedTitle.slice(0, 4)
+        warnings.push(`Donation ${row.id}: title "${row.title}" truncated to "${title}" to fit HMRC's 4-character schema limit.`)
+      } else {
+        title = cleanedTitle
+      }
     } else {
       warnings.push(`Donation ${row.id}: title "${row.title}" contains unsupported characters — omitted from submission.`)
     }
