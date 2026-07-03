@@ -240,11 +240,6 @@ export default function AdminCharityDetail() {
   const [gasdsCollectionDateInput, setGasdsCollectionDateInput] = useState('')
   const [gasdsBankedDates, setGasdsBankedDates] = useState<string[]>([])
   const [gasdsBankedDateInput, setGasdsBankedDateInput] = useState('')
-  const [gasdsBuildingAddress, setGasdsBuildingAddress] = useState('')
-  const [gasdsBuildingPostcode, setGasdsBuildingPostcode] = useState('')
-  const [gasdsEventType, setGasdsEventType] = useState('')
-  const [gasdsNumberOfEvents, setGasdsNumberOfEvents] = useState('')
-  const [gasdsEstimatedAttendance, setGasdsEstimatedAttendance] = useState('')
   const [savingGasds, setSavingGasds] = useState(false)
   const [gasdsError, setGasdsError] = useState<string | null>(null)
   // Other income — keyed by submission_id, each value is an array since
@@ -480,8 +475,8 @@ export default function AdminCharityDetail() {
       setGasdsError('Enter a valid amount greater than zero.')
       return
     }
-    if (gasdsCommunityInput && (!gasdsBuildingAddress.trim() || !gasdsBuildingPostcode.trim())) {
-      setGasdsError('Building address and postcode are required when this claim relates to a community building.')
+    if (gasdsCommunityInput && gasdsBuildingList.length === 0) {
+      setGasdsError('Add at least one community building using the "Add building" button above.')
       return
     }
 
@@ -518,11 +513,11 @@ export default function AdminCharityDetail() {
       })) : [],
       collection_dates: gasdsCollectionDates,
       banked_dates: gasdsBankedDates,
-      building_address: gasdsCommunityInput ? (gasdsBuildingAddress.trim() || null) : null,
-      building_postcode: gasdsCommunityInput ? (gasdsBuildingPostcode.trim() || null) : null,
-      event_type: gasdsCommunityInput ? (gasdsEventType.trim() || null) : null,
-      number_of_events: gasdsCommunityInput && gasdsNumberOfEvents ? parseInt(gasdsNumberOfEvents, 10) : null,
-      estimated_attendance: gasdsCommunityInput && gasdsEstimatedAttendance ? parseInt(gasdsEstimatedAttendance, 10) : null,
+      building_address: null,
+      building_postcode: null,
+      event_type: null,
+      number_of_events: null,
+      estimated_attendance: null,
     }
 
     if (gasdsModalMode === 'standalone') {
@@ -1494,41 +1489,6 @@ export default function AdminCharityDetail() {
                   </div>
                 )}
               </div>
-
-              {/* Community building detail — only relevant when that checkbox is ticked */}
-              {gasdsCommunityInput && (
-                <div className="bg-brand-surface/60 border border-gray-100 rounded-lg p-4 space-y-3">
-                  <p className="text-xs font-semibold text-brand-primary uppercase tracking-wide">Community building detail</p>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Building address</label>
-                    <input type="text" value={gasdsBuildingAddress} onChange={e => setGasdsBuildingAddress(e.target.value)}
-                      className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Postcode</label>
-                    <input type="text" value={gasdsBuildingPostcode} onChange={e => setGasdsBuildingPostcode(e.target.value)}
-                      className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Type of event</label>
-                    <input type="text" value={gasdsEventType} onChange={e => setGasdsEventType(e.target.value)}
-                      placeholder="e.g. Coffee morning, Carol service"
-                      className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Number of events</label>
-                      <input type="number" min="1" value={gasdsNumberOfEvents} onChange={e => setGasdsNumberOfEvents(e.target.value)}
-                        className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Estimated attendance</label>
-                      <input type="number" min="0" value={gasdsEstimatedAttendance} onChange={e => setGasdsEstimatedAttendance(e.target.value)}
-                        className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
-                    </div>
-                  </div>
-                </div>
-              )}
 
               {gasdsError && <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded text-xs">{gasdsError}</div>}
 
