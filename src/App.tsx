@@ -19,6 +19,8 @@ import PendingCharities from './pages/pendingCharities'
 import PendingCharityInsights from './pages/pendingCharityInsights'
 import ActivityLog from './pages/activityLog'
 import AdminInsights from './pages/adminInsights'
+import AdminDonorMatching from './pages/adminDonorMatching'
+import RecognitionPackage from './pages/recognitionPackage'
 
 export default function App() {
   return (
@@ -49,7 +51,9 @@ export default function App() {
         <Route path="/admin/pending-charities/:email/insights"  element={<PendingCharityInsights />} />
         <Route path="/admin/activity-log"                       element={<ActivityLog />} />
         <Route path="/admin/insights"                           element={<AdminInsights />} />
-        </Routes>
+        <Route path="/admin/donor-matching"                     element={<AdminDonorMatching />} />
+        <Route path="/admin/recognition-package"                element={<RecognitionPackage />} />
+      </Routes>
     </BrowserRouter>
   )
 }
