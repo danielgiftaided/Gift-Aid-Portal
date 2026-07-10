@@ -25,10 +25,35 @@ export default function AcceptInvite() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    // Supabase puts the access_token and refresh_token in the URL hash
+    // when a user clicks an invite link. We read them explicitly and call
+    // setSession() rather than relying on auto-detection, which can fire
+    // before the React component mounts and miss the onAuthStateChange event.
+    const hashParams = new URLSearchParams(window.location.hash.substring(1))
+    const accessToken = hashParams.get('access_token')
+    const refreshToken = hashParams.get('refresh_token')
+    const type = hashParams.get('type')
+
+    if (accessToken && refreshToken) {
+      supabase.auth.setSession({ access_token: accessToken, refresh_token: refreshToken })
+        .then(({ data: { session }, error }) => {
+          if (session) setReady(true)
+          if (error) console.error('Session error:', error)
+        })
+    }
+
+    // Also listen for auth state changes as a fallback
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if ((event === 'SIGNED_IN' || event === 'USER_UPDATED') && session) setReady(true)
+      if ((event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'INITIAL_SESSION') && session) {
+        setReady(true)
+      }
     })
-    supabase.auth.getSession().then(({ data: { session } }) => { if (session) setReady(true) })
+
+    // Check if session already exists (e.g. page refresh)
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) setReady(true)
+    })
+
     return () => subscription.unsubscribe()
   }, [])
 
