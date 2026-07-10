@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/login'
 import Signup from './pages/signup'
 import ForgotPassword from './pages/forgotPassword'
@@ -53,6 +53,9 @@ export default function App() {
         <Route path="/admin/insights"                           element={<AdminInsights />} />
         <Route path="/admin/donor-matching"                     element={<AdminDonorMatching />} />
         <Route path="/admin/recognition-package"                element={<RecognitionPackage />} />
+
+        {/* Default — redirect any unmatched path to login */}
+        <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     </BrowserRouter>
   )
