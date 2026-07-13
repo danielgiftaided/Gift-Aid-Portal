@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate } from 'react-router-dom'
+import OnboardingChecklist from '../components/OnboardingChecklist'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
 } from 'recharts'
@@ -284,6 +285,16 @@ export default function PendingCharityInsights() {
 
             </div>
           )}
+
+          {/* Onboarding checklist */}
+          <div className="mt-8">
+            <div className="mb-4">
+              <h2 className="text-lg font-bold text-brand-primary">Onboarding Checklist</h2>
+              <p className="text-gray-400 text-sm mt-1">Track this charity's onboarding progress. Changes save automatically.</p>
+            </div>
+            <OnboardingChecklist charityEmail={email} />
+          </div>
+
         </div>
       </div>
     </div>
