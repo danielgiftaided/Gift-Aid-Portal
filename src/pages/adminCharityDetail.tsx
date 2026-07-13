@@ -1,6 +1,7 @@
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
+import OnboardingChecklist from '../components/OnboardingChecklist'
 import * as XLSX from "xlsx";
 import { fetchAllRows } from '../utils/fetchAll'
 
@@ -290,7 +291,7 @@ export default function AdminCharityDetail() {
   const [agentRefInput, setAgentRefInput] = useState('')
   const [savingAgentRef, setSavingAgentRef] = useState(false)
   const [agentRefSaved, setAgentRefSaved] = useState(false)
-  const [activeTab, setActiveTab] = useState<'submissions' | 'insights' | 'chv1'>(
+  const [activeTab, setActiveTab] = useState<'submissions' | 'insights' | 'chv1' | 'onboarding'>(
     searchParams.get('tab') === 'chv1' ? 'chv1' : 'submissions'
   )
   const [authOfficialInput, setAuthOfficialInput] = useState('')
@@ -946,6 +947,7 @@ export default function AdminCharityDetail() {
               { key: 'submissions' as const, label: 'Submissions' },
               { key: 'insights' as const, label: 'Insights' },
               { key: 'chv1' as const, label: 'Charity Information' },
+              { key: 'onboarding' as const, label: 'Onboarding' },
             ].map(tab => (
               <button
                 key={tab.key}
@@ -1026,6 +1028,22 @@ export default function AdminCharityDetail() {
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {activeTab === 'onboarding' && (
+          <div className="max-w-3xl mx-auto px-6 pb-12 pt-6">
+            <div className="mb-6">
+              <h2 className="text-lg font-bold text-brand-primary">Onboarding Checklist</h2>
+              <p className="text-gray-400 text-sm mt-1">
+                Track every step of this charity's onboarding from initial contact through to first claim and ongoing reporting.
+                Changes save automatically.
+              </p>
+            </div>
+            <OnboardingChecklist
+              charityId={id}
+              charityEmail={charity?.contact_email}
+            />
           </div>
         )}
 
