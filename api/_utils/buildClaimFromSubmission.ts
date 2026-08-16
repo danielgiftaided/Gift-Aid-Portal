@@ -103,6 +103,12 @@ export interface DonationRow {
   amount: number | null
   aggregated?: boolean | null                // true when this is an AggDonation row
   aggregated_description?: string | null     // required when aggregated is true
+  // FIX (HMRC recognition feedback — Issue 5: Sponsored indicator):
+  // Must be true for sponsored event donations (charity run, walk, bake sale).
+  // Maps to <Sponsored>yes</Sponsored> in the XML. Element is OMITTED when
+  // false/null — HMRC schema only accepts "yes", never "no".
+  // Set to true for the Captain William Black test record before resubmitting.
+  sponsored?: boolean | null
 }
 
 export interface MappingResult {
@@ -254,6 +260,10 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
       postcode: isOverseas ? undefined : row.postcode!.trim().toUpperCase(),
       donationDate: formattedDate!,
       amount: Math.round(row.amount! * 100) / 100,
+      // FIX (HMRC recognition feedback — Issue 5): wire the sponsored field
+      // through so <Sponsored>yes</Sponsored> can be emitted in the XML when
+      // needed. When null/undefined the element is correctly omitted.
+      sponsoredEvent: row.sponsored === true ? true : undefined,
     },
     errors: [],
   }
@@ -398,7 +408,8 @@ export function buildClaimFromSubmission(
           year: b.year,
           amount: Math.round(b.amount * 100) / 100,
         })),
-        adjustment: gasds.adjustment != null ? Math.round(gasds.adjustment * 100) / 100 : undefined,
+        // FIX (Issue 3): always pass a value so <Adj> is always emitted (HMRC requires it)
+        adjustment: Math.round((gasds.adjustment ?? 0) * 100) / 100,
       } : undefined,
     },
     errors: [],

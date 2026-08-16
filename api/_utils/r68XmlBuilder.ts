@@ -105,11 +105,27 @@ export interface GasdsClaimInput {
 }
 
 export interface SubmissionCredentials {
-  vendorId: string        // 4-digit, e.g. "9330"
+  // FIX (HMRC recognition feedback — Issue 2: Vendor ID):
+  // The vendorId string is placed directly into the <URI> element inside
+  // <Channel>/<ChannelRouting>. HMRC flagged the supplied value as incorrect.
+  //
+  // HMRC's exact expected format for this field must be confirmed with SDST
+  // before resubmitting — ask them: "What is the exact string you expect in
+  // the <URI> element of <ChannelRouting> for Vendor ID 9330?"
+  //
+  // Common formats seen in HMRC submissions:
+  //   "9330"                    — bare numeric (current default)
+  //   "09330"                   — zero-padded to 5 digits
+  //   "https://giftaided.com"   — registered product URL
+  //
+  // Set the HMRC_VENDOR_ID environment variable in Vercel to whatever format
+  // HMRC confirm. Do NOT hardcode it here — the env var is the single source
+  // of truth so it can be corrected without a code deploy.
+  vendorId: string
   productName: string
   productVersion: string
-  senderId: string        // Government Gateway User ID — see OPEN QUESTION above
-  senderPassword: string  // Government Gateway password — see OPEN QUESTION above
+  senderId: string        // Government Gateway User ID
+  senderPassword: string  // Government Gateway password
   isLive: boolean          // false => GatewayTest=1, true => omit GatewayTest
   // Gift Aided's OWN details as the submitting agent — confirmed required by
   // the real R68 schema's AgtOrNom structure (NOT the charity's details).
@@ -162,7 +178,15 @@ function buildGadElement(d: GiftAidDonor): string {
   }
 
   // Confirmed order by LTS schema validation: [Donor|AggDonation] -> [Sponsored] -> Date -> Total
-  if (d.sponsoredEvent) inner.push(`<Sponsored>yes</Sponsored>`)
+  //
+  // FIX (HMRC recognition feedback): <Sponsored> must be present for any
+  // donation that arose from a sponsored event (charity run, walk, bake sale
+  // etc). The schema type r68_GiftAidYesType only accepts "yes" — the element
+  // is OMITTED entirely for non-sponsored donations (not set to "no").
+  // The HMRC test data for Captain William Black includes a sponsored event
+  // donation, so the `sponsored` field on that record must be set to true in
+  // the database via the portal's donation form before resubmitting.
+  if (d.sponsoredEvent === true) inner.push(`<Sponsored>yes</Sponsored>`)
   inner.push(`<Date>${d.donationDate}</Date>`)
   inner.push(`<Total>${formatAmount(d.amount)}</Total>`)
   return `<GAD>${inner.join('')}</GAD>`
@@ -232,7 +256,12 @@ export function buildR68Submission(
     const buildingElements = (g.communityBuildingList || []).map(b =>
       `<Building><BldgName>${escapeXml(b.buildingName)}</BldgName><Address>${escapeXml(b.address)}</Address><Postcode>${escapeXml(b.postcode)}</Postcode><BldgClaim><Year>${b.year}</Year><Amount>${formatAmount(b.amount)}</Amount></BldgClaim></Building>`
     ).join('')
-    const adjElement = g.adjustment != null ? `<Adj>${formatAmount(g.adjustment)}</Adj>` : ''
+    // FIX (HMRC recognition feedback): <Adj> must always be present inside
+    // <GASDS> even when there is no adjustment to make. HMRC's business rules
+    // treat an absent <Adj> as a schema error. Default to 0.00 for first-time
+    // or unmodified claims. A non-zero value here corrects a previous over- or
+    // under-claim and must be accompanied by an explanation in <OtherInfo>.
+    const adjElement = `<Adj>${formatAmount(g.adjustment ?? 0)}</Adj>`
     return `<GASDS><ConnectedCharities>${g.connectedCharities ? 'yes' : 'no'}</ConnectedCharities>${charityElements}<GASDSClaim><Year>${g.claimYear}</Year><Amount>${formatAmount(g.amount)}</Amount></GASDSClaim><CommBldgs>${g.communityBuildings ? 'yes' : 'no'}</CommBldgs>${buildingElements}${adjElement}</GASDS>`
   })() : ''
 
