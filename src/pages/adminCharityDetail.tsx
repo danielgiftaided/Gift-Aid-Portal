@@ -3,10 +3,19 @@ import { supabase } from "../lib/supabase";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import OnboardingChecklist from '../components/OnboardingChecklist'
 import * as XLSX from "xlsx";
+import JSZip from "jszip";
 import { fetchAllRows } from '../utils/fetchAll'
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; charity_id: string | null; authorised_official_name: string | null; agent_nominee_reference: string | null }
-interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null; hmrc_correlation_id: string | null; adjustment_amount: number | null; adjustment_explanation: string | null }
+interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null; hmrc_correlation_id: string | null; adjustment_amount: number | null; adjustment_explanation: string | null;
+  // Recognition package files — stored by sendToEts, pollClaim, sendDataRequest
+  hmrc_acknowledgement_xml: string | null
+  hmrc_submission_poll_xml: string | null
+  hmrc_delete_request_xml: string | null
+  hmrc_delete_response_xml: string | null
+  hmrc_data_request_xml: string | null
+  hmrc_data_response_xml: string | null
+}
 interface GasdsClaim {
   id: string; submission_id: string; claim_year: number; amount: number
   connected_charities: boolean; community_buildings: boolean
@@ -172,6 +181,17 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
 // claim XML or anything actually sent to ETS.
 // For HMRC's recognition submission specifically, the date must be exactly
 // 01/05/2015 as specified in the recognition document (v1.7, p4).
+
+// Downloads an XML string as a .xml file — used by the recognition package downloader.
+function downloadXml(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'application/xml' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = filename
+  document.body.appendChild(a); a.click()
+  document.body.removeChild(a); URL.revokeObjectURL(url)
+}
+
 function addGatewayTimestampForLts(xml: string, customDate?: string): string {
   if (!xml) return xml
   // If a custom date is provided (DD/MM/YYYY), convert it to ISO format.
@@ -311,7 +331,7 @@ export default function AdminCharityDetail() {
       setAgentRefInput(charityData?.agent_nominee_reference || '')
       setAuthOfficialInput(charityData?.authorised_official_name || '')
       const subData = await fetchAllRows<Submission>(() =>
-        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml, hmrc_correlation_id, adjustment_amount, adjustment_explanation').eq('charity_id', id).order('submission_date', { ascending: false })
+        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml, hmrc_correlation_id, adjustment_amount, adjustment_explanation, hmrc_acknowledgement_xml, hmrc_submission_poll_xml, hmrc_delete_request_xml, hmrc_delete_response_xml, hmrc_data_request_xml, hmrc_data_response_xml').eq('charity_id', id).order('submission_date', { ascending: false })
       )
       setSubmissions(subData)
 
@@ -1336,6 +1356,108 @@ export default function AdminCharityDetail() {
               {viewingXmlFor.hmrc_response_message && (
                 <p className="text-xs text-amber-600 mt-3">{viewingXmlFor.hmrc_response_message}</p>
               )}
+
+              {/* ── HMRC Recognition Package — single ZIP download ────── */}
+              <div className="mt-6 border-t border-gray-100 pt-5">
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div>
+                    <p className="text-sm font-semibold text-brand-primary mb-0.5">
+                      HMRC Recognition Package
+                    </p>
+                    <p className="text-xs text-gray-400">
+                      All seven Transaction Engine files bundled as a single ZIP.
+                      Attach the ZIP (or extract and attach all files) to your email to SDSTeam@hmrc.gov.uk.
+                    </p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      const RECOGNITION_FILES = [
+                        {
+                          name: 'SUBMISSION_REQUEST.xml',
+                          // Apply LTS timestamp 01/05/2015 as required by HMRC recognition doc v1.7
+                          content: addGatewayTimestampForLts(viewingXmlFor.hmrc_claim_xml || '', '01/05/2015'),
+                          required: true,
+                        },
+                        { name: 'SUBMISSION_ACKNOWLEDGEMENT.xml', content: viewingXmlFor.hmrc_acknowledgement_xml || '', required: true },
+                        { name: 'SUBMISSION_POLL.xml',            content: viewingXmlFor.hmrc_submission_poll_xml  || '', required: true },
+                        { name: 'DELETE_REQUEST.xml',             content: viewingXmlFor.hmrc_delete_request_xml   || '', required: true },
+                        { name: 'DELETE_RESPONSE.xml',            content: viewingXmlFor.hmrc_delete_response_xml  || '', required: true },
+                        { name: 'DATA_REQUEST.xml',               content: viewingXmlFor.hmrc_data_request_xml     || '', required: true },
+                        { name: 'DATA_RESPONSE.xml',              content: viewingXmlFor.hmrc_data_response_xml    || '', required: true },
+                      ]
+
+                      const available = RECOGNITION_FILES.filter(f => f.content.trim())
+                      if (!available.length) {
+                        alert('No recognition files are available yet. Build the submission and complete the ETS steps first.')
+                        return
+                      }
+
+                      const zip = new JSZip()
+                      // Add a README so HMRC know what each file is
+                      zip.file('README.txt', [
+                        'Gift Aided Portal — HMRC Recognition Package',
+                        `Submission: ${viewingXmlFor.tax_year}`,
+                        `Generated: ${new Date().toISOString()}`,
+                        '',
+                        'Files included:',
+                        ...available.map(f => `  - ${f.name}`),
+                        '',
+                        'Send all files to: SDSTeam@hmrc.gov.uk',
+                        'Reference: Software recognition submission for Gift Aided Portal',
+                      ].join('\n'))
+
+                      available.forEach(f => zip.file(f.name, f.content))
+
+                      const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
+                      const url  = URL.createObjectURL(blob)
+                      const a    = document.createElement('a')
+                      a.href = url
+                      a.download = `HMRC_Recognition_Package_${viewingXmlFor.tax_year.replace('/', '-')}.zip`
+                      document.body.appendChild(a); a.click()
+                      document.body.removeChild(a); URL.revokeObjectURL(url)
+                    }}
+                    className="flex-shrink-0 flex items-center gap-1.5 bg-brand-primary text-white text-xs font-semibold rounded-lg px-4 py-2.5 hover:opacity-90 whitespace-nowrap"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    Download ZIP
+                  </button>
+                </div>
+
+                {/* File status grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {[
+                    { label: '1. Submission XML',            key: 'hmrc_claim_xml',           note: 'Built when claim is generated · LTS timestamp applied automatically' },
+                    { label: '2. Submission Acknowledgement',key: 'hmrc_acknowledgement_xml',  note: 'Generated after Send to ETS' },
+                    { label: '3. Submission Poll',           key: 'hmrc_submission_poll_xml',  note: 'Generated during Check Status' },
+                    { label: '4. Delete Request',            key: 'hmrc_delete_request_xml',   note: 'Generated when poll cycle completes' },
+                    { label: '5. Delete Response',           key: 'hmrc_delete_response_xml',  note: 'Generated when poll cycle completes' },
+                    { label: '6. Data Request',              key: 'hmrc_data_request_xml',     note: 'Generated by Send DATA_REQUEST button' },
+                    { label: '7. Data Response',             key: 'hmrc_data_response_xml',    note: 'Generated by Send DATA_REQUEST button' },
+                  ].map(({ label, key, note }) => {
+                    const available = Boolean((viewingXmlFor as any)[key])
+                    return (
+                      <div key={key} className={`flex items-center gap-2.5 rounded-lg border px-3 py-2 ${available ? 'border-green-200 bg-green-50' : 'border-dashed border-gray-200 bg-gray-50'}`}>
+                        <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 text-xs ${available ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-400'}`}>
+                          {available ? '✓' : '…'}
+                        </div>
+                        <div className="min-w-0">
+                          <p className={`text-xs font-semibold ${available ? 'text-green-700' : 'text-gray-400'}`}>{label}</p>
+                          {!available && <p className="text-xs text-gray-400">{note}</p>}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+
+                {/* Warning if files are missing */}
+                {(['hmrc_acknowledgement_xml','hmrc_submission_poll_xml','hmrc_delete_request_xml','hmrc_delete_response_xml'] as const).some(k => !(viewingXmlFor as any)[k]) && (
+                  <p className="text-xs text-amber-600 mt-3 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Some files are not yet generated. Complete the Send to ETS and Check Status steps, then return here to download the full package.
+                  </p>
+                )}
+              </div>
             </div>
           </div>
         </div>
