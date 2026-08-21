@@ -103,12 +103,6 @@ export interface DonationRow {
   amount: number | null
   aggregated?: boolean | null                // true when this is an AggDonation row
   aggregated_description?: string | null     // required when aggregated is true
-  // FIX (HMRC recognition feedback — Issue 5: Sponsored indicator):
-  // Must be true for sponsored event donations (charity run, walk, bake sale).
-  // Maps to <Sponsored>yes</Sponsored> in the XML. Element is OMITTED when
-  // false/null — HMRC schema only accepts "yes", never "no".
-  // Set to true for the Captain William Black test record before resubmitting.
-  sponsored?: boolean | null
 }
 
 export interface MappingResult {
@@ -260,10 +254,6 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
       postcode: isOverseas ? undefined : row.postcode!.trim().toUpperCase(),
       donationDate: formattedDate!,
       amount: Math.round(row.amount! * 100) / 100,
-      // FIX (HMRC recognition feedback — Issue 5): wire the sponsored field
-      // through so <Sponsored>yes</Sponsored> can be emitted in the XML when
-      // needed. When null/undefined the element is correctly omitted.
-      sponsoredEvent: row.sponsored === true ? true : undefined,
     },
     errors: [],
   }
@@ -339,11 +329,42 @@ export function buildClaimFromSubmission(
   // HMRC — e.g. someone entering 2025 when they meant tax year "2024/25".
   if (gasds) {
     const taxYearMatch = submission.tax_year.match(/^(\d{4})\/\d{2}$/)
-    const expectedClaimYear = taxYearMatch ? parseInt(taxYearMatch[1], 10) : null
-    if (expectedClaimYear !== null && gasds.claim_year !== expectedClaimYear) {
-      errors.push(
-        `GASDS claim year (${gasds.claim_year}) doesn't match this submission's tax year (${submission.tax_year}, which should correspond to claim year ${expectedClaimYear}). Check the GASDS entry before building this claim.`
-      )
+    const submissionStartYear = taxYearMatch ? parseInt(taxYearMatch[1], 10) : null
+
+    if (submissionStartYear !== null) {
+      // GASDS retrospective claims are explicitly permitted by HMRC within
+      // the same 4-year window that applies to Gift Aid. A charity can include
+      // a GASDS claim for year 2014 within a 2015/16 submission — this is a
+      // legitimate use case (and the exact scenario in HMRC's recognition test
+      // data). The original strict year-match was therefore wrong: it blocked
+      // valid retrospective claims.
+      //
+      // Rules:
+      //   - claim_year more than 4 years before the submission year → error
+      //     (the retrospective window has closed for that year)
+      //   - claim_year after the submission year → error
+      //     (cannot claim for a future year)
+      //   - claim_year within the 4-year window but ≠ submission year → warning
+      //     (valid retrospective claim, just flag it for visibility)
+      //   - claim_year matches the submission year → no issue
+
+      const yearsBack = submissionStartYear - gasds.claim_year
+
+      if (gasds.claim_year > submissionStartYear) {
+        errors.push(
+          `GASDS claim year (${gasds.claim_year}) is in the future relative to this submission's tax year (${submission.tax_year}). A GASDS claim cannot cover a year that hasn't ended yet.`
+        )
+      } else if (yearsBack > 4) {
+        errors.push(
+          `GASDS claim year (${gasds.claim_year}) is more than 4 years before this submission's tax year (${submission.tax_year}). HMRC's 4-year retrospective window has closed for year ${gasds.claim_year}.`
+        )
+      } else if (yearsBack > 0) {
+        // Valid retrospective claim — warn but do not block
+        warnings.push(
+          `GASDS claim year (${gasds.claim_year}) is a retrospective claim — ${yearsBack} year(s) before this submission's tax year (${submission.tax_year}). This is permitted within HMRC's 4-year window.`
+        )
+      }
+      // yearsBack === 0: claim_year matches submission year — no issue, no warning
     }
   }
 
@@ -408,8 +429,7 @@ export function buildClaimFromSubmission(
           year: b.year,
           amount: Math.round(b.amount * 100) / 100,
         })),
-        // FIX (Issue 3): always pass a value so <Adj> is always emitted (HMRC requires it)
-        adjustment: Math.round((gasds.adjustment ?? 0) * 100) / 100,
+        adjustment: gasds.adjustment != null ? Math.round(gasds.adjustment * 100) / 100 : undefined,
       } : undefined,
     },
     errors: [],
