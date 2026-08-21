@@ -533,28 +533,58 @@ export default function AdminCharityDetail() {
     }
 
     if (gasdsModalMode === 'standalone') {
-      // Create the lightweight carrier submission first, then attach the
-      // GASDS claim to it — see comment on openStandaloneGasdsModal above.
-      const { data: newSub, error: subErr } = await supabase.from('submissions').insert({
-        charity_id: id,
-        submission_date: new Date().toISOString().split('T')[0],
-        tax_year: gasdsStandaloneTaxYear.trim(),
-        amount_claimed: Math.round(amount * 0.25 * 100) / 100,
-        number_of_donations: 0,
-        status: 'pending',
-      }).select('id').single()
+      // Before creating a new standalone submission, check whether a regular
+      // Gift Aid submission already exists for the same tax year. If one does,
+      // attach the GASDS to it — this keeps everything on one row and produces
+      // a combined XML as HMRC recommend. Only create a new standalone submission
+      // when no regular submission exists for that tax year (e.g. GASDS-only year).
+      const targetTaxYear = gasdsStandaloneTaxYear.trim()
 
-      if (subErr || !newSub) {
-        setGasdsError(subErr?.message || 'Failed to create a submission for this GASDS claim.')
-        setSavingGasds(false)
-        return
-      }
+      const { data: existingSub } = await supabase
+        .from('submissions')
+        .select('id, tax_year, number_of_donations')
+        .eq('charity_id', id)
+        .eq('tax_year', targetTaxYear)
+        .gt('number_of_donations', 0)   // only attach to real Gift Aid submissions, not other GASDS stubs
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
 
-      const { error: gasdsErr } = await supabase.from('gasds_claims').insert({ submission_id: newSub.id, ...gasdsFields })
-      if (gasdsErr) {
-        setGasdsError(gasdsErr.message)
-        setSavingGasds(false)
-        return
+      if (existingSub) {
+        // Attach to the existing Gift Aid submission for this tax year
+        const { error } = await supabase.from('gasds_claims').upsert(
+          { submission_id: existingSub.id, ...gasdsFields },
+          { onConflict: 'submission_id' }
+        )
+        if (error) {
+          setGasdsError(error.message)
+          setSavingGasds(false)
+          return
+        }
+      } else {
+        // No regular submission for this tax year — create a lightweight carrier
+        // submission so the GASDS still flows through the build/send/poll pipeline.
+        const { data: newSub, error: subErr } = await supabase.from('submissions').insert({
+          charity_id: id,
+          submission_date: new Date().toISOString().split('T')[0],
+          tax_year: targetTaxYear,
+          amount_claimed: Math.round(amount * 0.25 * 100) / 100,
+          number_of_donations: 0,
+          status: 'pending',
+        }).select('id').single()
+
+        if (subErr || !newSub) {
+          setGasdsError(subErr?.message || 'Failed to create a submission for this GASDS claim.')
+          setSavingGasds(false)
+          return
+        }
+
+        const { error: gasdsErr } = await supabase.from('gasds_claims').insert({ submission_id: newSub.id, ...gasdsFields })
+        if (gasdsErr) {
+          setGasdsError(gasdsErr.message)
+          setSavingGasds(false)
+          return
+        }
       }
     } else {
       if (!gasdsModalFor) { setSavingGasds(false); return }
@@ -1478,7 +1508,7 @@ export default function AdminCharityDetail() {
               <div>
                 <h3 className="font-semibold text-brand-primary">GASDS Claim</h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  {gasdsModalMode === 'standalone' ? 'New standalone claim — no donor-based submission required' : `Tax year ${gasdsModalFor?.tax_year}`}
+                  {gasdsModalMode === 'standalone' ? 'Attaches to existing Gift Aid submission if one exists for this tax year, otherwise creates a new GASDS-only submission' : `Tax year ${gasdsModalFor?.tax_year}`}
                 </p>
               </div>
               <button onClick={closeGasdsModal} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
