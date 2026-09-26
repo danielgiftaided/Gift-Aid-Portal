@@ -42,6 +42,7 @@ interface ParsedRow {
   amount: number | null
   giftAidOptIn: string          // raw value from column
   giftAidSubmitted: boolean
+  giftAidSubmissionBlank: boolean
   giftAidSubmissionColumnPresent: boolean
   status: 'valid' | 'incomplete' | 'opt_out'
   missingFields: string[]
@@ -168,6 +169,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
             amount: isNaN(amount) ? null : amount,
             giftAidOptIn: get('giftAidOptIn'),
             giftAidSubmitted: get('giftAidSubmitted').toUpperCase() === 'Y',
+            giftAidSubmissionBlank: giftAidSubmissionColumnPresent && get('giftAidSubmitted') === '',
             giftAidSubmissionColumnPresent,
           }
 
@@ -980,6 +982,7 @@ export default function AdminCharityDetail() {
   const optOutRows     = parsedRows.filter(r => r.status === 'opt_out')
   const historicalImport = parsedRows.some(r => r.giftAidSubmissionColumnPresent)
   const rowsForClaim = validRows.filter(r => !historicalImport || r.giftAidSubmitted)
+  const notSubmittedRows = historicalImport ? validRows.filter(r => r.giftAidSubmissionBlank) : []
   const giftAidClaimValue = Math.round(rowsForClaim.reduce((s, r) => s + (r.amount ?? 0), 0) * 0.25 * 100) / 100
 
   // Each row's tax year is computed individually from its own donation date —
@@ -1252,9 +1255,10 @@ export default function AdminCharityDetail() {
 
             {/* Category breakdown */}
             {parsedRows.length > 0 && (
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className={`grid ${historicalImport ? 'grid-cols-2 md:grid-cols-4' : 'grid-cols-3'} gap-3 mb-4`}>
                 {[
-                  { label: 'Valid for HMRC', count: validRows.length, color: 'border-green-400 text-green-700 bg-green-50' },
+                  { label: historicalImport ? 'Valid Gift Aid submitted' : 'Valid for HMRC', count: rowsForClaim.length, color: 'border-green-400 text-green-700 bg-green-50' },
+                  ...(historicalImport ? [{ label: 'Not submitted (insights only)', count: notSubmittedRows.length, color: 'border-blue-400 text-blue-700 bg-blue-50' }] : []),
                   { label: 'Incomplete', count: incompleteRows.length, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
                   { label: 'Gift Aid Opt Out', count: optOutRows.length, color: 'border-gray-300 text-gray-500 bg-gray-50' },
                 ].map(c => (
