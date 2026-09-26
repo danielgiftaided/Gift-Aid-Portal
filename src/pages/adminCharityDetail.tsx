@@ -41,6 +41,8 @@ interface ParsedRow {
   donationDate: string
   amount: number | null
   giftAidOptIn: string          // raw value from column
+  giftAidSubmitted: boolean
+  giftAidSubmissionColumnPresent: boolean
   status: 'valid' | 'incomplete' | 'opt_out'
   missingFields: string[]
 }
@@ -141,7 +143,10 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
           if (['donation date','donationdate','donation_date','date'].includes(h)) col.donationDate = i
           if (['amount','donation amount','donation_amount'].includes(h)) col.amount = i
           if (['gift aid opt in','gift_aid_opt_in','giftaidoptin','opt in','opt_in'].includes(h)) col.giftAidOptIn = i
+          if (['gift aided submission','gift_aid_submission','giftaid submission','giftaidsubmission'].includes(h)) col.giftAidSubmitted = i
         })
+
+        const giftAidSubmissionColumnPresent = col.giftAidSubmitted !== undefined
 
         const rows: ParsedRow[] = []
         for (let i = 1; i < rawRows.length; i++) {
@@ -162,6 +167,8 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
             donationDate: get('donationDate'),
             amount: isNaN(amount) ? null : amount,
             giftAidOptIn: get('giftAidOptIn'),
+            giftAidSubmitted: get('giftAidSubmitted').toUpperCase() === 'Y',
+            giftAidSubmissionColumnPresent,
           }
 
           const { status, missingFields } = categoriseRow(base)
@@ -222,6 +229,7 @@ function deriveGasdsClaimYear(taxYear: string): number | null {
 
 const statusColor = (s: string) => {
   if (s === 'approved') return 'bg-green-100 text-green-700'
+  if (s === 'completed') return 'bg-green-100 text-green-700'
   if (s === 'rejected') return 'bg-red-100 text-red-700'
   if (s === 'submitted') return 'bg-blue-100 text-blue-700'
   return 'bg-yellow-100 text-yellow-700'
@@ -901,10 +909,12 @@ export default function AdminCharityDetail() {
       })
 
       const validRows = rowsWithTaxYear.filter(r => r.status === 'valid')
+      const historicalImport = rowsWithTaxYear.some(r => r.giftAidSubmissionColumnPresent)
+      const rowsToSubmit = validRows.filter(r => !historicalImport || r.giftAidSubmitted)
 
       // Group valid rows by tax year — one submission per tax year present
       const byTaxYear: Record<string, typeof validRows> = {}
-      for (const row of validRows) {
+      for (const row of rowsToSubmit) {
         if (!byTaxYear[row.computedTaxYear]) byTaxYear[row.computedTaxYear] = []
         byTaxYear[row.computedTaxYear].push(row)
       }
@@ -919,7 +929,7 @@ export default function AdminCharityDetail() {
         const { data: newSub, error: subErr } = await supabase.from('submissions').insert({
           charity_id: id, submission_date: new Date().toISOString().split('T')[0],
           tax_year: taxYear, amount_claimed: giftAid,
-          number_of_donations: rows.length, status: 'pending',
+          number_of_donations: rows.length, status: historicalImport ? 'completed' : 'pending',
         }).select('id').single()
         if (subErr || !newSub) throw new Error(subErr?.message || 'Failed to create submission')
 
@@ -947,6 +957,7 @@ export default function AdminCharityDetail() {
         donation_date: r.donationDate || null,
         amount: r.amount ?? null,
         gift_aid_opt_in: r.giftAidOptIn || null,
+        gift_aid_submitted: r.giftAidSubmissionColumnPresent && r.giftAidSubmitted,
         record_status: r.status,
         tax_year: r.computedTaxYear,
       }))
@@ -966,8 +977,9 @@ export default function AdminCharityDetail() {
 
   // Each row's tax year is computed individually from its own donation date —
   // a single upload can span multiple tax years and will create one submission per year.
+  const historicalRows = validRows.filter(r => r.giftAidSubmitted)
   const distinctTaxYears = [...new Set(
-    validRows.map(r => {
+    (parsedRows.some(r => r.giftAidSubmissionColumnPresent) ? historicalRows : validRows).map(r => {
       const d = parseDonationDate(r.donationDate)
       return d ? getTaxYearForDate(d) : getTaxYearForDate(new Date())
     })
@@ -1173,12 +1185,14 @@ export default function AdminCharityDetail() {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-3">
-                          <button
-                            onClick={() => handleBuildClaim(s.id)}
-                            disabled={buildingId === s.id}
-                            className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40">
-                            {buildingId === s.id ? 'Building…' : 'Build HMRC Claim'}
-                          </button>
+                          {s.status !== 'completed' && (
+                            <button
+                              onClick={() => handleBuildClaim(s.id)}
+                              disabled={buildingId === s.id}
+                              className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40">
+                              {buildingId === s.id ? 'Building…' : 'Build HMRC Claim'}
+                            </button>
+                          )}
                           {s.hmrc_claim_xml && (
                             <button onClick={() => setViewingXmlFor(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
                               View XML
@@ -1195,13 +1209,13 @@ export default function AdminCharityDetail() {
                           <button onClick={() => openAggModal(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
                             + Aggregated
                           </button>
-                          {s.hmrc_status === 'ready_to_send' && (
+                          {s.status !== 'completed' && s.hmrc_status === 'ready_to_send' && (
                             <button onClick={() => handleSendToEts(s.id)} disabled={sendingId === s.id}
                               className="text-xs text-amber-600 hover:text-amber-800 font-semibold disabled:opacity-40">
                               {sendingId === s.id ? 'Sending…' : 'Send to ETS'}
                             </button>
                           )}
-                          {(s.hmrc_status === 'sent' || s.hmrc_status === 'polling') && (
+                          {s.status !== 'completed' && (s.hmrc_status === 'sent' || s.hmrc_status === 'polling') && (
                             <button onClick={() => handleCheckStatus(s.id)} disabled={checkingId === s.id}
                               className="text-xs text-amber-600 hover:text-amber-800 font-semibold disabled:opacity-40">
                               {checkingId === s.id ? 'Checking…' : 'Check Status'}
@@ -1360,7 +1374,7 @@ export default function AdminCharityDetail() {
                   <p className="text-xs text-gray-400">
                     This is the exact XML sent (or ready to send) to HMRC's External Test Service. Switch to "For LTS / Recognition" to add a GatewayTimestamp for LTS validation or the HMRC recognition submission.
                   </p>
-                  {viewingXmlFor.hmrc_correlation_id && (
+                  {viewingXmlFor.status !== 'completed' && viewingXmlFor.hmrc_correlation_id && (
                     <div className="flex items-center gap-3">
                       <button
                         onClick={() => handleSendDataRequest(viewingXmlFor.id)}

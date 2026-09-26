@@ -20,6 +20,7 @@ interface UploadedRecord {
   address: string | null
   postcode: string | null
   gift_aid_opt_in: string | null
+  gift_aid_submitted: boolean
 }
 
 function Logo() {
@@ -99,7 +100,7 @@ function csvEscape(value: string): string {
 }
 
 function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
-  const headers = ['Title', 'First Name', 'Last Name', 'Address', 'Postcode', 'Donation Date', 'Amount', 'Gift Aid Opt In', 'Tax Year']
+  const headers = ['Title', 'First Name', 'Last Name', 'Address', 'Postcode', 'Donation Date', 'Amount', 'Gift Aid Opt In', 'Gift Aid Submitted', 'Tax Year']
   const lines = [headers.join(',')]
 
   for (const r of rows) {
@@ -112,6 +113,7 @@ function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
       formatUkDateForExport(r.donation_date),
       r.amount != null ? parseFloat(String(r.amount)).toFixed(2) : '',
       r.gift_aid_opt_in || '',
+      r.gift_aid_submitted ? 'Y' : '',
       effectiveTaxYear(r),
     ]
     lines.push(fields.map(f => csvEscape(String(f))).join(','))
@@ -191,7 +193,7 @@ export default function AdminCharityInsights() {
       // All uploaded records for this charity
       const recData = await fetchAllRows<UploadedRecord>(() =>
         supabase
-          .from('uploaded_records').select('record_status, tax_year, amount, donation_date, title, first_name, last_name, address, postcode, gift_aid_opt_in')
+          .from('uploaded_records').select('record_status, tax_year, amount, donation_date, title, first_name, last_name, address, postcode, gift_aid_opt_in, gift_aid_submitted')
           .eq('charity_id', id)
       )
       setRecords(recData)
@@ -230,7 +232,8 @@ export default function AdminCharityInsights() {
     return { taxYear: ty.taxYear, avgGiftAid: yearDons.length > 0 ? Math.round(yearTotal * 0.25 / yearDons.length * 100) / 100 : 0 }
   })
 
-  const validCount     = records.filter(r => r.record_status === 'valid').length
+  const submittedCount = records.filter(r => r.gift_aid_submitted).length
+  const eligibleCount  = records.filter(r => r.record_status === 'valid').length
   const incompleteCount = records.filter(r => r.record_status === 'incomplete').length
   const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
   const totalRecords   = records.length
@@ -311,11 +314,12 @@ export default function AdminCharityInsights() {
               {/* Record overview — opt out & incomplete */}
               {totalRecords > 0 && (
                 <>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
-                      { label: 'Valid for Gift Aid',  value: validCount,      sub: 'Submitted to HMRC',         border: 'border-brand-accent', text: 'text-brand-accent', status: 'valid' as const },
-                      { label: 'Incomplete records',  value: incompleteCount, sub: 'Missing mandatory fields',   border: 'border-yellow-400',   text: 'text-yellow-600',   status: 'incomplete' as const },
-                      { label: 'Gift Aid opt outs',   value: optOutCount,     sub: 'Opted out — not submitted', border: 'border-gray-300',     text: 'text-gray-500',     status: 'opt_out' as const },
+                      { label: 'Gift Aid submitted',  value: submittedCount,  sub: 'Historically submitted to HMRC', border: 'border-brand-accent', text: 'text-brand-accent', filter: (r: UploadedRecord) => r.gift_aid_submitted, filename: 'gift-aid-submitted-records.csv' },
+                      { label: 'Eligible records',    value: eligibleCount,   sub: 'Valid for Gift Aid',       border: 'border-blue-400',    text: 'text-blue-600',    filter: (r: UploadedRecord) => r.record_status === 'valid', filename: 'eligible-records.csv' },
+                      { label: 'Incomplete records',  value: incompleteCount, sub: 'Missing mandatory fields', border: 'border-yellow-400', text: 'text-yellow-600', filter: (r: UploadedRecord) => r.record_status === 'incomplete', filename: 'incomplete-records.csv' },
+                      { label: 'Gift Aid opt outs',   value: optOutCount,     sub: 'Opted out — not submitted', border: 'border-gray-300', text: 'text-gray-500', filter: (r: UploadedRecord) => r.record_status === 'opt_out', filename: 'opt-out-records.csv' },
                     ].map(c => (
                       <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.border}`}>
                         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
@@ -323,7 +327,7 @@ export default function AdminCharityInsights() {
                         <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
                         {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
                         <button
-                          onClick={() => downloadRecordsAsCsv(records.filter(r => r.record_status === c.status), `${slugify(charityName)}-${c.status}-records.csv`)}
+                          onClick={() => downloadRecordsAsCsv(records.filter(c.filter), `${slugify(charityName)}-${c.filename}`)}
                           disabled={c.value === 0}
                           className="mt-3 text-xs font-semibold text-brand-accent hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
                         >
