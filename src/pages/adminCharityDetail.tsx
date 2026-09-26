@@ -143,7 +143,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
           if (['donation date','donationdate','donation_date','date'].includes(h)) col.donationDate = i
           if (['amount','donation amount','donation_amount'].includes(h)) col.amount = i
           if (['gift aid opt in','gift_aid_opt_in','giftaidoptin','opt in','opt_in'].includes(h)) col.giftAidOptIn = i
-          if (['gift aided submission','gift_aid_submission','giftaid submission','giftaidsubmission'].includes(h)) col.giftAidSubmitted = i
+          if (['gift aid submitted','gift_aid_submitted','giftaidsubmitted','gift aided submission','gift_aid_submission','giftaid submission','giftaidsubmission'].includes(h)) col.giftAidSubmitted = i
         })
 
         const giftAidSubmissionColumnPresent = col.giftAidSubmitted !== undefined
@@ -167,7 +167,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
             donationDate: get('donationDate'),
             amount: isNaN(amount) ? null : amount,
             giftAidOptIn: get('giftAidOptIn'),
-            giftAidSubmitted: get('giftAidSubmitted').toUpperCase() === 'Y',
+            giftAidSubmitted: ['Y', 'YES', 'TRUE', '1'].includes(get('giftAidSubmitted').toUpperCase()),
             giftAidSubmissionColumnPresent,
           }
 
