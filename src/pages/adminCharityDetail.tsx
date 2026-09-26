@@ -167,7 +167,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
             donationDate: get('donationDate'),
             amount: isNaN(amount) ? null : amount,
             giftAidOptIn: get('giftAidOptIn'),
-            giftAidSubmitted: ['Y', 'YES', 'TRUE', '1'].includes(get('giftAidSubmitted').toUpperCase()),
+            giftAidSubmitted: get('giftAidSubmitted').toUpperCase() === 'Y',
             giftAidSubmissionColumnPresent,
           }
 
@@ -289,7 +289,7 @@ export default function AdminCharityDetail() {
   const [parsedRows, setParsedRows] = useState<ParsedRow[]>([])
   const [fileName, setFileName] = useState('')
   const [submitting, setSubmitting] = useState(false)
-  const [submitSuccess, setSubmitSuccess] = useState(false)
+  const [submitSuccessMessage, setSubmitSuccessMessage] = useState('')
   const [submitError, setSubmitError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -886,7 +886,7 @@ export default function AdminCharityDetail() {
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]; if (!file) return
-    setFileName(file.name); setParsedRows([]); setSubmitSuccess(false); setSubmitError(null)
+    setFileName(file.name); setParsedRows([]); setSubmitSuccessMessage(''); setSubmitError(null)
     try {
       const rows = await parseExcel(file)
       setParsedRows(rows)
@@ -964,7 +964,11 @@ export default function AdminCharityDetail() {
       const { error: recErr } = await supabase.from('uploaded_records').insert(allRecords)
       if (recErr) throw new Error(recErr.message)
 
-      setSubmitSuccess(true)
+      setSubmitSuccessMessage(rowsToSubmit.length > 0
+        ? `${rowsToSubmit.length} donation${rowsToSubmit.length === 1 ? '' : 's'} included in the Gift Aid calculation.`
+        : historicalImport
+          ? 'No valid donation rows have Y in Gift Aid Submitted, so no Gift Aid claim was created.'
+          : 'No valid donation rows to include in the Gift Aid calculation.')
       setParsedRows([]); setFileName('')
       if (fileInputRef.current) fileInputRef.current.value = ''
       await loadData()
@@ -974,12 +978,14 @@ export default function AdminCharityDetail() {
   const validRows      = parsedRows.filter(r => r.status === 'valid')
   const incompleteRows = parsedRows.filter(r => r.status === 'incomplete')
   const optOutRows     = parsedRows.filter(r => r.status === 'opt_out')
+  const historicalImport = parsedRows.some(r => r.giftAidSubmissionColumnPresent)
+  const rowsForClaim = validRows.filter(r => !historicalImport || r.giftAidSubmitted)
+  const giftAidClaimValue = Math.round(rowsForClaim.reduce((s, r) => s + (r.amount ?? 0), 0) * 0.25 * 100) / 100
 
   // Each row's tax year is computed individually from its own donation date —
   // a single upload can span multiple tax years and will create one submission per year.
-  const historicalRows = validRows.filter(r => r.giftAidSubmitted)
   const distinctTaxYears = [...new Set(
-    (parsedRows.some(r => r.giftAidSubmissionColumnPresent) ? historicalRows : validRows).map(r => {
+    rowsForClaim.map(r => {
       const d = parseDonationDate(r.donationDate)
       return d ? getTaxYearForDate(d) : getTaxYearForDate(new Date())
     })
@@ -1266,15 +1272,21 @@ export default function AdminCharityDetail() {
               </p>
             )}
 
+            {historicalImport && validRows.length > rowsForClaim.length && (
+              <p className="text-xs text-gray-500 mb-4">
+                {validRows.length - rowsForClaim.length} valid donation{validRows.length - rowsForClaim.length === 1 ? '' : 's'} without Y in Gift Aid Submitted will be excluded from the Gift Aid calculation.
+              </p>
+            )}
+
             {/* Valid rows preview */}
-            {validRows.length > 0 && (
+            {rowsForClaim.length > 0 && (
               <div className="mb-4">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Valid rows — Gift Aid value: £{(validRows.reduce((s, r) => s + (r.amount ?? 0), 0) * 0.25).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</p>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">Rows included in Gift Aid calculation — £{giftAidClaimValue.toLocaleString('en-GB', { minimumFractionDigits: 2 })}</p>
                 <div className="overflow-x-auto border border-gray-100 rounded-lg">
                   <table className="min-w-full divide-y divide-gray-100 text-sm">
                     <thead className="bg-gray-50"><tr>{['First Name','Last Name','Address','Postcode','Date','Amount'].map(h => <th key={h} className="px-3 py-2 text-left text-xs font-medium text-gray-400 uppercase">{h}</th>)}</tr></thead>
                     <tbody className="divide-y divide-gray-50">
-                      {validRows.slice(0, 5).map(r => (
+                      {rowsForClaim.slice(0, 5).map(r => (
                         <tr key={r.rowNum}>
                           <td className="px-3 py-2">{r.firstName}</td><td className="px-3 py-2">{r.lastName}</td>
                           <td className="px-3 py-2">{r.address}</td><td className="px-3 py-2">{r.postcode}</td>
@@ -1282,7 +1294,7 @@ export default function AdminCharityDetail() {
                           <td className="px-3 py-2 font-medium text-brand-accent">£{(r.amount ?? 0).toFixed(2)}</td>
                         </tr>
                       ))}
-                      {validRows.length > 5 && <tr><td colSpan={6} className="px-3 py-2 text-center text-gray-300 text-xs italic">… and {validRows.length - 5} more</td></tr>}
+                      {rowsForClaim.length > 5 && <tr><td colSpan={6} className="px-3 py-2 text-center text-gray-300 text-xs italic">… and {rowsForClaim.length - 5} more</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -1313,7 +1325,7 @@ export default function AdminCharityDetail() {
               </div>
             )}
 
-            {submitSuccess && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">Upload complete. {validRows.length > 0 ? `${validRows.length} valid donation${validRows.length !== 1 ? 's' : ''} submitted to Gift Aid.` : 'No valid rows to submit.'}</div>}
+            {submitSuccessMessage && <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg mb-4 text-sm">Upload complete. {submitSuccessMessage}</div>}
             {submitError && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{submitError}</div>}
 
             <button onClick={handleSubmit} disabled={submitting || parsedRows.length === 0}
