@@ -16,6 +16,7 @@ interface PendingRecord {
   amount: number | null
   record_status: 'valid' | 'incomplete' | 'opt_out'
   tax_year: string | null
+  gift_aid_submitted: boolean | null
   created_at: string
 }
 
@@ -93,7 +94,7 @@ async function fetchAllPendingRecords(email: string): Promise<PendingRecord[]> {
   while (true) {
     const { data, error } = await supabase
       .from('pending_uploaded_records')
-      .select('id, title, first_name, last_name, postcode, donation_date, amount, record_status, tax_year, created_at')
+      .select('id, title, first_name, last_name, postcode, donation_date, amount, record_status, tax_year, gift_aid_submitted, created_at')
       .eq('pending_email', email)
       .order('created_at', { ascending: true })
       .range(from, from + PAGE_SIZE - 1)
@@ -142,7 +143,9 @@ export default function PendingCharityInsights() {
   }
 
   // ── Calculations ──────────────────────────────────────
-  const validRecords      = records.filter(r => r.record_status === 'valid')
+  const eligibleRecords   = records.filter(r => r.record_status === 'valid')
+  const validRecords      = eligibleRecords.filter(r => r.gift_aid_submitted !== false)
+  const historicRecords   = eligibleRecords.filter(r => r.gift_aid_submitted === false)
   const incompleteRecords = records.filter(r => r.record_status === 'incomplete')
   const optOutRecords     = records.filter(r => r.record_status === 'opt_out')
   const totalRecords      = records.length
@@ -233,9 +236,10 @@ export default function PendingCharityInsights() {
               </div>
 
               {/* Headline record breakdown */}
-              <div className="grid grid-cols-3 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
                   { label: 'Records Claimed',    value: validRecords.length,      sub: 'Submitted to HMRC and claimed', border: 'border-brand-accent', text: 'text-brand-accent' },
+                  { label: 'Historic claims',    value: historicRecords.length,   sub: 'Submitted outside Gift Aided', border: 'border-blue-300', text: 'text-blue-600' },
                   { label: 'Incomplete records', value: incompleteRecords.length, sub: 'Missing mandatory fields',      border: 'border-yellow-400',   text: 'text-yellow-600' },
                   { label: 'Gift Aid opt outs',  value: optOutRecords.length,     sub: 'Opted out — won\'t be claimed', border: 'border-gray-300',    text: 'text-gray-500' },
                 ].map(c => (

@@ -20,6 +20,7 @@ interface ParsedRow {
   donationDate: string
   amount: number | null
   giftAidOptIn: string
+  giftAidSubmitted: boolean
   status: 'valid' | 'incomplete' | 'opt_out'
   missingFields: string[]
 }
@@ -109,6 +110,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
           if (['donation date','donationdate','donation_date','date'].includes(h)) col.donationDate = i
           if (['amount','donation amount','donation_amount'].includes(h)) col.amount = i
           if (['gift aid opt in','gift_aid_opt_in','giftaidoptin','opt in','opt_in'].includes(h)) col.giftAidOptIn = i
+          if (['gift aid submitted','gift_aid_submitted','giftaidsubmitted'].includes(h)) col.giftAidSubmitted = i
         })
 
         const rows: ParsedRow[] = []
@@ -118,10 +120,15 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
           const get = (k: keyof typeof col) => col[k] !== undefined ? String(row[col[k]!] ?? '').trim() : ''
           const amtRaw = col.amount !== undefined ? row[col.amount] : ''
           const amount = parseFloat(String(amtRaw).replace(/[£,\s]/g, ''))
+          // The column is optional for backwards compatibility. When it is
+          // present, only an explicit Y means Gift Aided submitted the claim.
+          const giftAidSubmitted = col.giftAidSubmitted === undefined
+            ? true
+            : get('giftAidSubmitted').toUpperCase() === 'Y'
           const base = {
             rowNum: i + 1, title: get('title'), firstName: get('firstName'), lastName: get('lastName'),
             address: get('address'), postcode: get('postcode'), donationDate: get('donationDate'),
-            amount: isNaN(amount) ? null : amount, giftAidOptIn: get('giftAidOptIn'),
+            amount: isNaN(amount) ? null : amount, giftAidOptIn: get('giftAidOptIn'), giftAidSubmitted,
           }
           const { status, missingFields } = categoriseRow(base)
           rows.push({ ...base, status, missingFields })
@@ -214,6 +221,7 @@ export default function PendingCharities() {
             donation_date: r.donationDate || null,
             amount: r.amount,
             gift_aid_opt_in: r.giftAidOptIn || null,
+            gift_aid_submitted: r.giftAidSubmitted,
             record_status: r.status,
             tax_year: taxYear,
           }
@@ -233,7 +241,8 @@ export default function PendingCharities() {
     if (fileInputRef.current) fileInputRef.current.value = ''
   }
 
-  const validCount = parsedRows.filter(r => r.status === 'valid').length
+  const validCount = parsedRows.filter(r => r.status === 'valid' && r.giftAidSubmitted).length
+  const historicCount = parsedRows.filter(r => r.status === 'valid' && !r.giftAidSubmitted).length
   const incompleteCount = parsedRows.filter(r => r.status === 'incomplete').length
   const optOutCount = parsedRows.filter(r => r.status === 'opt_out').length
 
@@ -323,16 +332,17 @@ export default function PendingCharities() {
 
             <div className="p-6">
               <p className="text-xs text-gray-300 mb-4">
-                Required columns: <span className="font-medium text-gray-400">First Name, Last Name, Address, Postcode, Donation Date, Amount, Gift Aid Opt In</span> — Title is optional
+                Required columns: <span className="font-medium text-gray-400">First Name, Last Name, Address, Postcode, Donation Date, Amount, Gift Aid Opt In</span>. Optional: <span className="font-medium text-gray-400">Gift Aid Submitted</span> (Y = submitted by Gift Aided) and Title.
               </p>
 
               <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange}
                 className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-brand-accent file:text-white hover:file:opacity-90 mb-4" />
 
               {parsedRows.length > 0 && (
-                <div className="grid grid-cols-3 gap-3 mb-4">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                   {[
-                    { label: 'Valid', count: validCount, color: 'border-green-400 text-green-700 bg-green-50' },
+                    { label: 'Gift Aided submitted', count: validCount, color: 'border-green-400 text-green-700 bg-green-50' },
+                    { label: 'Historic (not ours)', count: historicCount, color: 'border-blue-300 text-blue-700 bg-blue-50' },
                     { label: 'Incomplete', count: incompleteCount, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
                     { label: 'Opt Out', count: optOutCount, color: 'border-gray-300 text-gray-500 bg-gray-50' },
                   ].map(c => (

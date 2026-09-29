@@ -20,6 +20,7 @@ interface UploadedRecord {
   address: string | null
   postcode: string | null
   gift_aid_opt_in: string | null
+  gift_aid_submitted: boolean | null
 }
 
 function Logo() {
@@ -187,7 +188,7 @@ export default function Insights() {
 
         const recData = await fetchAllRows<UploadedRecord>(() =>
           supabase
-            .from('uploaded_records').select('record_status, tax_year, amount, donation_date, title, first_name, last_name, address, postcode, gift_aid_opt_in')
+            .from('uploaded_records').select('record_status, tax_year, amount, donation_date, title, first_name, last_name, address, postcode, gift_aid_opt_in, gift_aid_submitted')
             .eq('charity_id', meJson.charityId)
         )
         setRecords(recData)
@@ -229,7 +230,8 @@ export default function Insights() {
   })
 
   // ── Record overview (from uploaded_records) ──
-  const validCount     = records.filter(r => r.record_status === 'valid').length
+  const validCount     = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted !== false).length
+  const historicCount  = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted === false).length
   const incompleteCount = records.filter(r => r.record_status === 'incomplete').length
   const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
   const totalRecords   = records.length
@@ -366,9 +368,10 @@ export default function Insights() {
               {totalRecords > 0 && (
                 <>
                   {/* Headline counts */}
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
                       { label: 'Records Claimed',    value: validCount,      sub: 'Submitted to HMRC and claimed', color: 'border-brand-accent text-brand-accent', status: 'valid' as const,      filename: 'submitted-claims.csv' },
+                      { label: 'Historic claims',    value: historicCount,   sub: 'Submitted outside Gift Aided', color: 'border-blue-300 text-blue-600',         status: 'historic' as const,   filename: 'historic-claims.csv' },
                       { label: 'Incomplete records', value: incompleteCount, sub: 'Missing mandatory fields',      color: 'border-yellow-400 text-yellow-600',     status: 'incomplete' as const, filename: 'incomplete-records.csv' },
                       { label: 'Gift Aid opt outs',  value: optOutCount,     sub: 'Opted out — won\'t be claimed', color: 'border-gray-300 text-gray-500',         status: 'opt_out' as const,    filename: 'opt-out-records.csv' },
                     ].map(c => (
@@ -378,7 +381,9 @@ export default function Insights() {
                         <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
                         {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
                         <button
-                          onClick={() => downloadRecordsAsCsv(records.filter(r => r.record_status === c.status), c.filename)}
+                          onClick={() => downloadRecordsAsCsv(records.filter(r => c.status === 'historic'
+                            ? r.record_status === 'valid' && r.gift_aid_submitted === false
+                            : r.record_status === c.status && (c.status !== 'valid' || r.gift_aid_submitted !== false)), c.filename)}
                           disabled={c.value === 0}
                           className="mt-3 text-xs font-semibold text-brand-accent hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
                         >

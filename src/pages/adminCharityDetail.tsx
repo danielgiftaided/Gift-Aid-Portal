@@ -41,6 +41,7 @@ interface ParsedRow {
   donationDate: string
   amount: number | null
   giftAidOptIn: string          // raw value from column
+  giftAidSubmitted: boolean     // false when another provider submitted it
   status: 'valid' | 'incomplete' | 'opt_out'
   missingFields: string[]
 }
@@ -141,6 +142,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
           if (['donation date','donationdate','donation_date','date'].includes(h)) col.donationDate = i
           if (['amount','donation amount','donation_amount'].includes(h)) col.amount = i
           if (['gift aid opt in','gift_aid_opt_in','giftaidoptin','opt in','opt_in'].includes(h)) col.giftAidOptIn = i
+          if (['gift aid submitted','gift_aid_submitted','giftaidsubmitted'].includes(h)) col.giftAidSubmitted = i
         })
 
         const rows: ParsedRow[] = []
@@ -152,6 +154,9 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
           const amtRaw = col.amount !== undefined ? row[col.amount] : ''
           const amount = parseFloat(String(amtRaw).replace(/[£,\s]/g, ''))
 
+          const giftAidSubmitted = col.giftAidSubmitted === undefined
+            ? true
+            : get('giftAidSubmitted').toUpperCase() === 'Y'
           const base = {
             rowNum: i + 1,
             title: get('title'),
@@ -162,6 +167,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
             donationDate: get('donationDate'),
             amount: isNaN(amount) ? null : amount,
             giftAidOptIn: get('giftAidOptIn'),
+            giftAidSubmitted,
           }
 
           const { status, missingFields } = categoriseRow(base)
@@ -900,7 +906,9 @@ export default function AdminCharityDetail() {
         return { ...r, computedTaxYear }
       })
 
-      const validRows = rowsWithTaxYear.filter(r => r.status === 'valid')
+      // Keep the complete historic dataset in insights, but create submissions
+      // only for rows explicitly marked as submitted by Gift Aided.
+      const validRows = rowsWithTaxYear.filter(r => r.status === 'valid' && r.giftAidSubmitted)
 
       // Group valid rows by tax year — one submission per tax year present
       const byTaxYear: Record<string, typeof validRows> = {}
@@ -947,6 +955,7 @@ export default function AdminCharityDetail() {
         donation_date: r.donationDate || null,
         amount: r.amount ?? null,
         gift_aid_opt_in: r.giftAidOptIn || null,
+        gift_aid_submitted: r.giftAidSubmitted,
         record_status: r.status,
         tax_year: r.computedTaxYear,
       }))
@@ -960,7 +969,8 @@ export default function AdminCharityDetail() {
     } catch (e: any) { setSubmitError(e.message) } finally { setSubmitting(false) }
   }
 
-  const validRows      = parsedRows.filter(r => r.status === 'valid')
+  const validRows      = parsedRows.filter(r => r.status === 'valid' && r.giftAidSubmitted)
+  const historicRows   = parsedRows.filter(r => r.status === 'valid' && !r.giftAidSubmitted)
   const incompleteRows = parsedRows.filter(r => r.status === 'incomplete')
   const optOutRows     = parsedRows.filter(r => r.status === 'opt_out')
 
@@ -1224,7 +1234,7 @@ export default function AdminCharityDetail() {
             <h2 className="font-semibold text-brand-primary mb-1">Upload Donation Spreadsheet</h2>
             <p className="text-sm text-gray-400 mb-1">Upload an Excel file (.xlsx). Rows are automatically sorted by Gift Aid Opt In status.</p>
             <p className="text-xs text-gray-300 mb-4">
-              Required columns: <span className="font-medium text-gray-400">First Name, Last Name, Address, Postcode, Donation Date, Amount, Gift Aid Opt In</span> — Title is optional
+              Required columns: <span className="font-medium text-gray-400">First Name, Last Name, Address, Postcode, Donation Date, Amount, Gift Aid Opt In</span>. Optional: <span className="font-medium text-gray-400">Gift Aid Submitted</span> (Y = submitted by Gift Aided) and Title.
             </p>
 
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange}
@@ -1232,9 +1242,10 @@ export default function AdminCharityDetail() {
 
             {/* Category breakdown */}
             {parsedRows.length > 0 && (
-              <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
                 {[
                   { label: 'Valid for HMRC', count: validRows.length, color: 'border-green-400 text-green-700 bg-green-50' },
+                  { label: 'Historic (not ours)', count: historicRows.length, color: 'border-blue-300 text-blue-700 bg-blue-50' },
                   { label: 'Incomplete', count: incompleteRows.length, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
                   { label: 'Gift Aid Opt Out', count: optOutRows.length, color: 'border-gray-300 text-gray-500 bg-gray-50' },
                 ].map(c => (
