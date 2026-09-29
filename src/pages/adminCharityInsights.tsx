@@ -20,6 +20,7 @@ interface UploadedRecord {
   address: string | null
   postcode: string | null
   gift_aid_opt_in: string | null
+  gift_aid_submitted: boolean | null
 }
 
 function Logo() {
@@ -191,7 +192,7 @@ export default function AdminCharityInsights() {
       // All uploaded records for this charity
       const recData = await fetchAllRows<UploadedRecord>(() =>
         supabase
-          .from('uploaded_records').select('record_status, tax_year, amount, donation_date, title, first_name, last_name, address, postcode, gift_aid_opt_in')
+          .from('uploaded_records').select('record_status, tax_year, amount, donation_date, title, first_name, last_name, address, postcode, gift_aid_opt_in, gift_aid_submitted')
           .eq('charity_id', id)
       )
       setRecords(recData)
@@ -230,7 +231,8 @@ export default function AdminCharityInsights() {
     return { taxYear: ty.taxYear, avgGiftAid: yearDons.length > 0 ? Math.round(yearTotal * 0.25 / yearDons.length * 100) / 100 : 0 }
   })
 
-  const validCount     = records.filter(r => r.record_status === 'valid').length
+  const validCount     = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted !== false).length
+  const historicCount  = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted === false).length
   const incompleteCount = records.filter(r => r.record_status === 'incomplete').length
   const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
   const totalRecords   = records.length
@@ -311,9 +313,10 @@ export default function AdminCharityInsights() {
               {/* Record overview — opt out & incomplete */}
               {totalRecords > 0 && (
                 <>
-                  <div className="grid grid-cols-3 gap-4">
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
                       { label: 'Valid for Gift Aid',  value: validCount,      sub: 'Submitted to HMRC',         border: 'border-brand-accent', text: 'text-brand-accent', status: 'valid' as const },
+                      { label: 'Historic claims',     value: historicCount,   sub: 'Submitted outside Gift Aided', border: 'border-blue-300', text: 'text-blue-600', status: 'historic' as const },
                       { label: 'Incomplete records',  value: incompleteCount, sub: 'Missing mandatory fields',   border: 'border-yellow-400',   text: 'text-yellow-600',   status: 'incomplete' as const },
                       { label: 'Gift Aid opt outs',   value: optOutCount,     sub: 'Opted out — not submitted', border: 'border-gray-300',     text: 'text-gray-500',     status: 'opt_out' as const },
                     ].map(c => (
@@ -323,7 +326,9 @@ export default function AdminCharityInsights() {
                         <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
                         {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
                         <button
-                          onClick={() => downloadRecordsAsCsv(records.filter(r => r.record_status === c.status), `${slugify(charityName)}-${c.status}-records.csv`)}
+                          onClick={() => downloadRecordsAsCsv(records.filter(r => c.status === 'historic'
+                            ? r.record_status === 'valid' && r.gift_aid_submitted === false
+                            : r.record_status === c.status && (c.status !== 'valid' || r.gift_aid_submitted !== false)), `${slugify(charityName)}-${c.status}-records.csv`)}
                           disabled={c.value === 0}
                           className="mt-3 text-xs font-semibold text-brand-accent hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
                         >

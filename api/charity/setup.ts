@@ -141,7 +141,7 @@ async function migratePendingData(
     }
 
     const validRows = pendingRows.filter(
-      (row) => row.record_status === "valid",
+      (row) => row.record_status === "valid" && row.gift_aid_submitted !== false,
     );
 
     const byTaxYear: Record<
@@ -243,6 +243,7 @@ async function migratePendingData(
           donation_date: row.donation_date,
           amount: row.amount,
           gift_aid_opt_in: row.gift_aid_opt_in,
+          gift_aid_submitted: row.gift_aid_submitted !== false,
           record_status: row.record_status,
           tax_year:
             row.tax_year ||
