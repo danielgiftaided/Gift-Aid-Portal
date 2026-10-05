@@ -1,72 +1,65 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
-import { createClient } from '@supabase/supabase-js'
+import { requireOperator } from '../_utils/requireOperator.js'
+import { supabaseAdmin } from '../_utils/supabase.js'
 import { logActivity } from '../_utils/activityLog.js'
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Always return JSON
-  res.setHeader('Content-Type', 'application/json')
-
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST')
+    return res.status(405).json({ ok: false, error: 'Method not allowed' })
+  }
+  let operator
+  try { operator = await requireOperator(req) }
+  catch (error: any) {
+    return res.status(error.message?.includes('Forbidden') ? 403 : 401).json({ ok: false, error: 'Operator access required' })
+  }
+  let body
+  try { body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {}) }
+  catch { return res.status(400).json({ ok: false, error: 'Invalid JSON' }) }
+  const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : ''
+  const charityId = body.charity_id
+  if (!/^\S+@\S+\.\S+$/.test(email) || typeof charityId !== 'string' ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(charityId)) {
+    return res.status(400).json({ ok: false, error: 'A valid email and charity workspace are required' })
+  }
   try {
-    if (req.method !== 'POST') {
-      return res.status(405).json({ ok: false, error: 'Method not allowed' })
-    }
+    const { data: charity, error: charityError } = await supabaseAdmin.from('charities')
+      .select('id, name').eq('id', charityId).maybeSingle()
+    if (charityError) throw charityError
+    if (!charity) return res.status(404).json({ ok: false, error: 'Charity workspace not found' })
 
-    // Verify the caller is an authenticated operator
-    const authHeader = req.headers.authorization ?? ''
-    const token = authHeader.replace('Bearer ', '').trim()
-    if (!token) return res.status(401).json({ ok: false, error: 'Missing auth token' })
+    // Avoid conflicting active invitations for the same verified email.
+    const { data: pending, error: pendingError } = await supabaseAdmin.from('charity_invitations')
+      .select('id, charity_id').eq('email', email).eq('status', 'sent')
+      .gt('expires_at', new Date().toISOString()).limit(1).maybeSingle()
+    if (pendingError) throw pendingError
+    if (pending) return res.status(409).json({ ok: false, error: pending.charity_id === charityId
+      ? 'This email already has an active invitation to this workspace.'
+      : 'This email already has an active invitation to another workspace.' })
 
-    // Use anon client to verify the session
-    const supabaseUrl = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL ?? ''
-    const supabaseAnonKey = process.env.SUPABASE_ANON_KEY ?? process.env.VITE_SUPABASE_ANON_KEY ?? ''
-    const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? ''
-
-    if (!supabaseUrl || !serviceRoleKey) {
-      return res.status(500).json({ ok: false, error: 'Server misconfiguration: missing Supabase env vars' })
-    }
-
-    // Verify caller is logged in + is an operator
-    const userClient = createClient(supabaseUrl, supabaseAnonKey)
-    const { data: { user }, error: userErr } = await userClient.auth.getUser(token)
-    if (userErr || !user) return res.status(401).json({ ok: false, error: 'Invalid session' })
-
-    const adminCheck = createClient(supabaseUrl, serviceRoleKey)
-    const { data: userData, error: roleErr } = await adminCheck
-      .from('users')
-      .select('role')
-      .eq('id', user.id)
-      .single()
-
-    if (roleErr || userData?.role !== 'operator') {
-      return res.status(403).json({ ok: false, error: 'Operator access required' })
-    }
-
-    // Validate email
-    const { email } = req.body ?? {}
-    if (!email || typeof email !== 'string' || !email.includes('@')) {
-      return res.status(400).json({ ok: false, error: 'A valid email address is required' })
-    }
-
-    // Send the invite
-    const { error: inviteErr } = await adminCheck.auth.admin.inviteUserByEmail(
-      email.trim().toLowerCase(),
-      { redirectTo: 'https://portal.giftaided.com/accept-invite' }
-    )
-
-    if (inviteErr) return res.status(400).json({ ok: false, error: inviteErr.message })
-
-    await logActivity({
-      userId: user.id,
-      userEmail: user.email,
-      action: 'charity_invited',
-      targetType: 'invited_email',
-      targetId: email.trim().toLowerCase(),
+    const { data: invitation, error: invitationError } = await supabaseAdmin.from('charity_invitations')
+      .insert({ charity_id: charityId, email, created_by: operator.id, status: 'sent' }).select('id').single()
+    if (invitationError || !invitation) throw invitationError ?? new Error('Unable to create invitation')
+    const { data: invited, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: 'https://portal.giftaided.com/accept-invite',
+      data: { charity_id: charityId, charity_invitation_id: invitation.id },
     })
-
-    return res.status(200).json({ ok: true })
-
-  } catch (e: any) {
-    console.error('Invite error:', e)
-    return res.status(500).json({ ok: false, error: e?.message ?? 'Unexpected server error' })
+    if (inviteError) {
+      const { error: cleanupError } = await supabaseAdmin.from('charity_invitations').delete().eq('id', invitation.id)
+      if (cleanupError) console.error('Failed to remove unsent workspace invitation', cleanupError)
+      return res.status(400).json({ ok: false, error: inviteError.message })
+    }
+    if (invited.user?.id) {
+      const { error } = await supabaseAdmin.from('charity_invitations')
+        .update({ auth_user_id: invited.user.id }).eq('id', invitation.id)
+      // Account setup also resolves invitations by verified email.
+      if (error) console.error('Unable to attach invited auth user', error)
+    }
+    await logActivity({ userId: operator.id, userEmail: operator.email, action: 'charity_invited',
+      targetType: 'charity', targetId: charityId, details: `Invitation sent to ${email}` })
+    return res.status(200).json({ ok: true, charity_id: charityId, invitation_id: invitation.id })
+  } catch (error: any) {
+    console.error('Workspace invite failed', error)
+    return res.status(500).json({ ok: false, error: 'Unable to send workspace invitation' })
   }
 }
