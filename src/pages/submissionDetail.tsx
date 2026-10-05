@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { fetchAllRows } from '../utils/fetchAll'
+import { useSubmissionStatuses } from '../hooks/useSubmissionStatuses'
 
 interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; notes: string | null }
 interface Donation { id: string; title: string | null; first_name: string; last_name: string; address: string; postcode: string; donation_date: string; amount: number }
@@ -39,6 +40,10 @@ export default function SubmissionDetail() {
   const backUrl = (location.state as any)?.backUrl ?? '/dashboard'
   const isAdminContext = backUrl.startsWith('/admin')
   const [submission, setSubmission] = useState<Submission | null>(null)
+  useSubmissionStatuses('id', id, rows => {
+    const row = rows.find(row => row.id === id)
+    if (row) setSubmission(current => current?.id === row.id ? { ...current, status: row.status } : current)
+  })
   const [donations, setDonations] = useState<Donation[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)

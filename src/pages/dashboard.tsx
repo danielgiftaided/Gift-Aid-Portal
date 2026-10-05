@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { fetchAllRows } from '../utils/fetchAll'
+import { useSubmissionStatuses } from '../hooks/useSubmissionStatuses'
 
 interface Submission {
   id: string
@@ -39,6 +40,11 @@ export default function Dashboard() {
   const location = useLocation()
   const [charityName, setCharityName] = useState<string>((location.state as any)?.charityName ?? '')
   const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [charityId, setCharityId] = useState<string>()
+  useSubmissionStatuses('charity_id', charityId, rows => {
+    const statuses = new Map(rows.map(row => [row.id, row.status]))
+    setSubmissions(current => current.map(row => ({ ...row, status: statuses.get(row.id) ?? row.status })))
+  })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
 
@@ -58,6 +64,7 @@ export default function Dashboard() {
       if (meJson.charityName) setCharityName(meJson.charityName)
 
       if (meJson.charityId) {
+        setCharityId(meJson.charityId)
         const data = await fetchAllRows<Submission>(() =>
           supabase
             .from('submissions')
