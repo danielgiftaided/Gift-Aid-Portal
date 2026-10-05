@@ -245,7 +245,7 @@ export default function PendingCharities() {
   const historicCount = parsedRows.filter(r => r.status === 'valid' && !r.giftAidSubmitted).length
   const incompleteOptInCount = parsedRows.filter(r => r.status === 'incomplete' && !isGiftAidOptOut(r.giftAidOptIn)).length
   const incompleteOptOutCount = parsedRows.filter(r => r.status === 'incomplete' && isGiftAidOptOut(r.giftAidOptIn)).length
-  const optOutCount = parsedRows.filter(r => r.status === 'opt_out').length
+  const optOutCount = parsedRows.filter(r => r.status === 'opt_out' || isGiftAidOptOut(r.giftAidOptIn)).length
 
   if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
 
@@ -346,7 +346,7 @@ export default function PendingCharities() {
                     { label: 'Historic (not ours)', count: historicCount, color: 'border-blue-300 text-blue-700 bg-blue-50' },
                     { label: 'Incomplete — opted in', count: incompleteOptInCount, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
                     { label: 'Incomplete — opted out', count: incompleteOptOutCount, color: 'border-orange-400 text-orange-700 bg-orange-50' },
-                    { label: 'Opt Out', count: optOutCount, color: 'border-gray-300 text-gray-500 bg-gray-50' },
+                    { label: 'All Opt Outs', count: optOutCount, color: 'border-gray-300 text-gray-500 bg-gray-50' },
                   ].map(c => (
                     <div key={c.label} className={`rounded-lg border-l-4 p-3 ${c.color}`}>
                       <div className="text-2xl font-bold">{c.count}</div>

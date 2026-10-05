@@ -1000,7 +1000,7 @@ export default function AdminCharityDetail() {
   const incompleteRows = parsedRows.filter(r => r.status === 'incomplete')
   const incompleteOptInRows = incompleteRows.filter(r => !isGiftAidOptOut(r.giftAidOptIn))
   const incompleteOptOutRows = incompleteRows.filter(r => isGiftAidOptOut(r.giftAidOptIn))
-  const optOutRows     = parsedRows.filter(r => r.status === 'opt_out')
+  const optOutRows     = parsedRows.filter(r => r.status === 'opt_out' || isGiftAidOptOut(r.giftAidOptIn))
 
   // Each row's tax year is computed individually from its own donation date —
   // a single upload can span multiple tax years and will create one submission per year.
@@ -1288,7 +1288,7 @@ export default function AdminCharityDetail() {
                   { label: 'Historic (not ours)', count: historicRows.length, color: 'border-blue-300 text-blue-700 bg-blue-50' },
                   { label: 'Incomplete — opted in', count: incompleteOptInRows.length, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
                   { label: 'Incomplete — opted out', count: incompleteOptOutRows.length, color: 'border-orange-400 text-orange-700 bg-orange-50' },
-                  { label: 'Gift Aid Opt Out', count: optOutRows.length, color: 'border-gray-300 text-gray-500 bg-gray-50' },
+                  { label: 'All Gift Aid Opt Outs', count: optOutRows.length, color: 'border-gray-300 text-gray-500 bg-gray-50' },
                 ].map(c => (
                   <div key={c.label} className={`rounded-lg border-l-4 p-3 ${c.color}`}>
                     <div className="text-2xl font-bold">{c.count}</div>

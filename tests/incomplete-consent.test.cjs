@@ -82,3 +82,27 @@ test('donor enrichment cannot create a claim for an opted-out or historic incomp
     assert.equal(writes[0].record_status, submitted ? 'opt_out' : 'valid')
   }
 })
+
+test('inclusive opt-out totals overlap incomplete cards without inflating valid or missed totals', () => {
+  const records = [
+    { id: 'submitted', record_status: 'valid', gift_aid_opt_in: 'Yes', gift_aid_submitted: true, amount: 10 },
+    { id: 'historic', record_status: 'valid', gift_aid_opt_in: 'Y', gift_aid_submitted: false, amount: 20 },
+    { id: 'incomplete-in', record_status: 'incomplete', gift_aid_opt_in: 'Yes', amount: 30 },
+    { id: 'incomplete-out', record_status: 'incomplete', gift_aid_opt_in: 'No', amount: 40 },
+    { id: 'blank-out', record_status: 'incomplete', gift_aid_opt_in: null, amount: 50 },
+    { id: 'complete-out', record_status: 'opt_out', gift_aid_opt_in: 'No', amount: 60 },
+    { id: 'legacy-out', record_status: 'valid', gift_aid_opt_in: 'No', gift_aid_submitted: true, amount: 70 },
+  ]
+  assert.equal(records.filter(helpers.isOptOutRecord).length, 4)
+  assert.equal(records.filter(r => helpers.giftAidRecordGroup(r) === 'incomplete_opt_out').length, 2)
+  assert.equal(records.filter(helpers.isValidGiftAidRecord).length, 1)
+  assert.equal(records.filter(r => helpers.giftAidRecordGroup(r) === 'historic').length, 1)
+  const missed = helpers.missedGiftAidRecords(records)
+  assert.equal(missed.length, 5)
+  assert.equal(new Set(missed.map(r => r.id)).size, 5)
+  assert.equal(missed.reduce((sum, row) => sum + row.amount, 0), 250)
+  assert.equal(records.filter(helpers.isValidGiftAidRecord).length, helpers.userExportRecords(records, 'valid').length)
+  // Disjoint chart buckets cover each row exactly once, despite overlapping cards.
+  const exclusive = ['valid', 'historic', 'incomplete_opt_in', 'incomplete_opt_out', 'opt_out']
+  assert.equal(exclusive.reduce((sum, group) => sum + records.filter(r => helpers.giftAidRecordGroup(r) === group).length, 0), records.length)
+})

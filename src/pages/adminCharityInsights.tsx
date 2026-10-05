@@ -1,11 +1,11 @@
-import { giftAidRecordGroup } from '../../shared/giftAidRecords'
+import { giftAidRecordGroup, isOptOutRecord, isValidGiftAidRecord } from '../../shared/giftAidRecords'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate } from 'react-router-dom'
 import { fetchAllRows } from '../utils/fetchAll'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ComposedChart, Line, ResponsiveContainer, Legend
+  ResponsiveContainer, Legend
 } from 'recharts'
 
 interface Submission { id: string; submission_date: string; status: string; amount_claimed: number; number_of_donations: number; tax_year: string }
@@ -43,7 +43,7 @@ function PageShapes() {
   )
 }
 
-const TEAL = '#0c745d'; const NAVY = '#304675'; const WARM = '#e8e4db'; const AMBER = '#f59e0b'; const SLATE = '#94a3b8'
+const TEAL = '#0c745d'; const NAVY = '#304675'; const AMBER = '#f59e0b'; const SLATE = '#94a3b8'
 
 function fmt(v: number) { return `£${v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
 
@@ -213,15 +213,7 @@ export default function AdminCharityInsights() {
     }, {} as Record<string, { taxYear: string; giftAid: number }>)
   ).sort((a, b) => a.taxYear.localeCompare(b.taxYear))
 
-  const avgOverTime = submissions.map((s, i) => {
-    const rt = submissions.slice(0, i + 1).reduce((sum, x) => sum + parseFloat(String(x.amount_claimed || 0)), 0)
-    return {
-      date: new Date(s.submission_date).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }),
-      claimed: parseFloat(String(s.amount_claimed || 0)),
-      runningAvg: Math.round(rt / (i + 1) * 100) / 100,
-    }
-  })
-  const overallAvg = submissions.length ? submissions.reduce((s, r) => s + parseFloat(String(r.amount_claimed || 0)), 0) / submissions.length : 0
+
 
   const totalDonationAmount = donations.reduce((s, d) => s + parseFloat(String(d.amount || 0)), 0)
   const totalDonorCount = donations.length
@@ -234,19 +226,20 @@ export default function AdminCharityInsights() {
     return { taxYear: ty.taxYear, avgGiftAid: yearDons.length > 0 ? Math.round(yearTotal * 0.25 / yearDons.length * 100) / 100 : 0 }
   })
 
-  const validCount     = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted !== false).length
-  const historicCount  = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted === false).length
+  const validCount     = records.filter(isValidGiftAidRecord).length
+  const historicCount  = records.filter(r => giftAidRecordGroup(r) === 'historic').length
   const incompleteOptInCount = records.filter(r => giftAidRecordGroup(r) === 'incomplete_opt_in').length
   const incompleteOptOutCount = records.filter(r => giftAidRecordGroup(r) === 'incomplete_opt_out').length
-  const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
+  const optOutCount    = records.filter(isOptOutRecord).length
   const totalRecords   = records.length
 
   const taxYears = [...new Set(records.map(r => effectiveTaxYear(r)))].sort()
   const recordsByYear = taxYears.map(ty => ({
     taxYear: ty,
-    valid:      records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'valid').length,
+    valid:      records.filter(r => effectiveTaxYear(r) === ty && isValidGiftAidRecord(r)).length,
+    historic: records.filter(r => effectiveTaxYear(r) === ty && giftAidRecordGroup(r) === 'historic').length,
     incomplete: records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'incomplete').length,
-    optOut:     records.filter(r => effectiveTaxYear(r) === ty && r.record_status === 'opt_out').length,
+    optOut:     records.filter(r => effectiveTaxYear(r) === ty && r.record_status !== 'incomplete' && isOptOutRecord(r)).length,
   }))
 
   if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
@@ -304,7 +297,6 @@ export default function AdminCharityInsights() {
                 {[
                   { label: 'Tax years on record',      value: String(byTaxYear.length) },
                   { label: 'Total submissions',         value: String(submissions.length) },
-                  { label: 'Avg Gift Aid / submission', value: submissions.length ? fmt(overallAvg) : '—' },
                   { label: 'Avg Gift Aid / donor',      value: totalDonorCount > 0 ? fmt(avgGiftAidPerDonor) : '—' },
                 ].map(c => (
                   <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
@@ -317,13 +309,14 @@ export default function AdminCharityInsights() {
               {/* Record overview — opt out & incomplete */}
               {totalRecords > 0 && (
                 <>
+                  <p className="text-xs text-gray-500">The opt-out total includes incomplete opted-out rows. These cards overlap; total records counts each uploaded row once.</p>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
                       { label: 'Valid for Gift Aid',  value: validCount,      sub: 'Submitted to HMRC',         border: 'border-brand-accent', text: 'text-brand-accent', status: 'valid' as const },
                       { label: 'Historic claims',     value: historicCount,   sub: 'Submitted outside Gift Aided', border: 'border-blue-300', text: 'text-blue-600', status: 'historic' as const },
                       { label: 'Incomplete — opted in', value: incompleteOptInCount, sub: 'Missing mandatory fields; opted in', border: 'border-yellow-400', text: 'text-yellow-600', status: 'incomplete_opt_in' as const },
                       { label: 'Incomplete — opted out', value: incompleteOptOutCount, sub: 'Missing mandatory fields; opted out', border: 'border-orange-400', text: 'text-orange-600', status: 'incomplete_opt_out' as const },
-                      { label: 'Gift Aid opt outs',   value: optOutCount,     sub: 'Opted out — not submitted', border: 'border-gray-300',     text: 'text-gray-500',     status: 'opt_out' as const },
+                      { label: 'Gift Aid opt outs',   value: optOutCount,     sub: 'All opted out, including incomplete rows', border: 'border-gray-300',     text: 'text-gray-500',     status: 'opt_out' as const },
                     ].map(c => (
                       <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.border}`}>
                         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
@@ -331,7 +324,7 @@ export default function AdminCharityInsights() {
                         <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
                         {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
                         <button
-                          onClick={() => downloadRecordsAsCsv(records.filter(r => giftAidRecordGroup(r) === c.status), `${slugify(charityName)}-${c.status}-records.csv`)}
+                          onClick={() => downloadRecordsAsCsv(records.filter(r => c.status === 'opt_out' ? isOptOutRecord(r) : giftAidRecordGroup(r) === c.status), `${slugify(charityName)}-${c.status}-records.csv`)}
                           disabled={c.value === 0}
                           className="mt-3 text-xs font-semibold text-brand-accent hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
                         >
@@ -344,7 +337,7 @@ export default function AdminCharityInsights() {
                   {recordsByYear.length > 0 && (
                     <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
                       <h2 className="font-semibold text-brand-primary mb-1">Record Breakdown by Tax Year</h2>
-                      <p className="text-xs text-gray-400 mb-6">Valid, incomplete and opt-out records across each tax year</p>
+                      <p className="text-xs text-gray-400 mb-6">Gift Aided valid, historic, incomplete and complete opt-out records; each row appears once</p>
                       <ResponsiveContainer width="100%" height={280}>
                         <BarChart data={recordsByYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
                           <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
@@ -353,6 +346,7 @@ export default function AdminCharityInsights() {
                           <Tooltip content={<ChartTooltip />} />
                           <Legend wrapperStyle={{ fontSize: 12 }} />
                           <Bar dataKey="valid"      name="Valid"      fill={TEAL}  stackId="a" radius={[0,0,0,0]} />
+                          <Bar dataKey="historic" name="Historic claims" fill={NAVY} stackId="a" />
                           <Bar dataKey="incomplete" name="Incomplete" fill={AMBER} stackId="a" radius={[0,0,0,0]} />
                           <Bar dataKey="optOut"     name="Opt out"   fill={SLATE} stackId="a" radius={[3,3,0,0]} />
                         </BarChart>
@@ -375,33 +369,6 @@ export default function AdminCharityInsights() {
                       <Tooltip content={<ChartTooltip />} />
                       <Bar dataKey="giftAid" name="Gift Aid" fill={TEAL} radius={[4, 4, 0, 0]} />
                     </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-              {/* Avg Gift Aid per submission */}
-              {submissions.length > 1 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
-                  <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                    <div>
-                      <h2 className="font-semibold text-brand-primary mb-1">Average Gift Aid per Submission</h2>
-                      <p className="text-xs text-gray-400">Bars show each submission; line tracks the running average</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-400">Overall average</p>
-                      <p className="text-2xl font-bold text-brand-accent">{fmt(overallAvg)}</p>
-                    </div>
-                  </div>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <ComposedChart data={avgOverTime} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <YAxis tickFormatter={v => `£${(v / 1000).toFixed(1)}k`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <Tooltip content={<ChartTooltip />} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="claimed" name="This submission" fill={WARM} stroke={NAVY} strokeWidth={1} radius={[3, 3, 0, 0]} />
-                      <Line dataKey="runningAvg" name="Running average" type="monotone" stroke={TEAL} strokeWidth={2.5} dot={{ fill: TEAL, r: 4 }} />
-                    </ComposedChart>
                   </ResponsiveContainer>
                 </div>
               )}

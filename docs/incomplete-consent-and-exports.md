@@ -7,7 +7,12 @@ Gift Aid Opt-In value, separately from the stored completeness status.
 
 Upload previews and charity/admin insights show incomplete opted-in and
 incomplete opted-out counts separately. No, N, empty and whitespace-only
-opt-in values count as opted out, regardless of case.
+opt-in values count as opted out, regardless of case. The Gift Aid opt-out
+total includes incomplete opted-out rows. Those cards intentionally overlap;
+combined missed-record totals count each row once. Valid cards, valid exports
+and the valid tax-year chart use the same rule and exclude historic, incomplete
+and opted-out rows. The stacked chart uses separate historic and incomplete
+buckets so a row appears in only one segment.
 
 The charity insights page offers two CSV exports:
 
