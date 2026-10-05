@@ -7,7 +7,10 @@ import * as XLSX from 'xlsx'
 interface PendingCharity {
   id: string
   email: string
-  status: 'pending' | 'completed'
+  charity_id: string
+  charity_name: string
+  expires_at: string
+  expired: boolean
   invited_at: string
 }
 
@@ -155,7 +158,13 @@ export default function PendingCharities() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  useEffect(() => { loadData() }, [])
+  useEffect(() => {
+    void loadData()
+    const refresh = () => { if (document.visibilityState === 'visible') void loadData() }
+    const timer = window.setInterval(refresh, 30000)
+    window.addEventListener('focus', refresh)
+    return () => { window.clearInterval(timer); window.removeEventListener('focus', refresh) }
+  }, [])
 
   const loadData = async () => {
     try {
@@ -163,13 +172,14 @@ export default function PendingCharities() {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { navigate('/login'); return }
 
-      const { data: pending, error: pendErr } = await supabase
-        .from('pending_charities')
-        .select('id, email, status, invited_at')
-        .eq('status', 'pending')
-        .order('invited_at', { ascending: false })
-      if (pendErr) throw new Error(pendErr.message)
-      setPendingList(pending || [])
+      const response = await fetch('/api/admin/pendingInvitations', {
+        headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store',
+      })
+      const result = await response.json()
+      if (!response.ok || !result.ok) throw new Error(result.error || 'Unable to load invitations')
+      const pending: PendingCharity[] = result.pending
+      setPendingList(pending)
+      if (!pending.length) setStagedCounts({})
 
       if (pending && pending.length > 0) {
         // Use a count query per email — exact counts regardless of how many
@@ -269,7 +279,7 @@ export default function PendingCharities() {
         <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
           <button onClick={() => navigate('/admin')} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Admin</button>
           <h1 className="text-3xl font-bold text-brand-primary">Pending Charities</h1>
-          <p className="text-gray-400 text-sm mt-1">Charities who have been invited but haven't completed signup yet. You can stage donation data for them now — it will move into their account automatically the moment they finish setting up their profile.</p>
+          <p className="text-gray-400 text-sm mt-1">Sent workspace invitations whose contacts haven't completed setup yet. You can stage donation data for them now — it will move into their account automatically the moment they finish setting up their profile.</p>
         </div>
 
         <div className="max-w-4xl mx-auto px-6 pb-12">
@@ -285,9 +295,11 @@ export default function PendingCharities() {
             ) : (
               <ul className="divide-y divide-gray-50">
                 {pendingList.map(p => (
-                  <li key={p.id} className="px-6 py-4 flex items-center justify-between hover:bg-brand-surface/40 transition-colors">
+                  <li key={p.id} className="px-6 py-4 flex flex-wrap gap-4 items-center justify-between hover:bg-brand-surface/40 transition-colors">
                     <div>
-                      <div className="font-semibold text-brand-primary">{p.email}</div>
+                      <button onClick={() => navigate(`/admin/charities/${p.charity_id}`)} className="font-semibold text-brand-primary hover:text-brand-accent hover:underline">{p.charity_name}</button>
+                      <div className="text-sm text-gray-600 mt-1">{p.email}</div>
+                      {p.expired && <div className="text-xs text-amber-700 mt-1">Invitation expired — open the workspace to send a new invitation.</div>}
                       <div className="text-xs text-gray-400 mt-0.5">
                         Invited {new Date(p.invited_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                         {stagedCounts[p.email] > 0 && (
@@ -305,8 +317,13 @@ export default function PendingCharities() {
                         Insights
                       </button>
                       <button
+                        onClick={() => navigate(`/admin/charities/${p.charity_id}`)}
+                        className="px-4 py-1.5 text-sm font-semibold text-brand-primary hover:underline"
+                      >Workspace</button>
+                      <button
+                        disabled={p.expired}
                         onClick={() => setUploadingFor(p.email)}
-                        className="px-4 py-1.5 text-sm font-semibold rounded-lg border border-brand-accent/30 text-brand-accent hover:bg-brand-accent hover:text-white transition-colors"
+                        className="px-4 py-1.5 text-sm font-semibold rounded-lg border border-brand-accent/30 text-brand-accent hover:bg-brand-accent hover:text-white transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                       >
                         Upload Data
                       </button>
