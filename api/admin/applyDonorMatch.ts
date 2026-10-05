@@ -1,3 +1,4 @@
+import { isGiftAidOptOut } from '../../shared/giftAidRecords.js'
 /**
  * Applies a CONFIRMED donor match (an admin has reviewed candidates from
  * findDonorMatches.ts and explicitly chosen one) — copies contact/identity
@@ -94,16 +95,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Only fill genuine gaps — never overwrite something already present.
     const enriched = {
       title: incomplete.title || matched.title || null,
-      address: incomplete.address || matched.address || null,
-      postcode: incomplete.postcode || matched.postcode || null,
+      address: String(incomplete.address ?? '').trim() || String(matched.address ?? '').trim() || null,
+      postcode: String(incomplete.postcode ?? '').trim() || String(matched.postcode ?? '').trim() || null,
     }
 
     const stillMissing = [
-      !incomplete.first_name ? 'First Name' : null,
-      !incomplete.last_name ? 'Last Name' : null,
-      !enriched.address ? 'Address' : null,
-      !enriched.postcode ? 'Postcode' : null,
-      !incomplete.donation_date ? 'Donation Date' : null,
+      !String(incomplete.first_name ?? '').trim() ? 'First Name' : null,
+      !String(incomplete.last_name ?? '').trim() ? 'Last Name' : null,
+      !String(enriched.address ?? '').trim() ? 'Address' : null,
+      !String(enriched.postcode ?? '').trim() ? 'Postcode' : null,
+      !String(incomplete.donation_date ?? '').trim() ? 'Donation Date' : null,
       (incomplete.amount == null || incomplete.amount <= 0) ? 'Amount' : null,
     ].filter(Boolean)
 
@@ -116,6 +117,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         promoted: false,
         message: `Some fields were filled in, but this record is still missing: ${stillMissing.join(', ')}. It remains marked incomplete.`,
       })
+    }
+
+    // Completing personal details never supplies Gift Aid consent.
+    if (isGiftAidOptOut(incomplete.gift_aid_opt_in) || incomplete.gift_aid_submitted === false) {
+      const recordStatus = isGiftAidOptOut(incomplete.gift_aid_opt_in) ? 'opt_out' : 'valid'
+      const { error } = await supabaseAdmin.from('uploaded_records')
+        .update({ ...enriched, record_status: recordStatus }).eq('id', incompleteRecordId)
+      if (error) return send(res, 500, { ok: false, error: error.message })
+      await logActivity({ userId: operator.id, userEmail: operator.email, action: 'donor_match_applied',
+        targetType: 'uploaded_record', targetId: incompleteRecordId,
+        details: `Details completed; ${recordStatus === 'opt_out' ? 'donor remains opted out' : 'historic record retained'}. No claim created.` })
+      return send(res, 200, { ok: true, promoted: false,
+        message: recordStatus === 'opt_out'
+          ? 'Details completed. This donor remains opted out and no claim was created.'
+          : 'Details completed. This historic record remains outside Gift Aided submissions.' })
     }
 
     // Fully complete now — re-derive tax_year fresh from donation_date

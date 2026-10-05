@@ -1,3 +1,4 @@
+import { giftAidRecordGroup, userExportRecords } from '../../shared/giftAidRecords'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
@@ -105,7 +106,7 @@ function csvEscape(value: string): string {
 }
 
 function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
-  const headers = ['Title', 'First Name', 'Last Name', 'Address', 'Postcode', 'Donation Date', 'Amount', 'Gift Aid Opt In', 'Tax Year']
+  const headers = ['Title', 'First Name', 'Last Name', 'Address', 'Postcode', 'Donation Date', 'Amount', 'Gift Aid Opt In', 'Tax Year', 'Gift Aid Submitted', 'Record Group']
   const lines = [headers.join(',')]
 
   for (const r of rows) {
@@ -119,6 +120,8 @@ function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
       r.amount != null ? parseFloat(String(r.amount)).toFixed(2) : '',
       r.gift_aid_opt_in || '',
       effectiveTaxYear(r),
+      r.gift_aid_submitted === false ? 'N' : 'Y',
+      giftAidRecordGroup(r),
     ]
     lines.push(fields.map(f => csvEscape(String(f))).join(','))
   }
@@ -240,6 +243,8 @@ export default function Insights() {
   const validCount     = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted !== false).length
   const historicCount  = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted === false).length
   const incompleteCount = records.filter(r => r.record_status === 'incomplete').length
+  const incompleteOptInCount = records.filter(r => giftAidRecordGroup(r) === 'incomplete_opt_in').length
+  const incompleteOptOutCount = records.filter(r => giftAidRecordGroup(r) === 'incomplete_opt_out').length
   const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
   const totalRecords   = records.length
 
@@ -374,12 +379,17 @@ export default function Insights() {
               {/* Record overview — opt out & incomplete */}
               {totalRecords > 0 && (
                 <>
+                  <div className="flex flex-wrap gap-4">
+                    <button onClick={() => downloadRecordsAsCsv(userExportRecords(records, 'full'), 'full-upload.csv')} className="text-sm font-semibold text-brand-accent hover:underline">Export full file</button>
+                    <button onClick={() => downloadRecordsAsCsv(userExportRecords(records, 'valid'), 'gift-aided-submitted-valid.csv')} disabled={userExportRecords(records, 'valid').length === 0} className="text-sm font-semibold text-brand-accent hover:underline disabled:text-gray-300">Export Gift Aided submitted (valid)</button>
+                  </div>
                   {/* Headline counts */}
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
                       { label: 'Records Claimed',    value: validCount,      sub: 'Submitted to HMRC and claimed', color: 'border-brand-accent text-brand-accent', status: 'valid' as const,      filename: 'submitted-claims.csv' },
                       { label: 'Historic claims',    value: historicCount,   sub: 'Submitted outside Gift Aided', color: 'border-blue-300 text-blue-600',         status: 'historic' as const,   filename: 'historic-claims.csv' },
-                      { label: 'Incomplete records', value: incompleteCount, sub: 'Missing mandatory fields',      color: 'border-yellow-400 text-yellow-600',     status: 'incomplete' as const, filename: 'incomplete-records.csv' },
+                      { label: 'Incomplete — opted in', value: incompleteOptInCount, sub: 'Missing mandatory fields; opted in', color: 'border-yellow-400 text-yellow-600', status: 'incomplete_opt_in' as const, filename: '' },
+                      { label: 'Incomplete — opted out', value: incompleteOptOutCount, sub: 'Missing mandatory fields; opted out', color: 'border-orange-400 text-orange-600', status: 'incomplete_opt_out' as const, filename: '' },
                       { label: 'Gift Aid opt outs',  value: optOutCount,     sub: 'Opted out — won\'t be claimed', color: 'border-gray-300 text-gray-500',         status: 'opt_out' as const,    filename: 'opt-out-records.csv' },
                     ].map(c => (
                       <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.color.split(' ')[0]}`}>
@@ -387,15 +397,7 @@ export default function Insights() {
                         <div className={`text-3xl font-bold ${c.color.split(' ')[1]}`}>{c.value}</div>
                         <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
                         {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
-                        <button
-                          onClick={() => downloadRecordsAsCsv(records.filter(r => c.status === 'historic'
-                            ? r.record_status === 'valid' && r.gift_aid_submitted === false
-                            : r.record_status === c.status && (c.status !== 'valid' || r.gift_aid_submitted !== false)), c.filename)}
-                          disabled={c.value === 0}
-                          className="mt-3 text-xs font-semibold text-brand-accent hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
-                        >
-                          Export CSV
-                        </button>
+
                       </div>
                     ))}
                   </div>

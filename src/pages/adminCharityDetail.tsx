@@ -1,3 +1,4 @@
+import { isGiftAidOptOut } from '../../shared/giftAidRecords'
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabase";
 import { useParams, useNavigate, useSearchParams } from "react-router-dom";
@@ -101,9 +102,7 @@ function parseDonationDate(str: string): Date | null {
 }
 
 function categoriseRow(row: Omit<ParsedRow, 'status' | 'missingFields'>): Pick<ParsedRow, 'status' | 'missingFields'> {
-  const opt = row.giftAidOptIn.trim().toUpperCase()
 
-  if (opt === 'N' || opt === 'NO' || opt === '') return { status: 'opt_out', missingFields: [] }
 
   // Check mandatory fields
   const missing: string[] = []
@@ -115,6 +114,7 @@ function categoriseRow(row: Omit<ParsedRow, 'status' | 'missingFields'>): Pick<P
   if (!row.amount || row.amount <= 0) missing.push('Amount')
 
   if (missing.length > 0) return { status: 'incomplete', missingFields: missing }
+  if (isGiftAidOptOut(row.giftAidOptIn)) return { status: 'opt_out', missingFields: [] }
   return { status: 'valid', missingFields: [] }
 }
 
@@ -998,6 +998,8 @@ export default function AdminCharityDetail() {
   const validRows      = parsedRows.filter(r => r.status === 'valid' && r.giftAidSubmitted)
   const historicRows   = parsedRows.filter(r => r.status === 'valid' && !r.giftAidSubmitted)
   const incompleteRows = parsedRows.filter(r => r.status === 'incomplete')
+  const incompleteOptInRows = incompleteRows.filter(r => !isGiftAidOptOut(r.giftAidOptIn))
+  const incompleteOptOutRows = incompleteRows.filter(r => isGiftAidOptOut(r.giftAidOptIn))
   const optOutRows     = parsedRows.filter(r => r.status === 'opt_out')
 
   // Each row's tax year is computed individually from its own donation date —
@@ -1284,7 +1286,8 @@ export default function AdminCharityDetail() {
                 {[
                   { label: 'Valid for HMRC', count: validRows.length, color: 'border-green-400 text-green-700 bg-green-50' },
                   { label: 'Historic (not ours)', count: historicRows.length, color: 'border-blue-300 text-blue-700 bg-blue-50' },
-                  { label: 'Incomplete', count: incompleteRows.length, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
+                  { label: 'Incomplete — opted in', count: incompleteOptInRows.length, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
+                  { label: 'Incomplete — opted out', count: incompleteOptOutRows.length, color: 'border-orange-400 text-orange-700 bg-orange-50' },
                   { label: 'Gift Aid Opt Out', count: optOutRows.length, color: 'border-gray-300 text-gray-500 bg-gray-50' },
                 ].map(c => (
                   <div key={c.label} className={`rounded-lg border-l-4 p-3 ${c.color}`}>
@@ -1327,11 +1330,11 @@ export default function AdminCharityDetail() {
             {/* Incomplete rows preview */}
             {incompleteRows.length > 0 && (
               <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
-                <p className="text-xs font-semibold text-yellow-700 uppercase tracking-wide mb-2">{incompleteRows.length} incomplete row{incompleteRows.length !== 1 ? 's' : ''} — missing mandatory fields</p>
+                <p className="text-xs font-semibold text-yellow-700 uppercase tracking-wide mb-2">{incompleteRows.length} incomplete rows — {incompleteOptInRows.length} opted in, {incompleteOptOutRows.length} opted out</p>
                 <ul className="space-y-1">
                   {incompleteRows.slice(0, 5).map(r => (
                     <li key={r.rowNum} className="text-xs text-yellow-700">
-                      Row {r.rowNum}: {r.firstName || r.lastName ? `${r.firstName} ${r.lastName} — ` : ''}missing {r.missingFields.join(', ')}
+                      Row {r.rowNum} ({isGiftAidOptOut(r.giftAidOptIn) ? 'opted out' : 'opted in'}): {r.firstName || r.lastName ? `${r.firstName} ${r.lastName} — ` : ''}missing {r.missingFields.join(', ')}
                     </li>
                   ))}
                   {incompleteRows.length > 5 && <li className="text-xs text-yellow-600 italic">… and {incompleteRows.length - 5} more</li>}
