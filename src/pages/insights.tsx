@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { fetchAllRows } from '../utils/fetchAll'
+import { useSubmissionStatuses } from '../hooks/useSubmissionStatuses'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ComposedChart, Line, ResponsiveContainer, Legend
@@ -151,6 +152,11 @@ function GBPTooltip({ active, payload, label }: any) {
 export default function Insights() {
   const navigate = useNavigate()
   const [submissions, setSubmissions] = useState<Submission[]>([])
+  const [charityId, setCharityId] = useState<string>()
+  useSubmissionStatuses('charity_id', charityId, rows => {
+    const statuses = new Map(rows.map(row => [row.id, row.status]))
+    setSubmissions(current => current.map(row => ({ ...row, status: statuses.get(row.id) ?? row.status })))
+  })
   const [donations, setDonations] = useState<Donation[]>([])
   const [records, setRecords] = useState<UploadedRecord[]>([])
   const [loading, setLoading] = useState(true)
@@ -168,6 +174,7 @@ export default function Insights() {
       if (!meResp.ok || !meJson.ok) { navigate('/login'); return }
 
       if (meJson.charityId) {
+        setCharityId(meJson.charityId)
         const subs = await fetchAllRows<Submission>(() =>
           supabase
             .from('submissions')

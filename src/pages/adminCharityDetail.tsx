@@ -291,6 +291,8 @@ export default function AdminCharityDetail() {
   const [submitError, setSubmitError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [savingStatusId, setSavingStatusId] = useState<string | null>(null)
+  const [statusMessage, setStatusMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [buildingId, setBuildingId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
   const [checkingId, setCheckingId] = useState<string | null>(null)
@@ -858,6 +860,30 @@ export default function AdminCharityDetail() {
     setSavingAgg(false)
   }
 
+  async function handleStatusChange(submission: Submission, status: string) {
+    if (savingStatusId || submission.status === status) return
+    setSavingStatusId(submission.id)
+    setStatusMessage(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Please sign in again')
+      const response = await fetch('/api/admin/updateSubmissionStatus', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: submission.id, charityId: id, status, expectedStatus: submission.status }),
+      })
+      const result = await response.json()
+      if (!response.ok || !result.ok) {
+        if (response.status === 409) await loadData()
+        throw new Error(result.error || 'Unable to save status')
+      }
+      setSubmissions(current => current.map(row => row.id === submission.id ? { ...row, status: result.submission.status } : row))
+      setStatusMessage({ ok: true, text: 'Status saved. The charity portal updates automatically.' })
+    } catch (error: any) {
+      setStatusMessage({ ok: false, text: error.message || 'Unable to save status' })
+    } finally { setSavingStatusId(null) }
+  }
+
   function hmrcStatusBadge(status: string) {
     const styles: Record<string, string> = {
       not_submitted: 'bg-gray-100 text-gray-500',
@@ -1137,6 +1163,9 @@ export default function AdminCharityDetail() {
                 + New GASDS Claim
               </button>
             </div>
+            {statusMessage && (
+              <p role={statusMessage.ok ? 'status' : 'alert'} className={`px-6 py-3 text-sm ${statusMessage.ok ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}`}>{statusMessage.text}</p>
+            )}
             {buildResult && (
               <div className={`px-6 py-3 text-sm ${buildResult.ok ? 'bg-blue-50 text-blue-700' : 'bg-red-50 text-red-700'}`}>
                 <p className="font-medium">{buildResult.message}</p>
@@ -1172,10 +1201,19 @@ export default function AdminCharityDetail() {
                       </td>
                       <td className="px-4 py-3 text-sm font-bold text-brand-accent whitespace-nowrap">£{parseFloat(String(s.amount_claimed || 0)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</td>
                       <td className="px-4 py-3 text-sm text-gray-500">{s.number_of_donations}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={`text-xs font-semibold rounded px-2 py-1 ${statusColor(s.status)}`}>
-                          {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
-                        </span>
+                      <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
+                        <select
+                          aria-label={`Status for upload ${s.tax_year} on ${s.submission_date}`}
+                          value={s.status}
+                          disabled={savingStatusId !== null}
+                          onChange={e => void handleStatusChange(s, e.target.value)}
+                          className={`text-xs font-semibold rounded px-2 py-1 border border-gray-200 disabled:opacity-50 ${statusColor(s.status)}`}
+                        >
+                          {['pending', 'submitted', 'approved', 'rejected'].map(status => (
+                            <option key={status} value={status}>{status.charAt(0).toUpperCase() + status.slice(1)}</option>
+                          ))}
+                        </select>
+                        {savingStatusId === s.id && <span role="status" className="ml-2 text-xs text-gray-500">Saving…</span>}
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-400 font-mono whitespace-nowrap">{s.hmrc_reference || '—'}</td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
