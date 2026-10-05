@@ -1,3 +1,5 @@
+import ExportFlipCard from '../components/ExportFlipCard'
+import { InsightTooltip as ChartTooltip, CurrencyInsightTooltip } from '../components/InsightTooltip'
 import { giftAidRecordGroup, isOptOutRecord, isValidGiftAidRecord } from '../../shared/giftAidRecords'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -137,18 +139,6 @@ function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
 // "Forgotten Women" -> "forgotten-women"
 function slugify(name: string): string {
   return name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'charity'
-}
-
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-white border border-gray-100 shadow-lg rounded-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
-      {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color ?? p.fill }}>{p.name}: {typeof p.value === 'number' && p.value > 10 ? fmt(p.value) : p.value}</p>
-      ))}
-    </div>
-  )
 }
 
 export default function AdminCharityInsights() {
@@ -318,37 +308,28 @@ export default function AdminCharityInsights() {
                       { label: 'Incomplete — opted out', value: incompleteOptOutCount, sub: 'Missing mandatory fields; opted out', border: 'border-orange-400', text: 'text-orange-600', status: 'incomplete_opt_out' as const },
                       { label: 'Gift Aid opt outs',   value: optOutCount,     sub: 'All opted out, including incomplete rows', border: 'border-gray-300',     text: 'text-gray-500',     status: 'opt_out' as const },
                     ].map(c => (
-                      <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.border}`}>
-                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
-                        <div className={`text-3xl font-bold ${c.text}`}>{c.value}</div>
-                        <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
-                        {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
-                        <button
-                          onClick={() => downloadRecordsAsCsv(records.filter(r => c.status === 'opt_out' ? isOptOutRecord(r) : giftAidRecordGroup(r) === c.status), `${slugify(charityName)}-${c.status}-records.csv`)}
-                          disabled={c.value === 0}
-                          className="mt-3 text-xs font-semibold text-brand-accent hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
-                        >
-                          Export CSV
-                        </button>
-                      </div>
+                      <ExportFlipCard key={c.label} label={c.label} value={c.value} description={c.sub}
+                        tone={c.text} percentage={Math.round(c.value / totalRecords * 100)}
+                        onExport={() => downloadRecordsAsCsv(records.filter(r => c.status === 'opt_out' ? isOptOutRecord(r) : giftAidRecordGroup(r) === c.status), `${slugify(charityName)}-${c.status}-records.csv`)}
+                      />
                     ))}
                   </div>
 
                   {recordsByYear.length > 0 && (
-                    <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                    <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
                       <h2 className="font-semibold text-brand-primary mb-1">Record Breakdown by Tax Year</h2>
                       <p className="text-xs text-gray-400 mb-6">Gift Aided valid, historic, incomplete and complete opt-out records; each row appears once</p>
                       <ResponsiveContainer width="100%" height={280}>
-                        <BarChart data={recordsByYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                          <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                          <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                          <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                          <Tooltip content={<ChartTooltip />} />
-                          <Legend wrapperStyle={{ fontSize: 12 }} />
-                          <Bar dataKey="valid"      name="Valid"      fill={TEAL}  stackId="a" radius={[0,0,0,0]} />
-                          <Bar dataKey="historic" name="Historic claims" fill={NAVY} stackId="a" />
-                          <Bar dataKey="incomplete" name="Incomplete" fill={AMBER} stackId="a" radius={[0,0,0,0]} />
-                          <Bar dataKey="optOut"     name="Opt out"   fill={SLATE} stackId="a" radius={[3,3,0,0]} />
+                        <BarChart barCategoryGap="28%" data={recordsByYear} margin={{ top: 12, right: 20, left: 0, bottom: 16 }}>
+                          <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 5" />
+                          <XAxis axisLine={false} tickLine={false} tickMargin={12} minTickGap={24} dataKey="taxYear" tick={{ fontSize: 12, fill: '#64748b' }} />
+                          <YAxis axisLine={false} tickLine={false} tickMargin={10} width={72} allowDecimals={false} tick={{ fontSize: 12, fill: '#64748b' }} />
+                          <Tooltip cursor={{ fill: '#f1f5f9', radius: 6 }} content={<ChartTooltip />} />
+                          <Legend iconType="circle" iconSize={8} wrapperStyle={{ fontSize: 12, paddingTop: 16, color: '#475569' }} />
+                          <Bar maxBarSize={44} dataKey="valid"      name="Valid"      fill={TEAL}  stackId="a" radius={[0,0,0,0]} />
+                          <Bar maxBarSize={44} dataKey="historic" name="Historic claims" fill={NAVY} stackId="a" />
+                          <Bar maxBarSize={44} dataKey="incomplete" name="Incomplete" fill={AMBER} stackId="a" radius={[0,0,0,0]} />
+                          <Bar maxBarSize={44} dataKey="optOut"     name="Opt out"   fill={SLATE} stackId="a" radius={[3,3,0,0]} />
                         </BarChart>
                       </ResponsiveContainer>
                     </div>
@@ -358,16 +339,16 @@ export default function AdminCharityInsights() {
 
               {/* Gift Aid by tax year */}
               {submissions.length > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
                   <h2 className="font-semibold text-brand-primary mb-1">Gift Aid Claimed by Tax Year</h2>
                   <p className="text-xs text-gray-400 mb-6">Total Gift Aid reclaimed from HMRC</p>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={byTaxYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <YAxis tickFormatter={v => `£${(v / 1000).toFixed(1)}k`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <Tooltip content={<ChartTooltip />} />
-                      <Bar dataKey="giftAid" name="Gift Aid" fill={TEAL} radius={[4, 4, 0, 0]} />
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart barCategoryGap="28%" data={byTaxYear} margin={{ top: 12, right: 20, left: 0, bottom: 16 }}>
+                      <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 5" />
+                      <XAxis axisLine={false} tickLine={false} tickMargin={12} minTickGap={24} dataKey="taxYear" tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tickMargin={10} width={72} tickFormatter={v => `£${(v / 1000).toFixed(1)}k`} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <Tooltip cursor={{ fill: '#f1f5f9', radius: 6 }} content={<CurrencyInsightTooltip />} />
+                      <Bar maxBarSize={44} dataKey="giftAid" name="Gift Aid" fill={TEAL} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -375,7 +356,7 @@ export default function AdminCharityInsights() {
 
               {/* Avg Gift Aid per donor */}
               {totalDonorCount > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
                   <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                     <div>
                       <h2 className="font-semibold text-brand-primary mb-1">Average Gift Aid per Donor</h2>
@@ -387,13 +368,13 @@ export default function AdminCharityInsights() {
                       <p className="text-xs text-gray-400 mt-0.5">{totalDonorCount} donor{totalDonorCount !== 1 ? 's' : ''}</p>
                     </div>
                   </div>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={avgPerDonorByYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <YAxis tickFormatter={v => `£${v.toFixed(0)}`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <Tooltip content={<ChartTooltip />} />
-                      <Bar dataKey="avgGiftAid" name="Avg Gift Aid per donor" fill={NAVY} radius={[4, 4, 0, 0]} />
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart barCategoryGap="28%" data={avgPerDonorByYear} margin={{ top: 12, right: 20, left: 0, bottom: 16 }}>
+                      <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 5" />
+                      <XAxis axisLine={false} tickLine={false} tickMargin={12} minTickGap={24} dataKey="taxYear" tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tickMargin={10} width={72} tickFormatter={v => `£${v.toFixed(0)}`} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <Tooltip cursor={{ fill: '#f1f5f9', radius: 6 }} content={<CurrencyInsightTooltip />} />
+                      <Bar maxBarSize={44} dataKey="avgGiftAid" name="Avg Gift Aid per donor" fill={NAVY} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

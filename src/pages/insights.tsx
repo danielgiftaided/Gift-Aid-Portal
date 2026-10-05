@@ -1,3 +1,5 @@
+import ExportFlipCard from '../components/ExportFlipCard'
+import { CurrencyInsightTooltip as GBPTooltip } from '../components/InsightTooltip'
 import { giftAidRecordGroup, userExportRecords, isOptOutRecord, isValidGiftAidRecord, missedGiftAidRecords } from '../../shared/giftAidRecords'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -135,20 +137,6 @@ function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
   link.click()
   document.body.removeChild(link)
   URL.revokeObjectURL(url)
-}
-
-function GBPTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-white border border-gray-100 shadow-lg rounded-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
-      {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color ?? p.fill }}>
-          {p.name}: {typeof p.value === 'number' ? (p.value > 1 && p.name.toLowerCase().includes('£') ? fmt(p.value) : p.value) : p.value}
-        </p>
-      ))}
-    </div>
-  )
 }
 
 export default function Insights() {
@@ -298,16 +286,16 @@ export default function Insights() {
 
               {/* Chart 1 */}
               {submissions.length > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
                   <h2 className="font-semibold text-brand-primary mb-1">Gift Aid Claimed by Tax Year</h2>
                   <p className="text-xs text-gray-400 mb-6">Total Gift Aid reclaimed from HMRC for each UK tax year</p>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={byTaxYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <YAxis tickFormatter={v => `£${(v / 1000).toFixed(1)}k`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <Tooltip content={<GBPTooltip />} />
-                      <Bar dataKey="giftAid" name="Gift Aid" fill={TEAL} radius={[4, 4, 0, 0]} />
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart barCategoryGap="28%" data={byTaxYear} margin={{ top: 12, right: 20, left: 0, bottom: 16 }}>
+                      <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 5" />
+                      <XAxis axisLine={false} tickLine={false} tickMargin={12} minTickGap={24} dataKey="taxYear" tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tickMargin={10} width={72} tickFormatter={v => `£${(v / 1000).toFixed(1)}k`} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <Tooltip cursor={{ fill: '#f1f5f9', radius: 6 }} content={<GBPTooltip />} />
+                      <Bar maxBarSize={44} dataKey="giftAid" name="Gift Aid" fill={TEAL} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -315,7 +303,7 @@ export default function Insights() {
 
               {/* Avg Gift Aid per donor */}
               {totalDonorCount > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
                   <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
                     <div>
                       <h2 className="font-semibold text-brand-primary mb-1">Average Gift Aid per Donor</h2>
@@ -327,13 +315,13 @@ export default function Insights() {
                       <p className="text-xs text-gray-400 mt-0.5">{totalDonorCount} donor{totalDonorCount !== 1 ? 's' : ''}</p>
                     </div>
                   </div>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={avgPerDonorByYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <YAxis tickFormatter={v => `£${v.toFixed(0)}`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <Tooltip content={<GBPTooltip />} />
-                      <Bar dataKey="avgGiftAid" name="Avg Gift Aid per donor" fill={NAVY} radius={[4, 4, 0, 0]} />
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart barCategoryGap="28%" data={avgPerDonorByYear} margin={{ top: 12, right: 20, left: 0, bottom: 16 }}>
+                      <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 5" />
+                      <XAxis axisLine={false} tickLine={false} tickMargin={12} minTickGap={24} dataKey="taxYear" tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tickMargin={10} width={72} tickFormatter={v => `£${v.toFixed(0)}`} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <Tooltip cursor={{ fill: '#f1f5f9', radius: 6 }} content={<GBPTooltip />} />
+                      <Bar maxBarSize={44} dataKey="avgGiftAid" name="Avg Gift Aid per donor" fill={NAVY} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>
@@ -342,27 +330,22 @@ export default function Insights() {
               {/* Record overview — opt out & incomplete */}
               {totalRecords > 0 && (
                 <>
-                  <div className="flex flex-wrap gap-4">
-                    <button onClick={() => downloadRecordsAsCsv(userExportRecords(records, 'full'), 'full-upload.csv')} className="text-sm font-semibold text-brand-accent hover:underline">Export full file</button>
-                    <button onClick={() => downloadRecordsAsCsv(userExportRecords(records, 'valid'), 'gift-aided-submitted-valid.csv')} disabled={userExportRecords(records, 'valid').length === 0} className="text-sm font-semibold text-brand-accent hover:underline disabled:text-gray-300">Export Gift Aided submitted (valid)</button>
-                  </div>
                   {/* Headline counts */}
                   <p className="text-xs text-gray-500">The opt-out total includes incomplete opted-out rows. These cards overlap; total records counts each uploaded row once.</p>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
+                      { label: 'Full file', value: totalRecords, sub: 'All uploaded records', color: 'border-brand-accent text-brand-primary', status: 'full' as const, filename: 'full-upload.csv' },
                       { label: 'Records Claimed',    value: validCount,      sub: 'Submitted to HMRC and claimed', color: 'border-brand-accent text-brand-accent', status: 'valid' as const,      filename: 'submitted-claims.csv' },
                       { label: 'Historic claims',    value: historicCount,   sub: 'Submitted outside Gift Aided', color: 'border-blue-300 text-blue-600',         status: 'historic' as const,   filename: 'historic-claims.csv' },
                       { label: 'Incomplete — opted in', value: incompleteOptInCount, sub: 'Missing mandatory fields; opted in', color: 'border-yellow-400 text-yellow-600', status: 'incomplete_opt_in' as const, filename: '' },
                       { label: 'Incomplete — opted out', value: incompleteOptOutCount, sub: 'Missing mandatory fields; opted out', color: 'border-orange-400 text-orange-600', status: 'incomplete_opt_out' as const, filename: '' },
                       { label: 'Gift Aid opt outs',  value: optOutCount,     sub: 'All opted out, including incomplete rows', color: 'border-gray-300 text-gray-500',         status: 'opt_out' as const,    filename: 'opt-out-records.csv' },
                     ].map(c => (
-                      <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.color.split(' ')[0]}`}>
-                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
-                        <div className={`text-3xl font-bold ${c.color.split(' ')[1]}`}>{c.value}</div>
-                        <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
-                        {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
-
-                      </div>
+                      <ExportFlipCard key={c.label} label={c.label} value={c.value} description={c.sub}
+                        tone={c.color.split(' ')[1]} percentage={Math.round(c.value / totalRecords * 100)}
+                        onExport={c.status === 'full' ? () => downloadRecordsAsCsv(userExportRecords(records, 'full'), 'full-upload.csv')
+                          : c.status === 'valid' ? () => downloadRecordsAsCsv(userExportRecords(records, 'valid'), 'gift-aided-submitted-valid.csv') : undefined}
+                      />
                     ))}
                   </div>
                 </>

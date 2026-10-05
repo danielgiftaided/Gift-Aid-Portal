@@ -1,3 +1,4 @@
+import { CurrencyInsightTooltip as ChartTooltip } from '../components/InsightTooltip'
 import { isGiftAidOptOut, isOptOutRecord, isValidGiftAidRecord, giftAidRecordGroup, missedGiftAidRecords } from '../../shared/giftAidRecords'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
@@ -110,18 +111,6 @@ async function fetchAllPendingRecords(email: string): Promise<PendingRecord[]> {
   }
 
   return all
-}
-
-function ChartTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-white border border-gray-100 shadow-lg rounded-lg px-4 py-3 text-sm">
-      <p className="font-semibold text-gray-700 mb-1">{label}</p>
-      {payload.map((p: any, i: number) => (
-        <p key={i} style={{ color: p.color ?? p.fill }}>{p.name}: {typeof p.value === 'number' && p.value > 10 ? fmt(p.value) : p.value}</p>
-      ))}
-    </div>
-  )
 }
 
 export default function PendingCharityInsights() {
@@ -276,16 +265,16 @@ export default function PendingCharityInsights() {
 
               {/* Potential Gift Aid by tax year */}
               {giftAidByYear.length > 0 && validRecords.length > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
+                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
                   <h2 className="font-semibold text-brand-primary mb-1">Potential Gift Aid by Tax Year</h2>
                   <p className="text-xs text-gray-400 mb-6">What this charity stands to claim once their account is live — based on valid rows only</p>
-                  <ResponsiveContainer width="100%" height={240}>
-                    <BarChart data={giftAidByYear} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis dataKey="taxYear" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <YAxis tickFormatter={v => `£${v.toFixed(0)}`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <Tooltip content={<ChartTooltip />} />
-                      <Bar dataKey="giftAid" name="Potential Gift Aid" fill={NAVY} radius={[4, 4, 0, 0]} />
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart barCategoryGap="28%" data={giftAidByYear} margin={{ top: 12, right: 20, left: 0, bottom: 16 }}>
+                      <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 5" />
+                      <XAxis axisLine={false} tickLine={false} tickMargin={12} minTickGap={24} dataKey="taxYear" tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <YAxis axisLine={false} tickLine={false} tickMargin={10} width={72} tickFormatter={v => `£${v.toFixed(0)}`} tick={{ fontSize: 12, fill: '#64748b' }} />
+                      <Tooltip cursor={{ fill: '#f1f5f9', radius: 6 }} content={<ChartTooltip />} />
+                      <Bar maxBarSize={44} dataKey="giftAid" name="Potential Gift Aid" fill={NAVY} radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </div>

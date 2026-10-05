@@ -16,3 +16,12 @@ body {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
+
+.export-card-face { animation: card-reveal 260ms ease-out; transform-origin: center; }
+@keyframes card-reveal {
+  from { transform: rotateY(-85deg); opacity: 0.35; }
+  to { transform: rotateY(0); opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .export-card-face { animation: none; }
+}
