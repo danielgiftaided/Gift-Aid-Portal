@@ -82,7 +82,6 @@ export default function Admin() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const [inviteEmail, setInviteEmail] = useState("");
   const [charityName, setCharityName] = useState("");
   const [regulator, setRegulator] = useState("");
   const [registrationNumber, setRegistrationNumber] = useState("");
@@ -150,7 +149,6 @@ export default function Admin() {
         },
         body: JSON.stringify({
           name: charityName,
-          invite_email: inviteEmail || undefined,
           regulator: regulator || undefined,
           registration_number: registrationNumber || undefined,
         }),
@@ -170,7 +168,6 @@ export default function Admin() {
 
       setCreateSuccess(true);
       setCharityName("");
-      setInviteEmail("");
       setRegulator("");
       setRegistrationNumber("");
 
@@ -256,7 +253,7 @@ export default function Admin() {
             </h2>
 
             <p className="text-xs text-gray-400 mb-4">
-              Create a workspace now, then optionally invite someone. HMRC and
+              Create a workspace, then invite its contact from the workspace’s Onboarding tab. HMRC and
               authorised-official details are completed by the charity later.
             </p>
 
@@ -301,14 +298,6 @@ export default function Admin() {
               </div>
 
               <div className="flex gap-3 items-start">
-                <input
-                  type="email"
-                  placeholder="Invite email (optional)"
-                  value={inviteEmail}
-                  onChange={(e) => setInviteEmail(e.target.value)}
-                  className="flex-1 border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent"
-                />
-
                 <button
                   type="submit"
                   disabled={
@@ -318,11 +307,7 @@ export default function Admin() {
                   }
                   className="bg-brand-accent text-white rounded-lg px-5 py-2.5 text-sm font-semibold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
                 >
-                  {creating
-                    ? "Creating…"
-                    : inviteEmail
-                      ? "Create & invite"
-                      : "Save workspace"}
+                  {creating ? "Creating…" : "Save workspace"}
                 </button>
               </div>
             </form>

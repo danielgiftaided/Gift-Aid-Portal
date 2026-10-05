@@ -15,12 +15,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const operator = await requireOperator(req)
     const body = typeof req.body === 'string' ? JSON.parse(req.body) : (req.body ?? {})
     const name = String(body.name ?? '').trim()
-    const email = String(body.invite_email ?? '').trim().toLowerCase()
+    if (body.invite_email) return send(res, 400, { ok: false, error: 'Create the workspace first, then send invitations from its Onboarding tab.' })
     const regulator = String(body.regulator ?? '').trim().toUpperCase()
     const registrationNumber = String(body.registration_number ?? '').trim().toUpperCase()
 
     if (!name) return send(res, 400, { ok: false, error: 'Charity name is required' })
-    if (email && !/^\S+@\S+\.\S+$/.test(email)) return send(res, 400, { ok: false, error: 'Invite email is invalid' })
     if ((regulator && !registrationNumber) || (!regulator && registrationNumber)) {
       return send(res, 400, { ok: false, error: 'Regulator and registration number must be supplied together' })
     }
@@ -48,31 +47,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }).select('id, name').single()
     if (createError || !charity) throw createError ?? new Error('Charity workspace was not created')
 
-    let invitationId: string | null = null
-    if (email) {
-      const { data: invitation, error: invitationError } = await supabaseAdmin.from('charity_invitations').insert({
-        charity_id: charity.id, email, created_by: operator.id, status: 'sent',
-      }).select('id').single()
-      if (invitationError || !invitation) {
-        await supabaseAdmin.from('charities').delete().eq('id', charity.id)
-        throw invitationError ?? new Error('Invitation was not created')
-      }
-      invitationId = invitation.id
-
-      const { data: invited, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-        redirectTo: 'https://portal.giftaided.com/accept-invite',
-        data: { charity_id: charity.id, charity_invitation_id: invitation.id },
-      })
-      if (inviteError) {
-        await supabaseAdmin.from('charity_invitations').delete().eq('id', invitation.id)
-        await supabaseAdmin.from('charities').delete().eq('id', charity.id)
-        return send(res, 400, { ok: false, error: inviteError.message })
-      }
-      if (invited.user?.id) await supabaseAdmin.from('charity_invitations').update({ auth_user_id: invited.user.id }).eq('id', invitation.id)
-    }
-
-    await logActivity({ userId: operator.id, userEmail: operator.email, action: 'charity_workspace_created', targetType: 'charity', targetId: charity.id, details: email ? `Invitation sent to ${email}` : 'Saved without invitation' })
-    return send(res, 201, { ok: true, charity, invitation_id: invitationId })
+    await logActivity({ userId: operator.id, userEmail: operator.email, action: 'charity_workspace_created', targetType: 'charity', targetId: charity.id, details: 'Workspace created; invitations are sent from its Onboarding tab' })
+    return send(res, 201, { ok: true, charity })
   } catch (error: any) {
     return send(res, error?.message?.includes('Forbidden') ? 403 : 500, { ok: false, error: error?.message ?? 'Server error' })
   }

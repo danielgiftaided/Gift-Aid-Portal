@@ -1,3 +1,4 @@
+import CharityWorkspaceInvite from '../components/CharityWorkspaceInvite'
 import { isGiftAidOptOut } from '../../shared/giftAidRecords'
 import { useEffect, useState, useRef } from "react";
 import { supabase } from "../lib/supabase";
@@ -1129,6 +1130,7 @@ export default function AdminCharityDetail() {
                 Changes save automatically.
               </p>
             </div>
+            {id && charity && <CharityWorkspaceInvite key={id} charityId={id} charityName={charity.name} />}
             <OnboardingChecklist
               charityId={id}
               charityEmail={charity?.contact_email}
