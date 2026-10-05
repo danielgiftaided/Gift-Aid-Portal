@@ -1,4 +1,4 @@
-import { giftAidRecordGroup, userExportRecords } from '../../shared/giftAidRecords'
+import { giftAidRecordGroup, userExportRecords, isOptOutRecord, isValidGiftAidRecord, missedGiftAidRecords } from '../../shared/giftAidRecords'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
@@ -6,7 +6,7 @@ import { fetchAllRows } from '../utils/fetchAll'
 import { useSubmissionStatuses } from '../hooks/useSubmissionStatuses'
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ComposedChart, Line, ResponsiveContainer, Legend
+  ResponsiveContainer
 } from 'recharts'
 
 interface Submission { id: string; submission_date: string; status: string; amount_claimed: number; number_of_donations: number; tax_year: string }
@@ -46,7 +46,6 @@ function PageShapes() {
 
 const TEAL = '#0c745d'
 const NAVY = '#304675'
-const WARM = '#e8e4db'
 
 function fmt(val: number) {
   return `£${val.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -216,16 +215,7 @@ export default function Insights() {
     }, {} as Record<string, { taxYear: string; giftAid: number }>)
   ).sort((a, b) => a.taxYear.localeCompare(b.taxYear))
 
-  // ── Chart 6: Avg Gift Aid per submission ──
-  const avgOverTime = submissions.map((s, i) => {
-    const runningTotal = submissions.slice(0, i + 1).reduce((sum, x) => sum + parseFloat(String(x.amount_claimed || 0)), 0)
-    return {
-      date: new Date(s.submission_date).toLocaleDateString('en-GB', { month: 'short', year: '2-digit' }),
-      claimed: parseFloat(String(s.amount_claimed || 0)),
-      runningAvg: Math.round(runningTotal / (i + 1) * 100) / 100,
-    }
-  })
-  const overallAvg = submissions.length ? submissions.reduce((s, r) => s + parseFloat(String(r.amount_claimed || 0)), 0) / submissions.length : 0
+
 
   // ── Avg Gift Aid per donor ──
   const totalDonationAmount = donations.reduce((s, d) => s + parseFloat(String(d.amount || 0)), 0)
@@ -240,17 +230,17 @@ export default function Insights() {
   })
 
   // ── Record overview (from uploaded_records) ──
-  const validCount     = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted !== false).length
-  const historicCount  = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted === false).length
+  const validCount     = records.filter(isValidGiftAidRecord).length
+  const historicCount  = records.filter(r => giftAidRecordGroup(r) === 'historic').length
   const incompleteCount = records.filter(r => r.record_status === 'incomplete').length
   const incompleteOptInCount = records.filter(r => giftAidRecordGroup(r) === 'incomplete_opt_in').length
   const incompleteOptOutCount = records.filter(r => giftAidRecordGroup(r) === 'incomplete_opt_out').length
-  const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
+  const optOutCount    = records.filter(isOptOutRecord).length
   const totalRecords   = records.length
 
   // Potential Gift Aid that ISN'T being captured — combines incomplete records
   // (missing data, fixable) and opt-outs (donor declined) into one figure
-  const missedRecords = records.filter(r => r.record_status === 'incomplete' || r.record_status === 'opt_out')
+  const missedRecords = missedGiftAidRecords(records)
   const missedDonationValue = missedRecords.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
   const potentialMissedGiftAid = missedDonationValue * 0.25
 
@@ -323,33 +313,6 @@ export default function Insights() {
                 </div>
               )}
 
-              {/* Chart 6 */}
-              {submissions.length > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
-                  <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                    <div>
-                      <h2 className="font-semibold text-brand-primary mb-1">Average Gift Aid per Submission</h2>
-                      <p className="text-xs text-gray-400">Each bar is a submission value; the line tracks the running average</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs text-gray-400">Overall average</p>
-                      <p className="text-2xl font-bold text-brand-accent">{fmt(overallAvg)}</p>
-                    </div>
-                  </div>
-                  <ResponsiveContainer width="100%" height={260}>
-                    <ComposedChart data={avgOverTime} margin={{ top: 4, right: 16, left: 8, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" />
-                      <XAxis dataKey="date" tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <YAxis tickFormatter={v => `£${(v / 1000).toFixed(1)}k`} tick={{ fontSize: 12, fill: '#9ca3af' }} />
-                      <Tooltip content={<GBPTooltip />} />
-                      <Legend wrapperStyle={{ fontSize: 12 }} />
-                      <Bar dataKey="claimed" name="This submission" fill={WARM} stroke={NAVY} strokeWidth={1} radius={[3, 3, 0, 0]} />
-                      <Line dataKey="runningAvg" name="Running average" type="monotone" stroke={TEAL} strokeWidth={2.5} dot={{ fill: TEAL, r: 4 }} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
               {/* Avg Gift Aid per donor */}
               {totalDonorCount > 0 && (
                 <div className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-6">
@@ -384,13 +347,14 @@ export default function Insights() {
                     <button onClick={() => downloadRecordsAsCsv(userExportRecords(records, 'valid'), 'gift-aided-submitted-valid.csv')} disabled={userExportRecords(records, 'valid').length === 0} className="text-sm font-semibold text-brand-accent hover:underline disabled:text-gray-300">Export Gift Aided submitted (valid)</button>
                   </div>
                   {/* Headline counts */}
+                  <p className="text-xs text-gray-500">The opt-out total includes incomplete opted-out rows. These cards overlap; total records counts each uploaded row once.</p>
                   <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                     {[
                       { label: 'Records Claimed',    value: validCount,      sub: 'Submitted to HMRC and claimed', color: 'border-brand-accent text-brand-accent', status: 'valid' as const,      filename: 'submitted-claims.csv' },
                       { label: 'Historic claims',    value: historicCount,   sub: 'Submitted outside Gift Aided', color: 'border-blue-300 text-blue-600',         status: 'historic' as const,   filename: 'historic-claims.csv' },
                       { label: 'Incomplete — opted in', value: incompleteOptInCount, sub: 'Missing mandatory fields; opted in', color: 'border-yellow-400 text-yellow-600', status: 'incomplete_opt_in' as const, filename: '' },
                       { label: 'Incomplete — opted out', value: incompleteOptOutCount, sub: 'Missing mandatory fields; opted out', color: 'border-orange-400 text-orange-600', status: 'incomplete_opt_out' as const, filename: '' },
-                      { label: 'Gift Aid opt outs',  value: optOutCount,     sub: 'Opted out — won\'t be claimed', color: 'border-gray-300 text-gray-500',         status: 'opt_out' as const,    filename: 'opt-out-records.csv' },
+                      { label: 'Gift Aid opt outs',  value: optOutCount,     sub: 'All opted out, including incomplete rows', color: 'border-gray-300 text-gray-500',         status: 'opt_out' as const,    filename: 'opt-out-records.csv' },
                     ].map(c => (
                       <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.color.split(' ')[0]}`}>
                         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>

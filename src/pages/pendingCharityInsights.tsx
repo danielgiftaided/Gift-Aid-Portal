@@ -1,4 +1,4 @@
-import { isGiftAidOptOut } from '../../shared/giftAidRecords'
+import { isGiftAidOptOut, isOptOutRecord, isValidGiftAidRecord, giftAidRecordGroup, missedGiftAidRecords } from '../../shared/giftAidRecords'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -145,13 +145,12 @@ export default function PendingCharityInsights() {
   }
 
   // ── Calculations ──────────────────────────────────────
-  const eligibleRecords   = records.filter(r => r.record_status === 'valid')
-  const validRecords      = eligibleRecords.filter(r => r.gift_aid_submitted !== false)
-  const historicRecords   = eligibleRecords.filter(r => r.gift_aid_submitted === false)
+  const validRecords      = records.filter(isValidGiftAidRecord)
+  const historicRecords   = records.filter(r => giftAidRecordGroup(r) === 'historic')
   const incompleteRecords = records.filter(r => r.record_status === 'incomplete')
   const incompleteOptInRecords = incompleteRecords.filter(r => !isGiftAidOptOut(r.gift_aid_opt_in))
   const incompleteOptOutRecords = incompleteRecords.filter(r => isGiftAidOptOut(r.gift_aid_opt_in))
-  const optOutRecords     = records.filter(r => r.record_status === 'opt_out')
+  const optOutRecords     = records.filter(isOptOutRecord)
   const totalRecords      = records.length
 
   const totalDonationValue = validRecords.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
@@ -160,7 +159,7 @@ export default function PendingCharityInsights() {
 
   // Potential Gift Aid that ISN'T being captured — combines incomplete records
   // (missing data, fixable) and opt-outs (donor declined) into one figure
-  const missedRecords = [...incompleteRecords, ...optOutRecords]
+  const missedRecords = missedGiftAidRecords(records)
   const missedDonationValue = missedRecords.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
   const potentialMissedGiftAid = missedDonationValue * 0.25
 
@@ -246,7 +245,7 @@ export default function PendingCharityInsights() {
                   { label: 'Historic claims',    value: historicRecords.length,   sub: 'Submitted outside Gift Aided', border: 'border-blue-300', text: 'text-blue-600' },
                   { label: 'Incomplete — opted in', value: incompleteOptInRecords.length, sub: 'Missing mandatory fields',      border: 'border-yellow-400',   text: 'text-yellow-600' },
                   { label: 'Incomplete — opted out', value: incompleteOptOutRecords.length, sub: 'Missing mandatory fields; opted out', border: 'border-orange-400', text: 'text-orange-600' },
-                  { label: 'Gift Aid opt outs',  value: optOutRecords.length,     sub: 'Opted out — won\'t be claimed', border: 'border-gray-300',    text: 'text-gray-500' },
+                  { label: 'Gift Aid opt outs',  value: optOutRecords.length,     sub: 'All opted out, including incomplete rows', border: 'border-gray-300',    text: 'text-gray-500' },
                 ].map(c => (
                   <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.border}`}>
                     <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
