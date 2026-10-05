@@ -103,7 +103,7 @@ function parseDonationDate(str: string): Date | null {
 function categoriseRow(row: Omit<ParsedRow, 'status' | 'missingFields'>): Pick<ParsedRow, 'status' | 'missingFields'> {
   const opt = row.giftAidOptIn.trim().toUpperCase()
 
-  if (opt === 'N') return { status: 'opt_out', missingFields: [] }
+  if (opt === 'N' || opt === 'NO' || opt === '') return { status: 'opt_out', missingFields: [] }
 
   // Check mandatory fields
   const missing: string[] = []
@@ -141,7 +141,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
           if (['postcode','post code','post_code'].includes(h)) col.postcode = i
           if (['donation date','donationdate','donation_date','date'].includes(h)) col.donationDate = i
           if (['amount','donation amount','donation_amount'].includes(h)) col.amount = i
-          if (['gift aid opt in','gift_aid_opt_in','giftaidoptin','opt in','opt_in'].includes(h)) col.giftAidOptIn = i
+          if (['gift aid opt in','gift aid opt-in','gift_aid_opt_in','giftaidoptin','opt in','opt-in','opt_in'].includes(h)) col.giftAidOptIn = i
           if (['gift aid submitted','gift_aid_submitted','giftaidsubmitted'].includes(h)) col.giftAidSubmitted = i
         })
 
