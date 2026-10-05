@@ -1,3 +1,4 @@
+import { isGiftAidOptOut } from '../../shared/giftAidRecords'
 import { useEffect, useState, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
@@ -46,8 +47,6 @@ function PageShapes() {
 
 // ── Helpers (same logic as adminCharityDetail) ──────────────
 function categoriseRow(row: Omit<ParsedRow, 'status' | 'missingFields'>): Pick<ParsedRow, 'status' | 'missingFields'> {
-  const opt = row.giftAidOptIn.trim().toUpperCase()
-  if (opt === 'N' || opt === 'NO' || opt === '') return { status: 'opt_out', missingFields: [] }
   const missing: string[] = []
   if (!row.firstName) missing.push('First Name')
   if (!row.lastName) missing.push('Last Name')
@@ -56,6 +55,7 @@ function categoriseRow(row: Omit<ParsedRow, 'status' | 'missingFields'>): Pick<P
   if (!row.donationDate) missing.push('Donation Date')
   if (!row.amount || row.amount <= 0) missing.push('Amount')
   if (missing.length > 0) return { status: 'incomplete', missingFields: missing }
+  if (isGiftAidOptOut(row.giftAidOptIn)) return { status: 'opt_out', missingFields: [] }
   return { status: 'valid', missingFields: [] }
 }
 
@@ -243,7 +243,8 @@ export default function PendingCharities() {
 
   const validCount = parsedRows.filter(r => r.status === 'valid' && r.giftAidSubmitted).length
   const historicCount = parsedRows.filter(r => r.status === 'valid' && !r.giftAidSubmitted).length
-  const incompleteCount = parsedRows.filter(r => r.status === 'incomplete').length
+  const incompleteOptInCount = parsedRows.filter(r => r.status === 'incomplete' && !isGiftAidOptOut(r.giftAidOptIn)).length
+  const incompleteOptOutCount = parsedRows.filter(r => r.status === 'incomplete' && isGiftAidOptOut(r.giftAidOptIn)).length
   const optOutCount = parsedRows.filter(r => r.status === 'opt_out').length
 
   if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
@@ -343,7 +344,8 @@ export default function PendingCharities() {
                   {[
                     { label: 'Gift Aided submitted', count: validCount, color: 'border-green-400 text-green-700 bg-green-50' },
                     { label: 'Historic (not ours)', count: historicCount, color: 'border-blue-300 text-blue-700 bg-blue-50' },
-                    { label: 'Incomplete', count: incompleteCount, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
+                    { label: 'Incomplete — opted in', count: incompleteOptInCount, color: 'border-yellow-400 text-yellow-700 bg-yellow-50' },
+                    { label: 'Incomplete — opted out', count: incompleteOptOutCount, color: 'border-orange-400 text-orange-700 bg-orange-50' },
                     { label: 'Opt Out', count: optOutCount, color: 'border-gray-300 text-gray-500 bg-gray-50' },
                   ].map(c => (
                     <div key={c.label} className={`rounded-lg border-l-4 p-3 ${c.color}`}>

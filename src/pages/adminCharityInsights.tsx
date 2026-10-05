@@ -1,3 +1,4 @@
+import { giftAidRecordGroup } from '../../shared/giftAidRecords'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -100,7 +101,7 @@ function csvEscape(value: string): string {
 }
 
 function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
-  const headers = ['Title', 'First Name', 'Last Name', 'Address', 'Postcode', 'Donation Date', 'Amount', 'Gift Aid Opt In', 'Tax Year']
+  const headers = ['Title', 'First Name', 'Last Name', 'Address', 'Postcode', 'Donation Date', 'Amount', 'Gift Aid Opt In', 'Tax Year', 'Gift Aid Submitted', 'Record Group']
   const lines = [headers.join(',')]
 
   for (const r of rows) {
@@ -114,6 +115,8 @@ function downloadRecordsAsCsv(rows: UploadedRecord[], filename: string) {
       r.amount != null ? parseFloat(String(r.amount)).toFixed(2) : '',
       r.gift_aid_opt_in || '',
       effectiveTaxYear(r),
+      r.gift_aid_submitted === false ? 'N' : 'Y',
+      giftAidRecordGroup(r),
     ]
     lines.push(fields.map(f => csvEscape(String(f))).join(','))
   }
@@ -233,7 +236,8 @@ export default function AdminCharityInsights() {
 
   const validCount     = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted !== false).length
   const historicCount  = records.filter(r => r.record_status === 'valid' && r.gift_aid_submitted === false).length
-  const incompleteCount = records.filter(r => r.record_status === 'incomplete').length
+  const incompleteOptInCount = records.filter(r => giftAidRecordGroup(r) === 'incomplete_opt_in').length
+  const incompleteOptOutCount = records.filter(r => giftAidRecordGroup(r) === 'incomplete_opt_out').length
   const optOutCount    = records.filter(r => r.record_status === 'opt_out').length
   const totalRecords   = records.length
 
@@ -317,7 +321,8 @@ export default function AdminCharityInsights() {
                     {[
                       { label: 'Valid for Gift Aid',  value: validCount,      sub: 'Submitted to HMRC',         border: 'border-brand-accent', text: 'text-brand-accent', status: 'valid' as const },
                       { label: 'Historic claims',     value: historicCount,   sub: 'Submitted outside Gift Aided', border: 'border-blue-300', text: 'text-blue-600', status: 'historic' as const },
-                      { label: 'Incomplete records',  value: incompleteCount, sub: 'Missing mandatory fields',   border: 'border-yellow-400',   text: 'text-yellow-600',   status: 'incomplete' as const },
+                      { label: 'Incomplete — opted in', value: incompleteOptInCount, sub: 'Missing mandatory fields; opted in', border: 'border-yellow-400', text: 'text-yellow-600', status: 'incomplete_opt_in' as const },
+                      { label: 'Incomplete — opted out', value: incompleteOptOutCount, sub: 'Missing mandatory fields; opted out', border: 'border-orange-400', text: 'text-orange-600', status: 'incomplete_opt_out' as const },
                       { label: 'Gift Aid opt outs',   value: optOutCount,     sub: 'Opted out — not submitted', border: 'border-gray-300',     text: 'text-gray-500',     status: 'opt_out' as const },
                     ].map(c => (
                       <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.border}`}>
@@ -326,9 +331,7 @@ export default function AdminCharityInsights() {
                         <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
                         {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of all records</div>}
                         <button
-                          onClick={() => downloadRecordsAsCsv(records.filter(r => c.status === 'historic'
-                            ? r.record_status === 'valid' && r.gift_aid_submitted === false
-                            : r.record_status === c.status && (c.status !== 'valid' || r.gift_aid_submitted !== false)), `${slugify(charityName)}-${c.status}-records.csv`)}
+                          onClick={() => downloadRecordsAsCsv(records.filter(r => giftAidRecordGroup(r) === c.status), `${slugify(charityName)}-${c.status}-records.csv`)}
                           disabled={c.value === 0}
                           className="mt-3 text-xs font-semibold text-brand-accent hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed"
                         >
