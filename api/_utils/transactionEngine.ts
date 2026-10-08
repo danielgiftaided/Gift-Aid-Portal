@@ -182,7 +182,14 @@ export function buildDeleteMessage(classValue: string, correlationId: string): s
  * Per the Transaction Engine protocol: the Function is "list" rather than
  * "submit" or "delete", and the Class identifies the submission type.
  */
-export function buildDataRequestMessage(classValue: string, correlationId: string): string {
+export function buildDataRequestMessage(classValue: string, submissionXml: string): string {
+  // DATA_REQUEST authenticates as the original sender and queries by class,
+  // not CorrelationID (protocol v2.0 section 3.9).
+  const senderDetails = submissionXml.match(/<SenderDetails>[\s\S]*?<\/SenderDetails>/)?.[0]
+  if (!senderDetails || !/<SenderID>[^<]+<\/SenderID>/.test(senderDetails) || !/<Value>[^<]+<\/Value>/.test(senderDetails)) {
+    throw new Error('The original submission must contain sender authentication for DATA_REQUEST.')
+  }
+  const gatewayTest = submissionXml.match(/<GatewayTest>[01]<\/GatewayTest>/)?.[0] || ''
   return `<?xml version="1.0" encoding="UTF-8"?>
 <GovTalkMessage xmlns="http://www.govtalk.gov.uk/CM/envelope">
 <EnvelopeVersion>2.0</EnvelopeVersion>
@@ -191,10 +198,11 @@ export function buildDataRequestMessage(classValue: string, correlationId: strin
 <Class>${escapeXml(classValue)}</Class>
 <Qualifier>request</Qualifier>
 <Function>list</Function>
-<CorrelationID>${escapeXml(correlationId)}</CorrelationID>
+<CorrelationID/>
 <Transformation>XML</Transformation>
+${gatewayTest}
 </MessageDetails>
-<SenderDetails/>
+${senderDetails}
 </Header>
 <GovTalkDetails>
 <Keys/>

@@ -111,8 +111,11 @@ export default function RecognitionPackage() {
         {result && (
           <div className="mt-6 space-y-4">
             <div className={`rounded-xl border p-4 text-sm ${result.readyToSubmit ? 'bg-green-50 border-green-200 text-green-700' : 'bg-amber-50 border-amber-200 text-amber-700'}`}>
-              <p className="font-semibold mb-1">{result.readyToSubmit ? '✓ All 8 files ready' : `${result.missing.length} file(s) still missing`}</p>
+              <p className="font-semibold mb-1">{result.readyToSubmit ? '✓ All 8 files ready' : 'Package needs attention'}</p>
               <p>{result.message}</p>
+              {result.invalid?.map((item: { filename: string; reason: string }) => (
+                <p key={item.filename} className="mt-2">{item.filename}: {item.reason}</p>
+              ))}
             </div>
 
             {result.readyToSubmit && (

@@ -17,6 +17,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
+import { parseGovTalkResponse } from '../_utils/transactionEngine.js'
 
 function send(res: VercelResponse, status: number, body: object) {
   return res.status(status).json(body)
@@ -26,7 +27,8 @@ function send(res: VercelResponse, status: number, body: object) {
 // in LTS and is suitable for the recognition package. The timestamp must be
 // 01/05/2015 per the recognition document v1.7 p4.
 function addGatewayTimestamp(xml: string, date: string = '2015-05-01T00:00:00'): string {
-  return xml.replace(
+  const withoutTimestamp = xml.replace(/<GatewayTimestamp>[^<]*<\/GatewayTimestamp>/g, '')
+  return withoutTimestamp.replace(
     /<\/MessageDetails>/,
     `<GatewayTimestamp>${date}</GatewayTimestamp>\n</MessageDetails>`
   )
@@ -86,6 +88,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .filter(([, v]) => !v)
       .map(([k]) => k)
 
+    const expectedQualifiers: Record<string, string> = {
+      'SUBMISSION_ACKNOWLEDGEMENT.xml': 'acknowledgement',
+      'SUBMISSION_RESPONSE.xml': 'response',
+      'DELETE_RESPONSE.xml': 'response',
+      'DATA_RESPONSE.xml': 'response',
+    }
+    const invalid = Object.entries(expectedQualifiers).flatMap(([filename, qualifier]) => {
+      const xml = files[filename as keyof typeof files]
+      if (!xml) return []
+      const parsed = parseGovTalkResponse(xml)
+      return parsed.qualifier !== qualifier || parsed.businessErrors.length > 0
+        ? [{ filename, reason: parsed.businessErrors.map(e => `[${e.number}] ${e.text}`).join(' | ') || `Expected ${qualifier}, received ${parsed.qualifier}` }]
+        : []
+    })
+    const readyToSubmit = missing.length === 0 && invalid.length === 0
+
     return send(res, 200, {
       ok: true,
       submissionId,
@@ -93,9 +111,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       hmrcStatus: data.hmrc_status,
       files,
       missing,
-      readyToSubmit: missing.length === 0,
-      message: missing.length === 0
+      invalid,
+      readyToSubmit,
+      message: readyToSubmit
         ? 'All 8 files are present. Email them to SDSTeam@hmrc.gov.uk with a covering note citing Vendor ID 9330.'
+        : invalid.length > 0
+        ? `Unsuccessful HMRC responses: ${invalid.map(item => item.filename).join(', ')}. Capture successful responses before sending the package to HMRC.`
         : `${missing.length} file(s) not yet captured: ${missing.join(', ')}. Complete the ETS handshake cycle to generate the missing files.`,
     })
 

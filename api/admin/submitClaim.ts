@@ -93,6 +93,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 404, { ok: false, error: 'Submission not found' })
     }
 
+    if (['sent', 'polling'].includes(submission.hmrc_status)) {
+      return send(res, 409, { ok: false, error: 'Finish polling the active HMRC submission before rebuilding its claim.' })
+    }
+
     // Fetch the charity
     const { data: charity, error: charityErr } = await supabaseAdmin
       .from('charities')
@@ -122,7 +126,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // have one at all, which is normal, not an error.
     const { data: gasdsRow, error: gasdsErr } = await supabaseAdmin
       .from('gasds_claims')
-      .select('claim_year, amount, connected_charities, connected_charity_details, community_buildings, community_building_details, adjustment')
+      .select('claim_year, amount, connected_charities, connected_charity_details, community_buildings, community_building_details, adjustment, adjustment_explanation')
       .eq('submission_id', submissionId)
       .maybeSingle()
 
@@ -226,6 +230,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         hmrc_status: 'ready_to_send',
         status: deriveStatus('ready_to_send'),
         hmrc_claim_xml: finalXml,
+        // Evidence belongs to this exact claim. A rebuilt claim needs a new
+        // handshake; do not export responses captured for an earlier body.
+        hmrc_correlation_id: null,
+        hmrc_response_endpoint: null,
+        hmrc_acknowledgement_xml: null,
+        hmrc_submission_poll_xml: null,
+        hmrc_submission_response_xml: null,
+        hmrc_delete_request_xml: null,
+        hmrc_delete_response_xml: null,
+        hmrc_data_request_xml: null,
+        hmrc_data_response_xml: null,
         hmrc_built_at: new Date().toISOString(),
         hmrc_response_message: mapping.warnings.length > 0 ? `Built with warnings: ${mapping.warnings.join(' | ')}` : null,
       })

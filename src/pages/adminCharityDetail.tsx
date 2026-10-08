@@ -21,6 +21,8 @@ interface Submission { id: string; submission_date: string; status: string; hmrc
 }
 interface GasdsClaim {
   id: string; submission_id: string; claim_year: number; amount: number
+  adjustment: number | null
+  adjustment_explanation: string | null
   connected_charities: boolean; community_buildings: boolean
   connected_charity_details: Array<{charityName:string;hmrcRef:string;year:number;amount:number}> | null
   community_building_details: Array<{buildingName:string;address:string;postcode:string;year:number;amount:number}> | null
@@ -43,6 +45,7 @@ interface ParsedRow {
   donationDate: string
   amount: number | null
   giftAidOptIn: string          // raw value from column
+  sponsored: boolean
   giftAidSubmitted: boolean     // false when another provider submitted it
   status: 'valid' | 'incomplete' | 'opt_out'
   missingFields: string[]
@@ -136,6 +139,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
 
         headers.forEach((h, i) => {
           if (h === 'title') col.title = i
+          if (['sponsored','sponsored event','sponsored_event'].includes(h)) col.sponsored = i
           if (['first name','firstname','first_name'].includes(h)) col.firstName = i
           if (['last name','lastname','last_name','surname'].includes(h)) col.lastName = i
           if (h === 'address') col.address = i
@@ -169,6 +173,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
             amount: isNaN(amount) ? null : amount,
             giftAidOptIn: get('giftAidOptIn'),
             giftAidSubmitted,
+            sponsored: ['YES', 'Y', 'TRUE', '1'].includes(get('sponsored').toUpperCase()),
           }
 
           const { status, missingFields } = categoriseRow(base)
@@ -250,6 +255,8 @@ export default function AdminCharityDetail() {
   const [gasdsModalFor, setGasdsModalFor] = useState<Submission | null>(null)
   const [gasdsStandaloneTaxYear, setGasdsStandaloneTaxYear] = useState('')
   const [gasdsAmountInput, setGasdsAmountInput] = useState('')
+  const [gasdsAdjustmentInput, setGasdsAdjustmentInput] = useState('')
+  const [gasdsAdjustmentExplanation, setGasdsAdjustmentExplanation] = useState('')
   const [gasdsConnectedInput, setGasdsConnectedInput] = useState(false)
   const [gasdsCommunityInput, setGasdsCommunityInput] = useState(false)
   // Connected charity list — populated when connectedCharities is true
@@ -351,7 +358,7 @@ export default function AdminCharityDetail() {
       if (subData.length > 0) {
         const { data: gasdsData, error: gasdsErr } = await supabase
           .from('gasds_claims')
-          .select('id, submission_id, claim_year, amount, connected_charities, connected_charity_details, community_buildings, community_building_details, collection_dates, banked_dates, building_address, building_postcode, event_type, number_of_events, estimated_attendance')
+          .select('id, submission_id, claim_year, amount, adjustment, adjustment_explanation, connected_charities, connected_charity_details, community_buildings, community_building_details, collection_dates, banked_dates, building_address, building_postcode, event_type, number_of_events, estimated_attendance')
           .in('submission_id', subData.map(s => s.id))
         if (gasdsErr) throw new Error(gasdsErr.message)
         const keyed: Record<string, GasdsClaim> = {}
@@ -412,6 +419,8 @@ export default function AdminCharityDetail() {
 
   const resetGasdsModalFields = () => {
     setGasdsAmountInput('')
+    setGasdsAdjustmentInput('')
+    setGasdsAdjustmentExplanation('')
     setGasdsConnectedInput(false)
     setGasdsCommunityInput(false)
     setGasdsConnectedCharities([])
@@ -436,6 +445,8 @@ export default function AdminCharityDetail() {
     setGasdsModalFor(submission)
     if (existing) {
       setGasdsAmountInput(String(existing.amount))
+      setGasdsAdjustmentInput(existing.adjustment == null ? '' : String(existing.adjustment))
+      setGasdsAdjustmentExplanation(existing.adjustment_explanation || '')
       setGasdsConnectedInput(existing.connected_charities)
       setGasdsCommunityInput(existing.community_buildings)
       setGasdsCollectionDates(existing.collection_dates || [])
@@ -491,6 +502,15 @@ export default function AdminCharityDetail() {
   }
 
   const handleSaveGasds = async () => {
+    const adjustment = gasdsAdjustmentInput.trim() ? Number(gasdsAdjustmentInput) : null
+    if (adjustment != null && (!Number.isFinite(adjustment) || adjustment < 0 || !/^\d+(?:\.\d{1,2})?$/.test(gasdsAdjustmentInput.trim()))) {
+      setGasdsError('Enter a non-negative GASDS adjustment with at most two decimal places, or leave it blank.')
+      return
+    }
+    if (adjustment != null && !gasdsAdjustmentExplanation.trim()) {
+      setGasdsError('Add an explanation for the GASDS adjustment.')
+      return
+    }
     const amount = parseFloat(gasdsAmountInput)
     if (isNaN(amount) || amount <= 0) {
       setGasdsError('Enter a valid amount greater than zero.')
@@ -522,6 +542,8 @@ export default function AdminCharityDetail() {
     const gasdsFields = {
       claim_year: claimYear,
       amount,
+      adjustment,
+      adjustment_explanation: adjustment == null ? null : gasdsAdjustmentExplanation.trim(),
       connected_charities: gasdsConnectedInput,
       connected_charity_details: gasdsConnectedInput ? gasdsConnectedCharities.map(c => ({
         charityName: c.charityName, hmrcRef: c.hmrcRef,
@@ -964,7 +986,7 @@ export default function AdminCharityDetail() {
           rows.map(r => ({
             submission_id: newSub.id, charity_id: id,
             title: r.title || null, first_name: r.firstName, last_name: r.lastName,
-            address: r.address, postcode: r.postcode, donation_date: r.donationDate, amount: r.amount,
+            address: r.address, postcode: r.postcode, donation_date: r.donationDate, amount: r.amount, sponsored: r.sponsored,
           }))
         )
       }
@@ -983,6 +1005,7 @@ export default function AdminCharityDetail() {
         amount: r.amount ?? null,
         gift_aid_opt_in: r.giftAidOptIn || null,
         gift_aid_submitted: r.giftAidSubmitted,
+        sponsored: r.sponsored,
         record_status: r.status,
         tax_year: r.computedTaxYear,
       }))
@@ -1276,7 +1299,7 @@ export default function AdminCharityDetail() {
             <h2 className="font-semibold text-brand-primary mb-1">Upload Donation Spreadsheet</h2>
             <p className="text-sm text-gray-400 mb-1">Upload an Excel file (.xlsx). Rows are automatically sorted by Gift Aid Opt In status.</p>
             <p className="text-xs text-gray-300 mb-4">
-              Required columns: <span className="font-medium text-gray-400">First Name, Last Name, Address, Postcode, Donation Date, Amount, Gift Aid Opt In</span>. Optional: <span className="font-medium text-gray-400">Gift Aid Submitted</span> (Y = submitted by Gift Aided) and Title.
+              Required columns: <span className="font-medium text-gray-400">First Name, Last Name, Address, Postcode, Donation Date, Amount, Gift Aid Opt In</span>. Optional: <span className="font-medium text-gray-400">Gift Aid Submitted</span> (Y = submitted by Gift Aided), Title and Sponsored Event (Yes/Y/True/1).
             </p>
 
             <input ref={fileInputRef} type="file" accept=".xlsx,.xls" onChange={handleFileChange}
@@ -1569,7 +1592,7 @@ export default function AdminCharityDetail() {
             </div>
             <div className="p-6 space-y-5 max-h-[75vh] overflow-y-auto">
               <p className="text-xs text-gray-400">
-                Gift Aid Small Donations Scheme — a lump-sum claim on small cash collections (e.g. bucket collections) with no individual donor declarations. Only the amount and the two yes/no questions below are ever sent to HMRC; everything else here is record-keeping evidence kept on file in case of a compliance check.
+                Gift Aid Small Donations Scheme — a lump-sum claim on small cash collections (e.g. bucket collections) with no individual donor declarations. The claim amount, adjustment, connected charity details and community building details are sent to HMRC. Collection and banked dates are retained as supporting evidence.
               </p>
 
               {gasdsModalMode === 'standalone' && (
@@ -1594,6 +1617,19 @@ export default function AdminCharityDetail() {
                   placeholder="e.g. 450.00"
                   className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30"
                 />
+              </div>
+
+              <div>
+                <label htmlFor="gasds-adjustment" className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">GASDS adjustment (£)</label>
+                <input id="gasds-adjustment" type="number" min="0" step="0.01"
+                  value={gasdsAdjustmentInput} onChange={e => setGasdsAdjustmentInput(e.target.value)}
+                  placeholder="e.g. 25.00"
+                  className="w-full text-sm border border-gray-200 rounded px-2 py-1.5 focus:outline-none focus:ring-2 focus:ring-brand-accent/30" />
+                <label htmlFor="gasds-adjustment-explanation" className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mt-3 mb-1">Adjustment explanation</label>
+                <textarea id="gasds-adjustment-explanation" value={gasdsAdjustmentExplanation}
+                  onChange={e => setGasdsAdjustmentExplanation(e.target.value)} maxLength={350}
+                  className="w-full text-sm border border-gray-200 rounded px-2 py-1.5" />
+                <p className="text-xs text-gray-400 mt-1">Tax previously overclaimed under GASDS. Separate from the Gift Aid repayment adjustment. Leave blank if there is no correction.</p>
               </div>
 
               <label className="flex items-start gap-2 text-sm text-gray-600">
