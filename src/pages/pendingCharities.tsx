@@ -24,6 +24,7 @@ interface ParsedRow {
   donationDate: string
   amount: number | null
   giftAidOptIn: string
+  sponsored: boolean
   giftAidSubmitted: boolean
   status: 'valid' | 'incomplete' | 'opt_out'
   missingFields: string[]
@@ -106,6 +107,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
         const col: Record<string, number | undefined> = {}
         headers.forEach((h, i) => {
           if (h === 'title') col.title = i
+          if (['sponsored','sponsored event','sponsored_event'].includes(h)) col.sponsored = i
           if (['first name','firstname','first_name'].includes(h)) col.firstName = i
           if (['last name','lastname','last_name','surname'].includes(h)) col.lastName = i
           if (h === 'address') col.address = i
@@ -132,6 +134,7 @@ function parseExcel(file: File): Promise<ParsedRow[]> {
             rowNum: i + 1, title: get('title'), firstName: get('firstName'), lastName: get('lastName'),
             address: get('address'), postcode: get('postcode'), donationDate: get('donationDate'),
             amount: isNaN(amount) ? null : amount, giftAidOptIn: get('giftAidOptIn'), giftAidSubmitted,
+            sponsored: ['YES', 'Y', 'TRUE', '1'].includes(get('sponsored').toUpperCase()),
           }
           const { status, missingFields } = categoriseRow(base)
           rows.push({ ...base, status, missingFields })
@@ -232,6 +235,7 @@ export default function PendingCharities() {
             amount: r.amount,
             gift_aid_opt_in: r.giftAidOptIn || null,
             gift_aid_submitted: r.giftAidSubmitted,
+            sponsored: r.sponsored,
             record_status: r.status,
             tax_year: taxYear,
           }

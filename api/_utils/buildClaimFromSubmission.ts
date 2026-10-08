@@ -74,6 +74,7 @@ export interface GasdsRow {
   connected_charities: boolean
   community_buildings: boolean
   adjustment?: number | null
+  adjustment_explanation?: string | null
   // JSONB arrays from the DB — parsed and mapped into the XML sub-elements.
   // Shape: [{ charityName, hmrcRef, year, amount }]
   connected_charity_details?: Array<{ charityName: string; hmrcRef: string; year: number; amount: number }> | null
@@ -101,6 +102,7 @@ export interface DonationRow {
   postcode: string | null
   donation_date: string | null
   amount: number | null
+  sponsored?: boolean | null
   aggregated?: boolean | null                // true when this is an AggDonation row
   aggregated_description?: string | null     // required when aggregated is true
 }
@@ -192,12 +194,20 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
   }
 
   // ── Named donor ─────────────────────────────────────────
-  // "X" is the portal convention for an overseas UK taxpayer.
-  // BFPO (British Forces Post Office) addresses also don't match the UK
-  // postcode regex — confirmed by LTS error 4085. BFPO personnel are
-  // physically overseas, so <Overseas>yes</Overseas> is the correct path.
-  const rawPostcode = row.postcode?.trim().toUpperCase() ?? ''
-  const isOverseas = rawPostcode === 'X' || rawPostcode.startsWith('BFPO')
+  // X explicitly marks an overseas donor. BFPO numbers have UK-format
+  // postcodes; they must not be inferred to be overseas merely from BFPO.
+  let rawPostcode = row.postcode?.trim().toUpperCase() ?? ''
+  let donorAddress = row.address?.trim() ?? ''
+  if (/^BFPO\s*8$/.test(rawPostcode)) {
+    // MOD/GOV.UK: BFPO 8 (Naples) uses BF1 2AB.
+    // https://www.gov.uk/bfpo/find-a-bfpo-number
+    rawPostcode = 'BF1 2AB'
+    donorAddress = donorAddress.replace(/\s+BFPO\s*8$/i, '').trim()
+    warnings.push(`Donation ${row.id}: BFPO 8 normalised to its UK-format postcode BF1 2AB. Review the donor address before submitting.`)
+  } else if (rawPostcode.startsWith('BFPO')) {
+    errors.push(`Donation ${row.id}: enter the UK-format BFPO postcode from the MOD BFPO directory rather than a legacy BFPO number.`)
+  }
+  const isOverseas = rawPostcode === 'X'
 
   if (!row.first_name) errors.push(`Donation ${row.id}: missing first name`)
   if (!row.last_name) errors.push(`Donation ${row.id}: missing last name`)
@@ -235,7 +245,7 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
     }
   }
 
-  let house = row.address!.trim()
+  let house = donorAddress
   if (house.length > 40) {
     const hardCut = house.slice(0, 40)
     const lastSpace = hardCut.lastIndexOf(' ')
@@ -251,7 +261,8 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
       lastName: row.last_name!,
       houseNameOrNumber: house,
       overseas: isOverseas,
-      postcode: isOverseas ? undefined : row.postcode!.trim().toUpperCase(),
+      postcode: isOverseas ? undefined : rawPostcode,
+      sponsoredEvent: row.sponsored === true,
       donationDate: formattedDate!,
       amount: Math.round(row.amount! * 100) / 100,
     },
@@ -322,6 +333,13 @@ export function buildClaimFromSubmission(
       `This submission has a repayment adjustment of £${submission.adjustment_amount.toFixed(2)} but no explanation. HMRC business rule 7059 requires Other Information (OtherInfo) to be present whenever an Adjustment is included — add an explanation via the Adj button on this submission before building the claim.`
     )
   }
+
+  const otherInformation = [submission.adjustment_explanation?.trim(), gasds?.adjustment_explanation?.trim()].filter(Boolean).join('; ')
+  if (gasds?.adjustment != null) {
+    if (!Number.isFinite(gasds.adjustment) || gasds.adjustment < 0) errors.push('GASDS adjustment must be a non-negative amount.')
+    if (!otherInformation) errors.push('GASDS adjustment requires an explanation in Other Information.')
+  }
+  if (otherInformation.length > 350) errors.push('Combined adjustment explanations must be at most 350 characters.')
 
   // claim_year and tax_year are entered somewhat independently (GASDS data
   // entry vs the submission's own tax year), so it's worth catching a
@@ -394,6 +412,7 @@ export function buildClaimFromSubmission(
       agentOrNomineeReference: charity.agent_nominee_reference!,
       claimingOrganisationName: charity.name,
       taxYear: submission.tax_year,
+      otherInformation: otherInformation || undefined,
       regulatorNumber: charity.charity_number || undefined,
       donations: mappedDonors,
       // Repayment adjustment — stored on the submission itself, wired into

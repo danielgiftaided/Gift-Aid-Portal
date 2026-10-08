@@ -51,7 +51,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { data: submission, error: subErr } = await supabaseAdmin
       .from('submissions')
-      .select('id, hmrc_correlation_id, hmrc_response_endpoint, hmrc_status')
+      .select('id, hmrc_correlation_id, hmrc_response_endpoint, hmrc_status, hmrc_claim_xml')
       .eq('id', submissionId)
       .single()
 
@@ -66,11 +66,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
     }
 
-    const dataRequestXml = buildDataRequestMessage(CLAIM_CLASS, submission.hmrc_correlation_id)
+    const dataRequestXml = buildDataRequestMessage(CLAIM_CLASS, submission.hmrc_claim_xml || '')
 
-    // Send to the response endpoint from the acknowledgement (same pattern
-    // as SUBMISSION_POLL), falling back to the main ETS endpoint.
-    const targetUrl = submission.hmrc_response_endpoint || ETS_SUBMISSION_ENDPOINT
+    // Only SUBMISSION_POLL goes to ResponseEndPoint. List requests go to
+    // the Transaction Engine submission endpoint (protocol v2.0 section 3.9).
+    const targetUrl = ETS_SUBMISSION_ENDPOINT
 
     let responseXml: string
     try {
@@ -84,7 +84,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Store both the outgoing DATA_REQUEST and the DATA_RESPONSE alongside
     // the submission record so they can be retrieved as named files for the
     // recognition submission to HMRC.
-    await supabaseAdmin
+    const { error: saveError } = await supabaseAdmin
       .from('submissions')
       .update({
         hmrc_data_request_xml: dataRequestXml,
@@ -92,8 +92,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
       .eq('id', submissionId)
 
-    return send(res, 200, {
-      ok: true,
+    if (saveError) return send(res, 500, { ok: false, error: 'Could not save the DATA_REQUEST evidence.' })
+
+    const succeeded = parsed.qualifier === 'response' && parsed.businessErrors.length === 0
+    return send(res, succeeded ? 200 : 502, {
+      ok: succeeded,
+      error: succeeded ? undefined : 'HMRC returned an unsuccessful DATA_RESPONSE. Review the captured response before exporting.',
+      errors: parsed.businessErrors,
       qualifier: parsed.qualifier,
       message: `DATA_REQUEST sent and DATA_RESPONSE received (qualifier: ${parsed.qualifier}). Both stored against this submission for inclusion in the HMRC recognition package.`,
       dataRequestXml,

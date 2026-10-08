@@ -70,6 +70,7 @@ export interface GiftAidClaimInput {
   donations: GiftAidDonor[]
   otherIncome?: OtherIncome[]  // sits inside <Repayment> after GAD entries, before <Adjustment>
   adjustment?: { amount: number; explanation: string }
+  otherInformation?: string
   regulatorName?: 'CCEW' | 'CCNI' | 'OSCR'
   regulatorNumber?: string
   gasds?: GasdsClaimInput
@@ -183,7 +184,7 @@ function buildGadElement(d: GiftAidDonor): string {
   // donation that arose from a sponsored event (charity run, walk, bake sale
   // etc). The schema type r68_GiftAidYesType only accepts "yes" — the element
   // is OMITTED entirely for non-sponsored donations (not set to "no").
-  // The HMRC test data for Captain William Black includes a sponsored event
+  // The HMRC test data for Mrs Mary Smith includes a sponsored event
   // donation, so the `sponsored` field on that record must be set to true in
   // the database via the portal's donation form before resubmitting.
   if (d.sponsoredEvent === true) inner.push(`<Sponsored>yes</Sponsored>`)
@@ -222,8 +223,9 @@ export function buildR68Submission(
   const adjustmentElement = claim.adjustment
     ? `<Adjustment>${formatAmount(claim.adjustment.amount)}</Adjustment>`
     : ''
-  const otherInfoElement = claim.adjustment?.explanation
-    ? `<OtherInfo>${escapeXml(claim.adjustment.explanation.slice(0, 350))}</OtherInfo>`
+  const explanation = claim.otherInformation || claim.adjustment?.explanation
+  const otherInfoElement = explanation
+    ? `<OtherInfo>${escapeXml(explanation.slice(0, 350))}</OtherInfo>`
     : ''
 
   // OtherInc entries sit inside <Repayment> after all GAD entries and
@@ -256,12 +258,9 @@ export function buildR68Submission(
     const buildingElements = (g.communityBuildingList || []).map(b =>
       `<Building><BldgName>${escapeXml(b.buildingName)}</BldgName><Address>${escapeXml(b.address)}</Address><Postcode>${escapeXml(b.postcode)}</Postcode><BldgClaim><Year>${b.year}</Year><Amount>${formatAmount(b.amount)}</Amount></BldgClaim></Building>`
     ).join('')
-    // FIX (HMRC recognition feedback): <Adj> must always be present inside
-    // <GASDS> even when there is no adjustment to make. HMRC's business rules
-    // treat an absent <Adj> as a schema error. Default to 0.00 for first-time
-    // or unmodified claims. A non-zero value here corrects a previous over- or
-    // under-claim and must be accompanied by an explanation in <OtherInfo>.
-    const adjElement = `<Adj>${formatAmount(g.adjustment ?? 0)}</Adj>`
+    // Adj is optional in the R68 XSD. If supplied (including zero),
+    // HMRC's business rules require OtherInfo at Claim level.
+    const adjElement = g.adjustment == null ? '' : `<Adj>${formatAmount(g.adjustment)}</Adj>`
     return `<GASDS><ConnectedCharities>${g.connectedCharities ? 'yes' : 'no'}</ConnectedCharities>${charityElements}<GASDSClaim><Year>${g.claimYear}</Year><Amount>${formatAmount(g.amount)}</Amount></GASDSClaim><CommBldgs>${g.communityBuildings ? 'yes' : 'no'}</CommBldgs>${buildingElements}${adjElement}</GASDS>`
   })() : ''
 

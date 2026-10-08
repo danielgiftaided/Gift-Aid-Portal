@@ -223,6 +223,7 @@ async function migratePendingData(
             postcode: row.postcode,
             donation_date: row.donation_date,
             amount: row.amount,
+            sponsored: row.sponsored === true,
           })),
         );
     }
@@ -242,6 +243,7 @@ async function migratePendingData(
           postcode: row.postcode,
           donation_date: row.donation_date,
           amount: row.amount,
+          sponsored: row.sponsored === true,
           gift_aid_opt_in: row.gift_aid_opt_in,
           gift_aid_submitted: row.gift_aid_submitted !== false,
           record_status: row.record_status,

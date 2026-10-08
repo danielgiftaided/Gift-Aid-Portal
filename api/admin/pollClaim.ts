@@ -19,7 +19,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
-import { postToTransactionEngine, parseGovTalkResponse, buildPollMessage, buildDeleteMessage } from '../_utils/transactionEngine.js'
+import { postToTransactionEngine, parseGovTalkResponse, buildPollMessage, buildDeleteMessage, ETS_SUBMISSION_ENDPOINT } from '../_utils/transactionEngine.js'
 import { logActivity } from '../_utils/activityLog.js'
 import { deriveStatus } from '../_utils/deriveStatus.js'
 
@@ -109,7 +109,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     let deleteResponseXml: string | null = null
     try {
       const deleteXml = buildDeleteMessage(CLAIM_CLASS, submission.hmrc_correlation_id)
-      deleteResponseXml = await postToTransactionEngine(deleteXml, submission.hmrc_response_endpoint)
+      deleteResponseXml = await postToTransactionEngine(deleteXml, ETS_SUBMISSION_ENDPOINT)
       await supabaseAdmin.from('submissions')
         .update({
           hmrc_delete_request_xml: deleteXml,
