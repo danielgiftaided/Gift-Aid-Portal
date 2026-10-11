@@ -811,6 +811,19 @@ export default function AdminCharityDetail() {
         body: JSON.stringify({ submission_id: submissionId }),
       })
       const json = await resp.json()
+      if (json.dataRequestXml && json.dataResponseXml) {
+        const capturedFiles = {
+          hmrc_data_request_xml: json.dataRequestXml,
+          hmrc_data_response_xml: json.dataResponseXml,
+        }
+        setSubmissions(previous => previous.map(submission =>
+          submission.id === submissionId ? { ...submission, ...capturedFiles } : submission
+        ))
+        setViewingXmlFor(previous => previous?.id === submissionId
+          ? { ...previous, ...capturedFiles }
+          : previous
+        )
+      }
       setDataRequestResult(json.ok ? json.message : `Error: ${json.error}`)
     } catch (e: any) {
       setDataRequestResult(`Error: ${e.message}`)
@@ -1473,7 +1486,7 @@ export default function AdminCharityDetail() {
                       HMRC Recognition Package
                     </p>
                     <p className="text-xs text-gray-400">
-                      All seven Transaction Engine files bundled as a single ZIP.
+                      All eight recognition XML files bundled as a single ZIP.
                       Attach the ZIP (or extract and attach all files) to your email to SDSTeam@hmrc.gov.uk.
                     </p>
                   </div>
