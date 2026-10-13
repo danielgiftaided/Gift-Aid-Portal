@@ -2,7 +2,7 @@ import { useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { fetchAllRows } from '../utils/fetchAll'
 
-type StatusRow = { id: string; status: string }
+type StatusRow = { id: string; status: string; hmrc_status?: string | null }
 
 // Database events provide immediate updates; polling recovers missed events
 // and works when Realtime has not yet been enabled on the deployment.
@@ -20,7 +20,7 @@ export function useSubmissionStatuses(
       const version = ++requestVersion
       try {
         const rows = await fetchAllRows<StatusRow>(() =>
-          supabase.from('submissions').select('id, status').eq(field, value).order('id')
+          supabase.from('submissions').select('id, status, hmrc_status').eq(field, value).order('id')
         )
         if (!disposed && version === requestVersion) callback.current(rows)
       } catch (error) { console.error('Unable to refresh submission statuses', error) }
