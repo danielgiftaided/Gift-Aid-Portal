@@ -70,7 +70,7 @@ export default function AdminDonorMatching() {
     try {
       setLoading(true); setError(null)
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { navigate('/login'); return }
+      if (!session) { navigate('/admin/login'); return }
 
       const resp = await fetch(`/api/admin/listIncompleteRecords?limit=${pageSize}&offset=${page * pageSize}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
@@ -151,7 +151,7 @@ export default function AdminDonorMatching() {
               <button onClick={() => navigate('/admin/donor-matching')} className="text-sm font-medium text-brand-accent transition-colors">Donor Matching</button>
               <button onClick={() => navigate('/admin/pending-charities')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Pending Charities</button>
               <button onClick={() => navigate('/admin/activity-log')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Activity Log</button>
-              <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
+              <button onClick={async () => { await supabase.auth.signOut(); navigate('/admin/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
             </div>
           </div>
         </nav>

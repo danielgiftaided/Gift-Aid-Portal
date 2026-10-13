@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { isPasswordPwned, stampPasswordChanged } from '../utils/hibp'
+
+import { finishSignIn, type AdminLoginIntent } from '../utils/authNavigation'
 
 function AuthShapes() {
   return (
@@ -16,19 +18,15 @@ function AuthShapes() {
 
 const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent"
 
-async function redirectAfterReset(navigate: ReturnType<typeof useNavigate>) {
+async function redirectAfterReset(navigate: ReturnType<typeof useNavigate>, intent: AdminLoginIntent = {}) {
   const { data: { session } } = await supabase.auth.getSession()
-  if (!session) { navigate('/login'); return }
-  const meResp = await fetch('/api/user/me', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' })
-  const meJson = await meResp.json()
-  if (!meResp.ok || !meJson.ok) { navigate('/login'); return }
-  if (meJson.role === 'operator') { navigate('/admin'); return }
-  if (!meJson.charityId) { navigate('/charity-setup'); return }
-  navigate('/dashboard', { state: { charityName: meJson.charityName } })
+  if (!session) { navigate(intent.adminLogin ? '/admin/login' : '/login', { replace: true, state: intent }); return }
+  await finishSignIn(supabase, navigate, intent)
 }
 
 export default function PasswordExpired() {
   const navigate = useNavigate()
+  const location = useLocation()
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [loading, setLoading] = useState(false)
@@ -52,7 +50,12 @@ export default function PasswordExpired() {
     if (updateErr) { setError(updateErr.message); setLoading(false); return }
 
     await stampPasswordChanged(supabase)
-    await redirectAfterReset(navigate)
+    try {
+      await redirectAfterReset(navigate, (location.state as AdminLoginIntent) || {})
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not finish signing in.')
+      setLoading(false)
+    }
   }
 
   return (

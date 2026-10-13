@@ -43,7 +43,7 @@ export default function RecognitionPackage() {
     setLoading(true); setError(null); setResult(null)
     try {
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { navigate('/login'); return }
+      if (!session) { navigate('/admin/login'); return }
       const resp = await fetch(`/api/admin/exportRecognitionPackage?submission_id=${submissionId.trim()}`, {
         headers: { Authorization: `Bearer ${session.access_token}` },
       })
@@ -69,7 +69,7 @@ export default function RecognitionPackage() {
       <nav className="bg-white border-b border-gray-100">
         <div className="w-full px-8 py-4 flex justify-between items-center">
           <Logo />
-          <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }}
+          <button onClick={async () => { await supabase.auth.signOut(); navigate('/admin/login') }}
             className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
         </div>
       </nav>
