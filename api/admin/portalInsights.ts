@@ -28,39 +28,96 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     await requireOperator(req)
 
-    const { data: charities, error: charErr } = await supabaseAdmin
-      .from('charities')
-      .select('id, name')
+    const mode = req.query?.mode
+    if (mode && mode !== 'records')
+      return send(res, 400, { ok: false, error: 'Unknown report data mode' })
+    const offset = Number(req.query?.offset ?? 0)
+    if (!Number.isSafeInteger(offset) || offset < 0)
+      return send(res, 400, { ok: false, error: 'Invalid record offset' })
+    async function readRecordPage(from: number) {
+      const { data, error } = await supabaseAdmin
+        .from('uploaded_records')
+        .select(
+          'id, charity_id, submission_id, amount, donation_date, tax_year, record_status, gift_aid_opt_in, gift_aid_submitted',
+        )
+        .order('id', { ascending: true })
+        .range(from, from + 999)
+      if (error)
+        throw new Error(
+          `Could not load uploaded record reporting data: ${error.message}`,
+        )
+      return {
+        records: data || [],
+        nextOffset: data?.length === 1000 ? from + 1000 : null,
+      }
+    }
+    if (mode === 'records')
+      return send(res, 200, { ok: true, ...(await readRecordPage(offset)) })
 
-    if (charErr) return send(res, 500, { ok: false, error: charErr.message })
+    // Page all sources in a stable order; PostgREST otherwise silently
+    // truncates each table at its response limit. Never return donor PII.
+    async function readAll(table: string, fields: string): Promise<any[]> {
+      const rows: any[] = []
+      for (let offset = 0; ; offset += 1000) {
+        const { data, error } = await supabaseAdmin
+          .from(table)
+          .select(fields)
+          .order('id', { ascending: true })
+          .range(offset, offset + 999)
+        if (error)
+          throw new Error(
+            `Could not load ${table} reporting data: ${error.message}`,
+          )
+        rows.push(...(data || []))
+        if (!data || data.length < 1000) return rows
+      }
+    }
+    const [charities, submissions, recordPage] = await Promise.all([
+      readAll('charities', 'id, name'),
+      readAll(
+        'submissions',
+        'id, charity_id, amount_claimed, number_of_donations, status, hmrc_status, tax_year, submission_date',
+      ),
+      readRecordPage(0),
+    ])
 
-    const { data: submissions, error: subErr } = await supabaseAdmin
-      .from('submissions')
-      .select('charity_id, amount_claimed, number_of_donations, status')
-
-    if (subErr) return send(res, 500, { ok: false, error: subErr.message })
-
-    const totalGiftAidClaimed = (submissions || []).reduce((sum, s) => sum + (parseFloat(String(s.amount_claimed)) || 0), 0)
-    const totalDonations = (submissions || []).reduce((sum, s) => sum + (s.number_of_donations || 0), 0)
-    const totalApproved = (submissions || []).filter(s => s.status === 'approved').length
+    const totalGiftAidClaimed = (submissions || []).reduce(
+      (sum, s) => sum + (parseFloat(String(s.amount_claimed)) || 0),
+      0,
+    )
+    const totalDonations = (submissions || []).reduce(
+      (sum, s) => sum + (s.number_of_donations || 0),
+      0,
+    )
+    const totalApproved = (submissions || []).filter(
+      (s) => s.status === 'approved',
+    ).length
 
     // Per-charity breakdown — gives admins something to scan beyond just
     // the one headline figure, consistent with how every other Insights
     // page in this portal pairs a top-line number with supporting detail.
-    const byCharity: Record<string, { name: string; giftAid: number; submissions: number }> = {}
+    const byCharity: Record<
+      string,
+      { name: string; giftAid: number; submissions: number }
+    > = {}
     for (const c of charities || []) {
       byCharity[c.id] = { name: c.name, giftAid: 0, submissions: 0 }
     }
     for (const s of submissions || []) {
       if (!byCharity[s.charity_id]) continue // submission belongs to a charity no longer present — skip rather than crash
-      byCharity[s.charity_id].giftAid += parseFloat(String(s.amount_claimed)) || 0
+      byCharity[s.charity_id].giftAid +=
+        parseFloat(String(s.amount_claimed)) || 0
       byCharity[s.charity_id].submissions += 1
     }
 
-    const charityBreakdown = Object.values(byCharity).sort((a, b) => b.giftAid - a.giftAid)
+    const charityBreakdown = Object.values(byCharity).sort(
+      (a, b) => b.giftAid - a.giftAid,
+    )
 
     return send(res, 200, {
       ok: true,
+      analytics: { charities, submissions, records: recordPage.records },
+      recordsNextOffset: recordPage.nextOffset,
       totalCharities: (charities || []).length,
       totalSubmissions: (submissions || []).length,
       totalGiftAidClaimed,
@@ -68,8 +125,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       totalApproved,
       charityBreakdown,
     })
-
   } catch (e: any) {
-    return send(res, e.message?.includes('Forbidden') ? 403 : 500, { ok: false, error: e.message ?? 'Server error' })
+    return send(res, e.message?.includes('Forbidden') ? 403 : 500, {
+      ok: false,
+      error: e.message ?? 'Server error',
+    })
   }
 }
