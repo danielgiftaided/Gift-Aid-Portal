@@ -3,6 +3,8 @@ import { supabase } from '../lib/supabase'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { daysSincePasswordChange, stampPasswordChanged, PASSWORD_EXPIRY_DAYS } from '../utils/hibp'
 
+import { finishSignIn, type AdminLoginIntent } from '../utils/authNavigation'
+
 function AuthShapes() {
   return (
     <div className="absolute top-0 right-0 pointer-events-none select-none overflow-hidden w-56 h-full" style={{ zIndex: 0 }}>
@@ -16,9 +18,9 @@ function AuthShapes() {
 
 const inputClass = "w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent tracking-widest text-center text-lg font-mono"
 
-async function redirectAfterAuth(navigate: ReturnType<typeof useNavigate>) {
+async function redirectAfterAuth(navigate: ReturnType<typeof useNavigate>, intent: AdminLoginIntent = {}) {
   const { data: { session } } = await supabase.auth.getSession()
-  if (!session) { navigate('/login'); return }
+  if (!session) { navigate(intent.adminLogin ? '/admin/login' : '/login', { replace: true, state: intent }); return }
 
   // ── Password age check ──────────────────────────────────
   const { data: { user } } = await supabase.auth.getUser()
@@ -28,17 +30,12 @@ async function redirectAfterAuth(navigate: ReturnType<typeof useNavigate>) {
     // No timestamp yet — start the clock from today (grace period for existing users)
     await stampPasswordChanged(supabase)
   } else if (days > PASSWORD_EXPIRY_DAYS) {
-    navigate('/password-expired')
+    navigate('/password-expired', { state: intent })
     return
   }
 
   // ── Role-based redirect ─────────────────────────────────
-  const meResp = await fetch('/api/user/me', { headers: { Authorization: `Bearer ${session.access_token}` }, cache: 'no-store' })
-  const meJson = await meResp.json()
-  if (!meResp.ok || !meJson.ok) { navigate('/login'); return }
-  if (meJson.role === 'operator') { navigate('/admin'); return }
-  if (!meJson.charityId) { navigate('/charity-setup'); return }
-  navigate('/dashboard', { state: { charityName: meJson.charityName } })
+  await finishSignIn(supabase, navigate, intent)
 }
 
 export default function MfaChallenge() {
@@ -73,7 +70,7 @@ export default function MfaChallenge() {
       if (returnTo) {
         navigate(returnTo)
       } else {
-        await redirectAfterAuth(navigate)
+        await redirectAfterAuth(navigate, (location.state as AdminLoginIntent) || {})
       }
     } catch (e: any) {
       setError(e.message === 'Invalid TOTP code entered' ? 'Incorrect code — check your app and try again' : e.message)

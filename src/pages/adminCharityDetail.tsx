@@ -341,7 +341,7 @@ export default function AdminCharityDetail() {
     try {
       setPageError(null)
       const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { navigate('/login'); return }
+      if (!session) { navigate('/admin/login'); return }
       const { data: charityData, error: cErr } = await supabase.from('charities').select('id, name, contact_email, charity_number, charity_id, authorised_official_name, agent_nominee_reference').eq('id', id).single()
       if (cErr) throw new Error(cErr.message)
       setCharity(charityData)
@@ -1046,7 +1046,7 @@ export default function AdminCharityDetail() {
         <nav className="bg-white border-b border-gray-100">
           <div className="w-full px-8 py-4 flex justify-between items-center">
             <Logo />
-            <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
+            <button onClick={async () => { await supabase.auth.signOut(); navigate('/admin/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
           </div>
         </nav>
 

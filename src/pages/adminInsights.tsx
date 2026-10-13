@@ -32,7 +32,7 @@ export default function AdminInsights() {
         data: { session },
       } = await supabase.auth.getSession()
       if (!session) {
-        navigate('/login')
+        navigate('/admin/login')
         return
       }
       setData(await loadPortfolioAnalytics(session.access_token))

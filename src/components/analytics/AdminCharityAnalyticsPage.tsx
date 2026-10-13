@@ -36,7 +36,7 @@ export default function AdminCharityAnalyticsPage({
         data: { session },
       } = await supabase.auth.getSession()
       if (!session) {
-        navigate('/login')
+        navigate('/admin/login')
         return
       }
       const { data: charity, error: charityError } = await supabase
