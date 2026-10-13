@@ -150,7 +150,7 @@ export function AnalyticsFrame({
             className="analytics-logout"
             onClick={async () => {
               await supabase.auth.signOut()
-              navigate('/login')
+              navigate(admin ? '/admin/login' : '/login')
             }}
           >
             Log out

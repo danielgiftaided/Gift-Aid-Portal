@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import Login from './pages/login'
+import AdminRouteGuard from './components/AdminRouteGuard'
 import Signup from './pages/signup'
 import ForgotPassword from './pages/forgotPassword'
 import ResetPassword from './pages/resetPassword'
@@ -27,7 +28,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         {/* Auth */}
-        <Route path="/login"            element={<Login />} />
+        <Route path="/login"            element={<Login key="portal" />} />
         <Route path="/signup"           element={<Signup />} />
         <Route path="/forgot-password"  element={<ForgotPassword />} />
         <Route path="/reset-password"   element={<ResetPassword />} />
@@ -43,17 +44,22 @@ export default function App() {
         <Route path="/profile"          element={<CharityProfile />} />
         <Route path="/charity-setup"    element={<CharitySetup />} />
 
+        <Route path="/admin/login" element={<Login key="admin" admin />} />
         {/* Admin */}
-        <Route path="/admin"                                    element={<Admin />} />
-        <Route path="/admin/charities/:id"                      element={<AdminCharityDetail />} />
-        <Route path="/admin/charities/:id/insights"             element={<AdminCharityInsights />} />
-        <Route path="/admin/pending-charities"                  element={<PendingCharities />} />
-        <Route path="/admin/pending-charities/:email/insights"  element={<PendingCharityInsights />} />
-        <Route path="/admin/activity-log"                       element={<ActivityLog />} />
-        <Route path="/admin/insights"                           element={<AdminInsights />} />
-        <Route path="/admin/donor-matching"                     element={<AdminDonorMatching />} />
-        <Route path="/admin/recognition-package"                element={<RecognitionPackage />} />
+        <Route element={<AdminRouteGuard />}>
+          <Route path="/admin"                                    element={<Admin />} />
+          <Route path="/admin/charities/:id"                      element={<AdminCharityDetail />} />
+          <Route path="/admin/charities/:id/insights"             element={<AdminCharityInsights />} />
+          <Route path="/admin/pending-charities"                  element={<PendingCharities />} />
+          <Route path="/admin/pending-charities/:email/insights"  element={<PendingCharityInsights />} />
+          <Route path="/admin/activity-log"                       element={<ActivityLog />} />
+          <Route path="/admin/insights"                           element={<AdminInsights />} />
+          <Route path="/admin/donor-matching"                     element={<AdminDonorMatching />} />
+          <Route path="/admin/recognition-package"                element={<RecognitionPackage />} />
 
+        </Route>
+
+        <Route path="/admin/*" element={<Navigate to="/admin/login" replace />} />
         {/* Default — redirect any unmatched path to login */}
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

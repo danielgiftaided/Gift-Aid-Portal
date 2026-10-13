@@ -220,7 +220,7 @@ export default function Admin() {
               <button
                 onClick={async () => {
                   await supabase.auth.signOut();
-                  navigate("/login");
+                  navigate("/admin/login");
                 }}
                 className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
               >

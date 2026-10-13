@@ -21,7 +21,7 @@ export default function PendingCharityInsights() {
         data: { session },
       } = await supabase.auth.getSession()
       if (!session) {
-        navigate('/login')
+        navigate('/admin/login')
         return
       }
       setRecords(

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 import { Link, useNavigate, useLocation } from "react-router-dom";
+import { adminDestination, destinationAfterAuth, verifyPortalProfile, finishSignIn, type AdminLoginIntent } from "../utils/authNavigation";
 
 function AuthShapes() {
   return (
@@ -13,13 +14,14 @@ function AuthShapes() {
   )
 }
 
-export default function Login() {
+export default function Login({ admin = false }: { admin?: boolean }) {
+  const location = useLocation();
+  const intent: AdminLoginIntent = { adminLogin: admin, adminReturnTo: adminDestination((location.state as AdminLoginIntent | null)?.adminReturnTo) };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>((location.state as any)?.error || null);
   const navigate = useNavigate();
-  const location = useLocation();
   const successMessage = (location.state as any)?.message ?? null;
 
   const handleLogin = async (e: React.FormEvent) => {
@@ -44,34 +46,31 @@ export default function Login() {
         refresh_token: loginJson.refresh_token,
       });
       if (setSessionError) throw setSessionError;
+      if (admin) {
+        const profile = await verifyPortalProfile(loginJson.access_token);
+        // Validate the account before asking a charity user to perform admin MFA.
+        // This determines a destination only; it never navigates before MFA.
+        destinationAfterAuth(profile, intent);
+      }
 
       // ── MFA check ──────────────────────────────────────────
-      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      const { data: aal, error: aalError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aalError) throw aalError;
+      if (!aal) throw new Error("Could not verify your sign-in security level. Please try again.");
 
       if (aal.currentLevel === 'aal1' && aal.nextLevel === 'aal2') {
         // User has MFA enrolled — send to challenge
-        navigate('/mfa-challenge');
+        navigate('/mfa-challenge', { state: intent });
         return;
       }
 
       if (aal.currentLevel === 'aal1' && aal.nextLevel === 'aal1') {
         // No MFA enrolled — force setup before proceeding
-        navigate('/mfa-setup');
+        navigate('/mfa-setup', { state: intent });
         return;
       }
 
-      // ── AAL2 reached (MFA already satisfied in session) ────
-      const { data: sessionData } = await supabase.auth.getSession();
-      const token = sessionData.session?.access_token;
-      if (!token) throw new Error("No session token found.");
-
-      const meResp = await fetch("/api/user/me", { headers: { Authorization: `Bearer ${token}` }, cache: "no-store" });
-      const meJson = await meResp.json();
-      if (!meResp.ok || !meJson.ok) throw new Error(meJson?.error || "Failed to identify user");
-
-      if (meJson.role === "operator") { navigate("/admin"); return; }
-      if (!meJson.charityId) { navigate("/charity-setup"); return; }
-      navigate("/dashboard", { state: { charityName: meJson.charityName } });
+      await finishSignIn(supabase, navigate, intent);
 
     } catch (e: any) {
       setError(e?.message ?? "Login failed");
@@ -95,8 +94,8 @@ export default function Login() {
           {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
 
           <div className="bg-white rounded-2xl shadow-md p-7">
-            <h2 className="text-lg font-bold text-brand-primary mb-0.5">Sign in</h2>
-            <p className="text-xs text-gray-400 mb-5">Welcome back</p>
+            <h2 className="text-lg font-bold text-brand-primary mb-0.5">{admin ? "Admin sign in" : "Sign in"}</h2>
+            <p className="text-xs text-gray-400 mb-5">{admin ? "Use your registered operator account. MFA is required." : "Welcome back"}</p>
             <form onSubmit={handleLogin} className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-600 mb-1">Email</label>
@@ -114,9 +113,9 @@ export default function Login() {
                 {loading ? "Signing in…" : "Sign In"}
               </button>
             </form>
-            <p className="text-xs text-gray-400 mt-5 text-center">
+            {admin ? <p className="text-xs text-gray-400 mt-5 text-center"><Link to="/login" className="text-brand-accent font-semibold">Charity sign in</Link></p> : <p className="text-xs text-gray-400 mt-5 text-center">
               New here?{" "}<Link to="/signup" className="text-brand-accent font-semibold hover:underline">Create an account</Link>
-            </p>
+            </p>}
           </div>
         </div>
       </div>
