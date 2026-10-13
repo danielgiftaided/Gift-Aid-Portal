@@ -15,9 +15,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .from("users")
       .select("role, charity_id")
       .eq("id", user.id)
-      .single();
+      .maybeSingle();
 
     if (userError) return res.status(500).json({ ok: false, error: userError.message });
+
+    if (!userData) {
+      return res.status(403).json({
+        ok: false,
+        code: "PORTAL_PROFILE_MISSING",
+        error: "Your signed-in account has no portal profile. Sign out and sign in with your registered portal account, or ask your administrator to restore your existing profile.",
+      });
+    }
 
     // Get charity name separately using service role key (bypasses RLS)
     let charityName: string | null = null;

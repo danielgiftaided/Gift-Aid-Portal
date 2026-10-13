@@ -9,10 +9,13 @@ export async function requireOperator(req: VercelRequest) {
     .from("users")
     .select("role")
     .eq("id", user.id)
-    .single();
+    .maybeSingle();
 
   if (error) throw new Error(error.message);
-  if (!userRow || userRow.role !== "operator") {
+  if (!userRow) {
+    throw new Error("Forbidden: your signed-in account has no portal profile. Sign out and sign in with your registered operator account, or ask your administrator to restore your existing profile.");
+  }
+  if (userRow.role !== "operator") {
     throw new Error("Forbidden: operator access required");
   }
 
