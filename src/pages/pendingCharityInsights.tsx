@@ -1,299 +1,77 @@
-import { CurrencyInsightTooltip as ChartTooltip } from '../components/InsightTooltip'
-import { isGiftAidOptOut, isOptOutRecord, isValidGiftAidRecord, giftAidRecordGroup, missedGiftAidRecords } from '../../shared/giftAidRecords'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { useParams, useNavigate } from 'react-router-dom'
+import { fetchAllRows } from '../utils/fetchAll'
+import { type AnalyticsRecord } from '../../shared/analytics'
+import AnalyticsWorkspace, {
+  AnalyticsFrame,
+} from '../components/analytics/AnalyticsWorkspace'
 import OnboardingChecklist from '../components/OnboardingChecklist'
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
-} from 'recharts'
-
-interface PendingRecord {
-  id: string
-  title: string | null
-  first_name: string | null
-  last_name: string | null
-  postcode: string | null
-  donation_date: string | null
-  amount: number | null
-  record_status: 'valid' | 'incomplete' | 'opt_out'
-  tax_year: string | null
-  gift_aid_opt_in: string | null
-  gift_aid_submitted: boolean | null
-  created_at: string
-}
-
-function Logo() {
-  return (
-    <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, color: '#0c745d', fontSize: '1.6rem', lineHeight: 1 }}>
-      gift aided <span style={{ fontWeight: 400 }}>Portal</span>
-    </span>
-  )
-}
-
-function PageShapes() {
-  return (
-    <div className="absolute right-0 top-0 pointer-events-none select-none" style={{ zIndex: 0, width: '420px', height: '600px' }}>
-      <div style={{ position: 'absolute', left: '242px', top: '30px',  width: '136px', height: '142px', background: '#304675', borderTopRightRadius: '100%' }} />
-      <div style={{ position: 'absolute', left: '242px', top: '187px', width: '136px', height: '266px', background: '#0c745d' }} />
-      <div style={{ position: 'absolute', left: '134px', top: '76px',  width: '97px',  height: '96px',  background: '#e8e4db', borderRadius: '50% 50% 0 50%' }} />
-      <div style={{ position: 'absolute', left: '242px', top: '468px', width: '97px',  height: '97px',  background: '#e8e4db', borderRadius: '0 50% 50% 50%' }} />
-    </div>
-  )
-}
-
-const NAVY = '#304675'
-
-function fmt(v: number) { return `£${v.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` }
-
-// Recomputes the tax year from each row's own donation date rather than
-// trusting the stored tax_year column — this makes the page self-correcting
-// for any rows staged before the per-row tax year fix went live.
-function parseDonationDate(str: string | null): Date | null {
-  if (!str) return null
-  const trimmed = str.trim()
-
-  const dmy = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2}|\d{4})$/)
-  if (dmy) {
-    const day = parseInt(dmy[1], 10), month = parseInt(dmy[2], 10)
-    const year = dmy[3].length === 2 ? 2000 + parseInt(dmy[3], 10) : parseInt(dmy[3], 10)
-    if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
-      const d = new Date(year, month - 1, day)
-      if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
-    }
-  }
-
-  const ymd = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})$/)
-  if (ymd) {
-    const year = parseInt(ymd[1], 10), month = parseInt(ymd[2], 10), day = parseInt(ymd[3], 10)
-    const d = new Date(year, month - 1, day)
-    if (d.getFullYear() === year && d.getMonth() === month - 1 && d.getDate() === day) return d
-  }
-
-  const fallback = new Date(trimmed)
-  return isNaN(fallback.getTime()) ? null : fallback
-}
-
-function getTaxYearForDate(date: Date): string {
-  const y = date.getFullYear(), m = date.getMonth() + 1, d = date.getDate()
-  return (m > 4 || (m === 4 && d >= 6)) ? `${y}/${String(y + 1).slice(2)}` : `${y - 1}/${String(y).slice(2)}`
-}
-
-/** Resolves the correct tax year for a record — prefers the donation date,
- *  falls back to the stored tax_year column only if the date can't be parsed. */
-function effectiveTaxYear(r: PendingRecord): string {
-  const parsed = parseDonationDate(r.donation_date)
-  if (parsed) return getTaxYearForDate(parsed)
-  return r.tax_year || getTaxYearForDate(new Date())
-}
-
-// Supabase/PostgREST caps a single response at 1000 rows by default.
-// This loops through in batches until every row has been fetched.
-async function fetchAllPendingRecords(email: string): Promise<PendingRecord[]> {
-  const PAGE_SIZE = 1000
-  let all: PendingRecord[] = []
-  let from = 0
-
-  while (true) {
-    const { data, error } = await supabase
-      .from('pending_uploaded_records')
-      .select('id, title, first_name, last_name, postcode, donation_date, amount, record_status, tax_year, gift_aid_opt_in, gift_aid_submitted, created_at')
-      .eq('pending_email', email)
-      .order('created_at', { ascending: true })
-      .range(from, from + PAGE_SIZE - 1)
-
-    if (error) throw new Error(error.message)
-    if (!data || data.length === 0) break
-
-    all = all.concat(data as PendingRecord[])
-    if (data.length < PAGE_SIZE) break // last page reached
-    from += PAGE_SIZE
-  }
-
-  return all
-}
-
 export default function PendingCharityInsights() {
-  const { email: encodedEmail } = useParams<{ email: string }>()
-  const email = decodeURIComponent(encodedEmail || '')
+  const { email = '' } = useParams<{ email: string }>()
   const navigate = useNavigate()
-  const [records, setRecords] = useState<PendingRecord[]>([])
+  const [records, setRecords] = useState<AnalyticsRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => { if (email) loadData() }, [email])
-
-  const loadData = async () => {
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
     try {
-      const { data: { session } } = await supabase.auth.getSession()
-      if (!session) { navigate('/login'); return }
-
-      const allRecords = await fetchAllPendingRecords(email)
-      setRecords(allRecords)
-    } catch (e: any) { setError(e.message) } finally { setLoading(false) }
-  }
-
-  // ── Calculations ──────────────────────────────────────
-  const validRecords      = records.filter(isValidGiftAidRecord)
-  const historicRecords   = records.filter(r => giftAidRecordGroup(r) === 'historic')
-  const incompleteRecords = records.filter(r => r.record_status === 'incomplete')
-  const incompleteOptInRecords = incompleteRecords.filter(r => !isGiftAidOptOut(r.gift_aid_opt_in))
-  const incompleteOptOutRecords = incompleteRecords.filter(r => isGiftAidOptOut(r.gift_aid_opt_in))
-  const optOutRecords     = records.filter(isOptOutRecord)
-  const totalRecords      = records.length
-
-  const totalDonationValue = validRecords.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
-  const potentialGiftAid   = totalDonationValue * 0.25
-  const avgGiftAidPerDonor = validRecords.length > 0 ? potentialGiftAid / validRecords.length : 0
-
-  // Potential Gift Aid that ISN'T being captured — combines incomplete records
-  // (missing data, fixable) and opt-outs (donor declined) into one figure
-  const missedRecords = missedGiftAidRecords(records)
-  const missedDonationValue = missedRecords.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
-  const potentialMissedGiftAid = missedDonationValue * 0.25
-
-  const taxYears = [...new Set(records.map(r => effectiveTaxYear(r)))].sort()
-
-  const giftAidByYear = taxYears.map(ty => {
-    const yearValid = validRecords.filter(r => effectiveTaxYear(r) === ty)
-    const yearTotal = yearValid.reduce((s, r) => s + (parseFloat(String(r.amount)) || 0), 0)
-    return { taxYear: ty, giftAid: Math.round(yearTotal * 0.25 * 100) / 100 }
-  })
-
-  // Formats a raw donation date string as UK short date DD/MM/YYYY
-  function formatUkDate(raw: string | null): string {
-    if (!raw) return '—'
-    const parsed = parseDonationDate(raw)
-    if (!parsed) return raw // show the original text if it couldn't be parsed
-    const dd = String(parsed.getDate()).padStart(2, '0')
-    const mm = String(parsed.getMonth() + 1).padStart(2, '0')
-    const yyyy = parsed.getFullYear()
-    return `${dd}/${mm}/${yyyy}`
-  }
-
-  if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
-
+      const {
+        data: { session },
+      } = await supabase.auth.getSession()
+      if (!session) {
+        navigate('/login')
+        return
+      }
+      setRecords(
+        await fetchAllRows<AnalyticsRecord>(() =>
+          supabase
+            .from('pending_uploaded_records')
+            .select(
+              'id, record_status, tax_year, amount, donation_date, gift_aid_opt_in, gift_aid_submitted',
+            )
+            .eq('pending_email', email)
+            .order('id', { ascending: true }),
+        ),
+      )
+    } catch (e: unknown) {
+      setError(
+        e instanceof Error && e.message.includes('gift_aid_submitted')
+          ? 'Pending donation reporting is not configured. Contact your system administrator.'
+          : e instanceof Error
+            ? e.message
+            : 'Could not load staged records',
+      )
+    } finally {
+      setLoading(false)
+    }
+  }, [email, navigate])
+  useEffect(() => {
+    void load()
+  }, [load])
   return (
-    <div className="min-h-screen bg-brand-surface relative overflow-hidden">
-      <PageShapes />
-      <div className="relative" style={{ zIndex: 10 }}>
-
-        <nav className="bg-white border-b border-gray-100">
-          <div className="w-full px-8 py-4 flex justify-between items-center">
-            <Logo />
-            <div className="flex items-center gap-6">
-              <button onClick={() => navigate('/admin/insights')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Insights</button>
-              <button onClick={() => navigate('/admin/donor-matching')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Donor Matching</button>
-              <button onClick={() => navigate('/admin/pending-charities')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Pending Charities</button>
-              <button onClick={() => navigate('/admin/activity-log')} className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors">Activity Log</button>
-              <button onClick={async () => { await supabase.auth.signOut(); navigate('/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
-            </div>
-          </div>
-        </nav>
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-12 pb-4">
-          <button onClick={() => navigate('/admin/pending-charities')} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Pending Charities</button>
-          <h1 className="text-3xl font-bold text-brand-primary">Staged Data Insights</h1>
-          <p className="text-gray-400 text-sm mt-1">{email} · awaiting signup completion</p>
-        </div>
-
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-12">
-          {error && <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 text-sm">{error}</div>}
-
-          {totalRecords === 0 ? (
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-12 text-center">
-              <p className="text-gray-300 text-lg">No data staged yet for this email</p>
-              <p className="text-gray-300 text-sm mt-1">Upload a spreadsheet from the Pending Charities page to see insights here</p>
-            </div>
-          ) : (
-            <div className="space-y-6">
-
-              {/* Notice banner */}
-              <div className="bg-amber-50 border border-amber-200 text-amber-700 px-4 py-3 rounded-lg text-sm">
-                This data hasn't been submitted to HMRC yet. It will automatically move into a live submission the moment this charity completes signup.
-              </div>
-
-              {/* Summary strip */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {[
-                  { label: 'Total records staged',  value: String(totalRecords) },
-                  { label: 'Gift Aid Claimed',       value: fmt(potentialGiftAid) },
-                  { label: 'Avg Gift Aid / donor',   value: validRecords.length > 0 ? fmt(avgGiftAidPerDonor) : '—' },
-                ].map(c => (
-                  <div key={c.label} className="bg-white rounded-xl border-l-4 border-brand-accent border-t border-r border-b border-gray-100 shadow-sm p-5">
-                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
-                    <div className="text-2xl font-bold text-brand-primary">{c.value}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Headline record breakdown */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {[
-                  { label: 'Records Claimed',    value: validRecords.length,      sub: 'Submitted to HMRC and claimed', border: 'border-brand-accent', text: 'text-brand-accent' },
-                  { label: 'Historic claims',    value: historicRecords.length,   sub: 'Submitted outside Gift Aided', border: 'border-blue-300', text: 'text-blue-600' },
-                  { label: 'Incomplete — opted in', value: incompleteOptInRecords.length, sub: 'Missing mandatory fields',      border: 'border-yellow-400',   text: 'text-yellow-600' },
-                  { label: 'Incomplete — opted out', value: incompleteOptOutRecords.length, sub: 'Missing mandatory fields; opted out', border: 'border-orange-400', text: 'text-orange-600' },
-                  { label: 'Gift Aid opt outs',  value: optOutRecords.length,     sub: 'All opted out, including incomplete rows', border: 'border-gray-300',    text: 'text-gray-500' },
-                ].map(c => (
-                  <div key={c.label} className={`bg-white rounded-xl border-l-4 border-t border-r border-b border-gray-100 shadow-sm p-5 ${c.border}`}>
-                    <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{c.label}</div>
-                    <div className={`text-3xl font-bold ${c.text}`}>{c.value}</div>
-                    <div className="text-xs text-gray-400 mt-1">{c.sub}</div>
-                    {totalRecords > 0 && <div className="text-xs text-gray-300 mt-0.5">{Math.round(c.value / totalRecords * 100)}% of staged records</div>}
-                  </div>
-                ))}
-              </div>
-
-              {/* Potential missed Gift Aid — incomplete + opt-out combined */}
-              {missedRecords.length > 0 && (
-                <div className="bg-white rounded-xl border-l-4 border-amber-400 border-t border-r border-b border-gray-100 shadow-sm p-6">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <h2 className="font-semibold text-brand-primary mb-1">Potential Missed Gift Aid</h2>
-                      <p className="text-xs text-gray-400 max-w-md">
-                        Gift Aid value not currently being captured — combining donations with incomplete data and donors who opted out. Fixing incomplete records could recover some of this.
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-2xl font-bold text-amber-600">{fmt(potentialMissedGiftAid)}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{missedRecords.length} record{missedRecords.length !== 1 ? 's' : ''} ({incompleteRecords.length} incomplete, {optOutRecords.length} opted out)</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Potential Gift Aid by tax year */}
-              {giftAidByYear.length > 0 && validRecords.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 sm:p-8">
-                  <h2 className="font-semibold text-brand-primary mb-1">Potential Gift Aid by Tax Year</h2>
-                  <p className="text-xs text-gray-400 mb-6">What this charity stands to claim once their account is live — based on valid rows only</p>
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart barCategoryGap="28%" data={giftAidByYear} margin={{ top: 12, right: 20, left: 0, bottom: 16 }}>
-                      <CartesianGrid vertical={false} stroke="#e2e8f0" strokeDasharray="3 5" />
-                      <XAxis axisLine={false} tickLine={false} tickMargin={12} minTickGap={24} dataKey="taxYear" tick={{ fontSize: 12, fill: '#64748b' }} />
-                      <YAxis axisLine={false} tickLine={false} tickMargin={10} width={72} tickFormatter={v => `£${v.toFixed(0)}`} tick={{ fontSize: 12, fill: '#64748b' }} />
-                      <Tooltip cursor={{ fill: '#f1f5f9', radius: 6 }} content={<ChartTooltip />} />
-                      <Bar maxBarSize={44} dataKey="giftAid" name="Potential Gift Aid" fill={NAVY} radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              )}
-
-            </div>
-          )}
-
-          {/* Onboarding checklist */}
-          <div className="mt-8">
-            <div className="mb-4">
-              <h2 className="text-lg font-bold text-brand-primary">Onboarding Checklist</h2>
-              <p className="text-gray-400 text-sm mt-1">Track this charity's onboarding progress. Changes save automatically.</p>
-            </div>
-            <OnboardingChecklist charityEmail={email} />
-          </div>
-
-        </div>
-      </div>
-    </div>
+    <AnalyticsFrame
+      title="Pending charity · Insights"
+      subtitle={`Staged donation analysis for ${email}. Estimates are not submitted claims.`}
+      admin
+      back="/admin/pending-charities"
+    >
+      <AnalyticsWorkspace
+        scopeName="Pending charity"
+        submissions={[]}
+        records={records}
+        staged
+        loading={loading}
+        error={error}
+        onRefresh={() => void load()}
+      />
+      <section className="max-w-[1560px] mx-auto px-6 sm:px-10 pb-12">
+        <h2 className="text-lg font-semibold text-brand-primary mb-4">
+          Onboarding checklist
+        </h2>
+        <OnboardingChecklist charityEmail={email} />
+      </section>
+    </AnalyticsFrame>
   )
 }
