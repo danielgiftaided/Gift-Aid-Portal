@@ -51,24 +51,7 @@ interface ParsedRow {
   missingFields: string[]
 }
 
-function Logo() {
-  return (
-    <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, color: '#0c745d', fontSize: '1.6rem', lineHeight: 1 }}>
-      gift aided <span style={{ fontWeight: 400 }}>Portal</span>
-    </span>
-  )
-}
 
-function PageShapes() {
-  return (
-    <div className="absolute right-0 top-0 pointer-events-none select-none" style={{ zIndex: 0, width: '420px', height: '600px' }}>
-      <div style={{ position: 'absolute', left: '242px', top: '30px',  width: '136px', height: '142px', background: '#304675', borderTopRightRadius: '100%' }} />
-      <div style={{ position: 'absolute', left: '242px', top: '187px', width: '136px', height: '266px', background: '#0c745d' }} />
-      <div style={{ position: 'absolute', left: '134px', top: '76px',  width: '97px',  height: '96px',  background: '#e8e4db', borderRadius: '50% 50% 0 50%' }} />
-      <div style={{ position: 'absolute', left: '242px', top: '468px', width: '97px',  height: '97px',  background: '#e8e4db', borderRadius: '0 50% 50% 50%' }} />
-    </div>
-  )
-}
 
 // ── Helpers ──────────────────────────────────────────────
 function getTaxYearForDate(date: Date): string {
@@ -1041,21 +1024,14 @@ export default function AdminCharityDetail() {
 
   return (
     <div className="min-h-screen bg-brand-surface relative overflow-hidden">
-      <PageShapes />
       <div className="relative" style={{ zIndex: 10 }}>
-        <nav className="bg-white border-b border-gray-100">
-          <div className="w-full px-8 py-4 flex justify-between items-center">
-            <Logo />
-            <button onClick={async () => { await supabase.auth.signOut(); navigate('/admin/login') }} className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
-          </div>
-        </nav>
 
         <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
           <button onClick={() => navigate('/admin')} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Admin</button>
           <h1 className="text-3xl font-bold text-brand-primary">{charity?.name}</h1>
 
           {/* Tabs */}
-          <div className="flex gap-6 mt-6 border-b border-gray-100">
+          <div className="admin-workspace-tabs flex gap-6 mt-6 border-b border-gray-100">
             {[
               { key: 'submissions' as const, label: 'Submissions' },
               { key: 'insights' as const, label: 'Insights' },
@@ -1064,6 +1040,7 @@ export default function AdminCharityDetail() {
             ].map(tab => (
               <button
                 key={tab.key}
+                aria-pressed={activeTab === tab.key}
                 onClick={() => tab.key === 'insights' ? navigate(`/admin/charities/${id}/insights`) : setActiveTab(tab.key)}
                 className={`pb-3 text-sm font-semibold border-b-2 -mb-px transition-colors ${
                   activeTab === tab.key

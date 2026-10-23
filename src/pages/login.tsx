@@ -82,7 +82,7 @@ export default function Login({ admin = false }: { admin?: boolean }) {
 
   return (
     <div className="min-h-screen bg-brand-surface flex overflow-hidden relative">
-      <AuthShapes />
+      {!admin && <AuthShapes />}
       <div className="flex-1 flex flex-col justify-center px-8 sm:px-12 lg:px-20 py-12 relative" style={{ zIndex: 10 }}>
         <div className="max-w-sm w-full mx-auto lg:mx-0">
           <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, color: '#0c745d', fontSize: '2rem', lineHeight: 1, display: 'block', marginBottom: '0.25rem' }}>
