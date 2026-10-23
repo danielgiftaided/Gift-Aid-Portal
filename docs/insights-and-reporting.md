@@ -32,3 +32,11 @@ Regression tests cover metric separation, consent exclusions, date boundaries, y
 ## Rollout scope
 
 This PR updates only admin portfolio, admin charity and pending-charity insights. The existing charity-facing insights page, its layout, exports, navigation and shared status hook remain unchanged. The new admin charity loader requires an explicit charity ID and uses a separate admin status hook. The full rollout in PR #19 can be revisited after admin review.
+
+## Admin dashboard usability review
+
+Admin reports now use the portal's existing logo green (`#0c745d`), navy (`#304675`) and a warm neutral surface. Larger text, stronger contrast, a visible selected report, wrapped mobile navigation and accessible return navigation make the workspace easier to scan. Overview shortcuts open the incomplete opted-in record group or the submission register without discarding the current year/charity filters. The underlying metrics and export formats are unchanged. Calculation guidance is available in an expandable section.
+
+To review the proposed charity reporting experience, open a charity from **Admin → Charities**, then its **Insights** page (`/admin/charities/:id/insights`). It uses the same reporting component as the portfolio, scoped to that charity, with charity-facing headings and an admin-only preview banner. Logo and report navigation stay in that charity's preview; the banner returns to its admin detail page. This previews reporting, not the upload/profile workflows. Existing charity-facing `/dashboard` and `/insights` remain unchanged. Pending-charity reports retain staged-data wording.
+
+Validation for this refinement: all eight regression test files and the Vite production build pass. Synthetic-data browser checks at 1440px and 390px cover suggested actions, record detail, claim search, clearing filters, report navigation and horizontal overflow. Authenticated live data was not exercised. TypeScript reports the same twelve errors as the unchanged main branch, in unrelated files; no new type errors were introduced. This change is prepared for review in a PR and is not merged or deployed.
