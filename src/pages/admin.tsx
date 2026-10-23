@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../lib/supabase";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 
 type Charity = {
   id: string;
@@ -8,74 +8,7 @@ type Charity = {
   contact_email: string;
 };
 
-function Logo() {
-  return (
-    <span
-      style={{
-        fontFamily: "'Poppins', sans-serif",
-        fontWeight: 800,
-        color: "#0c745d",
-        fontSize: "1.6rem",
-        lineHeight: 1,
-      }}
-    >
-      gift aided <span style={{ fontWeight: 400 }}>Portal</span>
-    </span>
-  );
-}
 
-function PageShapes() {
-  return (
-    <div
-      className="absolute right-0 top-0 pointer-events-none select-none"
-      style={{ zIndex: 0, width: "420px", height: "600px" }}
-    >
-      <div
-        style={{
-          position: "absolute",
-          left: "242px",
-          top: "30px",
-          width: "136px",
-          height: "142px",
-          background: "#304675",
-          borderTopRightRadius: "100%",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: "242px",
-          top: "187px",
-          width: "136px",
-          height: "266px",
-          background: "#0c745d",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: "134px",
-          top: "76px",
-          width: "97px",
-          height: "96px",
-          background: "#e8e4db",
-          borderRadius: "50% 50% 0 50%",
-        }}
-      />
-      <div
-        style={{
-          position: "absolute",
-          left: "242px",
-          top: "468px",
-          width: "97px",
-          height: "97px",
-          background: "#e8e4db",
-          borderRadius: "0 50% 50% 50%",
-        }}
-      />
-    </div>
-  );
-}
 
 export default function Admin() {
   const [charities, setCharities] = useState<Charity[]>([]);
@@ -90,7 +23,6 @@ export default function Admin() {
   const [createSuccess, setCreateSuccess] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  const navigate = useNavigate();
 
   useEffect(() => {
     (async () => {
@@ -181,54 +113,8 @@ export default function Admin() {
 
   return (
     <div className="min-h-screen bg-brand-surface relative overflow-hidden">
-      <PageShapes />
 
       <div className="relative" style={{ zIndex: 10 }}>
-        <nav className="bg-white border-b border-gray-100">
-          <div className="w-full px-8 py-4 flex justify-between items-center">
-            <Logo />
-
-            <div className="flex items-center gap-6">
-              <button
-                onClick={() => navigate("/admin/insights")}
-                className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors"
-              >
-                Insights
-              </button>
-
-              <button
-                onClick={() => navigate("/admin/donor-matching")}
-                className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors"
-              >
-                Donor Matching
-              </button>
-
-              <button
-                onClick={() => navigate("/admin/pending-charities")}
-                className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors"
-              >
-                Pending Charities
-              </button>
-
-              <button
-                onClick={() => navigate("/admin/activity-log")}
-                className="text-sm font-medium text-brand-primary hover:text-brand-accent transition-colors"
-              >
-                Activity Log
-              </button>
-
-              <button
-                onClick={async () => {
-                  await supabase.auth.signOut();
-                  navigate("/admin/login");
-                }}
-                className="text-sm text-gray-400 hover:text-gray-600 transition-colors"
-              >
-                Log Out
-              </button>
-            </div>
-          </div>
-        </nav>
 
         <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
           <h1 className="text-3xl font-bold text-brand-primary">
@@ -261,7 +147,9 @@ export default function Admin() {
               onSubmit={handleCreateCharity}
               className="space-y-3"
             >
+              <label htmlFor="admin-charity-name" className="block text-sm font-medium text-brand-primary">Charity name</label>
               <input
+                id="admin-charity-name"
                 type="text"
                 required
                 placeholder="Charity name"
@@ -271,10 +159,11 @@ export default function Admin() {
               />
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="block text-sm font-medium text-brand-primary">Regulator (optional)
                 <select
                   value={regulator}
                   onChange={(e) => setRegulator(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent"
+                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent"
                 >
                   <option value="">Regulator (optional)</option>
                   <option value="CCEW">
@@ -285,7 +174,9 @@ export default function Admin() {
                     CCNI (Northern Ireland)
                   </option>
                 </select>
+                </label>
 
+                <label className="block text-sm font-medium text-brand-primary">Registration number (optional)
                 <input
                   type="text"
                   placeholder="Registration number (optional)"
@@ -293,8 +184,9 @@ export default function Admin() {
                   onChange={(e) =>
                     setRegistrationNumber(e.target.value)
                   }
-                  className="border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent"
+                  className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-brand-accent/30 focus:border-brand-accent"
                 />
+                </label>
               </div>
 
               <div className="flex gap-3 items-start">

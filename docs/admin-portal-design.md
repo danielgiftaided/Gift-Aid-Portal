@@ -1,0 +1,9 @@
+# Consistent admin presentation
+
+The authenticated admin routes now share `AdminShell`, placed inside the existing `AdminRouteGuard`. It provides a single logo, navigation with the current section highlighted, keyboard skip link and sign-out control. The same six destinations are available on every screen: Charities, Insights & reporting, Pending charities, Donor matching, Activity log and HMRC recognition.
+
+The shell wraps charity management (including submissions, charity information and onboarding), portfolio/charity/pending reporting, donor matching, invitations, activity logs and recognition exports. A submission opened from admin retains the same shell and return link; charity-context submission details keep their original presentation. Admin sign-in uses the neutral surface without decorative shapes. Shared MFA and password flows are unchanged.
+
+The styles in `src/components/admin.css` are scoped to `.admin-portal` and `.admin-auth`: logo green, navy headings, neutral surfaces, rounded cards, readable supporting text, consistent fields/buttons and wrapping mobile navigation. Duplicate page navigation and decorative shapes were removed from admin pages. Reporting retains its view selector and the charity-preview banner. Existing charity-facing pages, API requests, claims processing, invitations, uploads and authorization are unchanged.
+
+Validation uses the eight existing regression test files, production build and synthetic-data Chromium checks at 1440px and 390px. Browser checks cover all nine admin screens, charity tabs, active navigation, single sign-out control, page overflow, submission return navigation, recognition input validation and logout. Live authenticated data and production deployment are not exercised. TypeScript still reports the twelve known baseline issues, with no additional diagnostics.

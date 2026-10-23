@@ -15,13 +15,6 @@ const FILE_LABELS: Record<string, { label: string; who: string }> = {
   'DATA_RESPONSE.xml':             { label: 'Data Response',              who: 'Returned by HMRC Transaction Engine' },
 }
 
-function Logo() {
-  return (
-    <span style={{ fontFamily: "'Poppins', sans-serif", fontWeight: 800, color: '#0c745d', fontSize: '1.6rem', lineHeight: 1 }}>
-      gift aided <span style={{ fontWeight: 400 }}>Portal</span>
-    </span>
-  )
-}
 
 function downloadXml(filename: string, content: string) {
   const blob = new Blob([content], { type: 'application/xml' })
@@ -66,13 +59,6 @@ export default function RecognitionPackage() {
 
   return (
     <div className="min-h-screen bg-brand-surface">
-      <nav className="bg-white border-b border-gray-100">
-        <div className="w-full px-8 py-4 flex justify-between items-center">
-          <Logo />
-          <button onClick={async () => { await supabase.auth.signOut(); navigate('/admin/login') }}
-            className="text-sm text-gray-400 hover:text-gray-600 transition-colors">Log Out</button>
-        </div>
-      </nav>
 
       <div className="max-w-3xl mx-auto px-6 pt-12 pb-12">
         <button onClick={() => navigate('/admin')} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">← Back to Admin</button>
@@ -84,7 +70,7 @@ export default function RecognitionPackage() {
         <div className="mt-8 bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1">Submission ID</label>
-            <div className="flex gap-3">
+            <div className="admin-form-row flex gap-3">
               <input
                 type="text"
                 value={submissionId}

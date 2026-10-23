@@ -132,7 +132,7 @@ export function AnalyticsFrame({
           <button onClick={() => navigate(back)}>← Back to admin</button>
         </div>
       )}
-      <nav className="analytics-topbar" aria-label="Portal navigation">
+      {!admin && <nav className="analytics-topbar" aria-label="Portal navigation">
         <button
           className="analytics-logo"
           onClick={() => navigate(charityPreview ? `${back}/insights` : admin ? '/admin' : '/dashboard')}
@@ -167,7 +167,7 @@ export function AnalyticsFrame({
         <span className="analytics-workspace-tag">
           {charityPreview ? 'CHARITY WORKSPACE' : admin ? 'ADMIN WORKSPACE' : 'CHARITY WORKSPACE'}
         </span>
-      </nav>
+      </nav>}
       <header className="analytics-page-heading">
         <div>
           <p className="analytics-eyebrow">GIFT AID INTELLIGENCE</p>

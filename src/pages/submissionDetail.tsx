@@ -1,3 +1,4 @@
+import AdminShell from '../components/AdminShell'
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
@@ -76,13 +77,16 @@ export default function SubmissionDetail() {
     URL.revokeObjectURL(url)
   }
 
-  if (loading) return <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
+  if (loading) {
+    const loadingView = <div className="min-h-screen bg-brand-surface flex items-center justify-center"><p className="text-brand-accent font-medium">Loading…</p></div>
+    return isAdminContext ? <AdminShell>{loadingView}</AdminShell> : loadingView
+  }
 
-  return (
+  const content = (
     <div className="min-h-screen bg-brand-surface relative overflow-hidden">
-      <PageShapes />
+      {!isAdminContext && <PageShapes />}
       <div className="relative" style={{ zIndex: 10 }}>
-        <nav className="bg-white border-b border-gray-100">
+        {!isAdminContext && <nav className="bg-white border-b border-gray-100">
           <div className="w-full px-8 py-4 flex justify-between items-center">
             <Logo />
             {isAdminContext ? (
@@ -95,7 +99,7 @@ export default function SubmissionDetail() {
               </div>
             )}
           </div>
-        </nav>
+        </nav>}
 
         <div className="max-w-4xl mx-auto px-6 pt-12 pb-4">
           <button onClick={() => navigate(backUrl)} className="text-sm font-medium text-brand-accent hover:underline mb-4 inline-block">{isAdminContext ? '← Back' : '← Back to Submissions'}</button>
@@ -169,4 +173,5 @@ export default function SubmissionDetail() {
       </div>
     </div>
   )
+  return isAdminContext ? <AdminShell>{content}</AdminShell> : content
 }

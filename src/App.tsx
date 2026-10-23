@@ -14,6 +14,7 @@ import Insights from './pages/insights'
 import CharityProfile from './pages/charityProfile'
 import CharitySetup from './pages/charitySetup'
 import Admin from './pages/admin'
+import AdminShell from './components/AdminShell'
 import AdminCharityDetail from './pages/adminCharityDetail'
 import AdminCharityInsights from './pages/adminCharityInsights'
 import PendingCharities from './pages/pendingCharities'
@@ -44,19 +45,21 @@ export default function App() {
         <Route path="/profile"          element={<CharityProfile />} />
         <Route path="/charity-setup"    element={<CharitySetup />} />
 
-        <Route path="/admin/login" element={<Login key="admin" admin />} />
+        <Route path="/admin/login" element={<div className="admin-auth"><Login key="admin" admin /></div>} />
         {/* Admin */}
         <Route element={<AdminRouteGuard />}>
-          <Route path="/admin"                                    element={<Admin />} />
-          <Route path="/admin/charities/:id"                      element={<AdminCharityDetail />} />
-          <Route path="/admin/charities/:id/insights"             element={<AdminCharityInsights />} />
-          <Route path="/admin/pending-charities"                  element={<PendingCharities />} />
-          <Route path="/admin/pending-charities/:email/insights"  element={<PendingCharityInsights />} />
-          <Route path="/admin/activity-log"                       element={<ActivityLog />} />
-          <Route path="/admin/insights"                           element={<AdminInsights />} />
-          <Route path="/admin/donor-matching"                     element={<AdminDonorMatching />} />
-          <Route path="/admin/recognition-package"                element={<RecognitionPackage />} />
+          <Route element={<AdminShell />}>
+            <Route path="/admin"                                    element={<Admin />} />
+            <Route path="/admin/charities/:id"                      element={<AdminCharityDetail />} />
+            <Route path="/admin/charities/:id/insights"             element={<AdminCharityInsights />} />
+            <Route path="/admin/pending-charities"                  element={<PendingCharities />} />
+            <Route path="/admin/pending-charities/:email/insights"  element={<PendingCharityInsights />} />
+            <Route path="/admin/activity-log"                       element={<ActivityLog />} />
+            <Route path="/admin/insights"                           element={<AdminInsights />} />
+            <Route path="/admin/donor-matching"                     element={<AdminDonorMatching />} />
+            <Route path="/admin/recognition-package"                element={<RecognitionPackage />} />
 
+          </Route>
         </Route>
 
         <Route path="/admin/*" element={<Navigate to="/admin/login" replace />} />
