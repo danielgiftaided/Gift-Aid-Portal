@@ -38,17 +38,17 @@ const compact = (value: number) =>
   `£${Intl.NumberFormat('en-GB', { notation: 'compact', maximumFractionDigits: 1 }).format(value)}`
 const count = (value: number) => value.toLocaleString('en-GB')
 const colors = [
-  '#0c806b',
-  '#5377af',
+  '#0c745d',
+  '#304675',
   '#e8a343',
   '#a39bbc',
   '#173d51',
   '#d77c66',
 ]
-const tick = { fontSize: 11, fill: '#7d8898' }
+const tick = { fontSize: 12, fill: '#536577' }
 const stageColor: Record<string, string> = {
-  accepted: '#0c806b',
-  ready_to_send: '#5377af',
+  accepted: '#0c745d',
+  ready_to_send: '#304675',
   sent: '#a39bbc',
   polling: '#e8a343',
   rejected: '#d77c66',
@@ -59,8 +59,8 @@ const stageColor: Record<string, string> = {
 const titles = {
   overview: 'Performance overview',
   donations: 'Donation patterns',
-  quality: 'Data quality',
-  claims: 'Claim operations',
+  quality: 'Check your data',
+  claims: 'Track claims',
 }
 type View = keyof typeof titles
 function Icon({ kind }: { kind: string }) {
@@ -113,39 +113,47 @@ export function AnalyticsFrame({
   subtitle,
   back,
   admin = false,
+  charityPreview = false,
   children,
 }: {
   title: string
   subtitle: string
   back: string
   admin?: boolean
+  charityPreview?: boolean
   children: ReactNode
 }) {
   const navigate = useNavigate()
   return (
     <div className="analytics-app">
+      {charityPreview && (
+        <div className="analytics-preview-bar">
+          <span><strong>Charity experience preview</strong> · Available to admins only</span>
+          <button onClick={() => navigate(back)}>← Back to admin</button>
+        </div>
+      )}
       <nav className="analytics-topbar" aria-label="Portal navigation">
         <button
           className="analytics-logo"
-          onClick={() => navigate(admin ? '/admin' : '/dashboard')}
+          onClick={() => navigate(charityPreview ? `${back}/insights` : admin ? '/admin' : '/dashboard')}
         >
           gift aided<span>Portal</span>
         </button>
         <div className="analytics-toplinks">
           <button onClick={() => navigate(back)}>
-            ← {admin ? 'Admin workspace' : 'Dashboard'}
+            ← {charityPreview ? 'Back to admin' : admin ? 'Admin workspace' : 'Dashboard'}
           </button>
           <button
             className="active"
-            onClick={() => navigate(admin ? '/admin/insights' : '/insights')}
+            onClick={() => navigate(charityPreview ? `${back}/insights` : admin ? '/admin/insights' : '/insights')}
           >
             Insights & reporting
           </button>
-          <button
+          {!charityPreview && <button
             onClick={() => navigate(admin ? '/admin/activity-log' : '/profile')}
           >
             {admin ? 'Activity log' : 'My profile'}
-          </button>
+          </button>}
           <button
             className="analytics-logout"
             onClick={async () => {
@@ -157,7 +165,7 @@ export function AnalyticsFrame({
           </button>
         </div>
         <span className="analytics-workspace-tag">
-          {admin ? 'ADMIN WORKSPACE' : 'CHARITY WORKSPACE'}
+          {charityPreview ? 'CHARITY WORKSPACE' : admin ? 'ADMIN WORKSPACE' : 'CHARITY WORKSPACE'}
         </span>
       </nav>
       <header className="analytics-page-heading">
@@ -201,7 +209,7 @@ function Panel({
   )
 }
 function Empty({
-  message = 'No data for this selection.',
+  message = 'No donations or claims in this selection.',
 }: {
   message?: string
 }) {
@@ -378,7 +386,7 @@ export default function AnalyticsWorkspace({
   return (
     <div className="analytics-layout">
       <aside className="analytics-sidebar" aria-label="Report views">
-        <div className="analytics-sidebar-title">REPORT LIBRARY</div>
+        <div className="analytics-sidebar-title">YOUR REPORTS</div>
         {(Object.keys(titles) as View[]).map((key) => (
           <button
             key={key}
@@ -393,8 +401,8 @@ export default function AnalyticsWorkspace({
                 : key === 'donations'
                   ? 'Donation patterns'
                   : key === 'quality'
-                    ? 'Data quality'
-                    : 'Claim operations'}
+                    ? 'Check your data'
+                    : 'Track claims'}
             </span>
             {key === 'quality' && model.incompleteCount > 0 && (
               <b>{model.incompleteCount}</b>
@@ -413,10 +421,10 @@ export default function AnalyticsWorkspace({
       </aside>
       <main className="analytics-main">
         <div className="analytics-toolbar">
-          <div className="analytics-toolbar-title">
+          <h2 className="analytics-toolbar-title" tabIndex={-1}>
             <span className="analytics-dot" />
             {titles[view]}
-          </div>
+          </h2>
           <div className="analytics-actions">
             <button
               onClick={onRefresh}
@@ -435,6 +443,12 @@ export default function AnalyticsWorkspace({
             </button>
           </div>
         </div>
+        <p className="analytics-view-help">{
+          view === 'overview' ? 'Start with the big picture, then explore donations, check your data or track a claim.' :
+          view === 'donations' ? 'See when donations arrive and how giving changes over time.' :
+          view === 'quality' ? 'Find records that need a closer look before preparing your next claim.' :
+          'Search your submissions and follow their progress with HMRC.'
+        }</p>
         <div className="analytics-filters">
           <label>
             Tax year
@@ -467,7 +481,7 @@ export default function AnalyticsWorkspace({
               </select>
             </label>
           )}
-          <div className="analytics-filter-summary">
+          <div className="analytics-filter-summary" role="status">
             <strong>{count(model.records.length)}</strong> imported records ·{' '}
             <strong>{count(model.submissions.length)}</strong> submissions
             <span>
@@ -477,7 +491,7 @@ export default function AnalyticsWorkspace({
             </span>
           </div>
           <button className="analytics-clear" onClick={reset}>
-            Reset filters
+            Clear all filters
           </button>
         </div>
         {error && (
@@ -493,6 +507,18 @@ export default function AnalyticsWorkspace({
           </div>
         ) : error ? null : (
           <>
+            {view === 'overview' && (model.records.length > 0 || model.submissions.length > 0) && (
+              <section className="analytics-next-steps" aria-label="Suggested next steps">
+                <div><span className="analytics-eyebrow">WHAT’S NEXT</span><h3>Your next steps, made simple</h3>
+                <p>Choose an area to explore. Your tax year and charity filters stay in place.</p></div>
+                <button onClick={() => { setView('quality'); setGroup('incomplete_opt_in'); setShowTable(true) }}>
+                  <Icon kind="quality" /><span><strong>Check your data</strong><small>{count(model.quality.find((item) => item.key === 'incomplete_opt_in')?.count || 0)} incomplete opted-in records to review</small></span><b aria-hidden="true">→</b>
+                </button>
+                <button onClick={() => setView('claims')}>
+                  <Icon kind="claims" /><span><strong>Track your claims</strong><small>{count(model.submissions.length)} submissions in this selection</small></span><b aria-hidden="true">→</b>
+                </button>
+              </section>
+            )}
             <div className="analytics-kpis">
               {[
                 {
@@ -512,13 +538,13 @@ export default function AnalyticsWorkspace({
                   accent: 'blue',
                 },
                 {
-                  label: 'Incomplete opted-in estimate',
+                  label: 'Gift Aid to review',
                   value: gbp(model.recoverable),
-                  sub: `${count(model.incompleteCount)} records need attention · eligibility unverified`,
+                  sub: `${count(model.incompleteCount)} incomplete opted-in records · estimate only`,
                   accent: 'amber',
                 },
                 {
-                  label: 'Eligible record share',
+                  label: 'Eligible uploaded records',
                   value: model.readiness == null ? '—' : `${model.readiness}%`,
                   sub: `${count(model.eligibleCount)} of ${count(model.records.length)} uploaded records`,
                   accent: 'slate',
@@ -557,7 +583,7 @@ export default function AnalyticsWorkspace({
                       <div className="analytics-legend">
                         <span
                           style={
-                            { '--legend': '#0c806b' } as React.CSSProperties
+                            { '--legend': '#0c745d' } as React.CSSProperties
                           }
                         >
                           {staged ? 'Eligible estimate' : 'Recorded'}
@@ -614,7 +640,7 @@ export default function AnalyticsWorkspace({
                                     : 'Recorded claim'
                                 }
                                 dataKey={staged ? 'potential' : 'recorded'}
-                                fill="#0c806b"
+                                fill="#0c745d"
                                 maxBarSize={32}
                                 radius={[3, 3, 0, 0]}
                               />
@@ -869,8 +895,8 @@ export default function AnalyticsWorkspace({
                                   }
                                   dataKey={trendSeries}
                                   type="linear"
-                                  stroke="#0c806b"
-                                  fill="#0c806b"
+                                  stroke="#0c745d"
+                                  fill="#0c745d"
                                   fillOpacity={0.12}
                                   strokeWidth={2.5}
                                 />
@@ -882,7 +908,7 @@ export default function AnalyticsWorkspace({
                                       : 'Records'
                                   }
                                   dataKey={trendSeries}
-                                  fill="#0c806b"
+                                  fill="#0c745d"
                                   maxBarSize={30}
                                   radius={[3, 3, 0, 0]}
                                 />
@@ -957,7 +983,7 @@ export default function AnalyticsWorkspace({
                             <Bar
                               name="Donation value"
                               dataKey="donations"
-                              fill="#5377af"
+                              fill="#304675"
                               maxBarSize={40}
                               radius={[3, 3, 0, 0]}
                             />
@@ -1019,7 +1045,7 @@ export default function AnalyticsWorkspace({
                                         }}
                                         aria-label={`${row.year}, ${g.label}: ${n} records`}
                                         style={{
-                                          background: `rgba(12,128,107,${0.04 + (n / max) * 0.85})`,
+                                          background: `rgba(12,116,93,${0.04 + (n / max) * 0.85})`,
                                           color:
                                             n / max > 0.55
                                               ? 'white'
@@ -1311,8 +1337,8 @@ export default function AnalyticsWorkspace({
                 )}
               </div>
             )}
-            <footer className="analytics-methodology">
-              <strong>How to read this report</strong>
+            <details className="analytics-methodology">
+              <summary>How these figures are calculated</summary>
               <p>
                 Recorded claim value is the sum of submission amounts across all
                 statuses. HMRC accepted value uses HMRC processing status and
@@ -1329,7 +1355,7 @@ export default function AnalyticsWorkspace({
                   charity; included in totals, absent from charity rankings.
                 </p>
               )}
-            </footer>
+            </details>
           </>
         )}
       </main>

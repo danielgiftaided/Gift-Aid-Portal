@@ -79,9 +79,10 @@ export default function AdminCharityAnalyticsPage({
   })
   return (
     <AnalyticsFrame
-      title={`${name} · Insights`}
-      subtitle="Explore claim performance, donation patterns and the data behind this charity."
+      title={`${name} · Your Gift Aid overview`}
+      subtitle="Understand your donations, check your data and follow your Gift Aid claims in one place."
       admin
+      charityPreview
       back={`/admin/charities/${id}`}
     >
       <AnalyticsWorkspace
