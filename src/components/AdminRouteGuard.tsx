@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import './admin.css'
 import {
   AccountVerificationError,
   verifyPortalProfile,
@@ -126,7 +127,7 @@ export default function AdminRouteGuard() {
   if (checking)
     return (
       <div
-        className="min-h-screen bg-brand-surface flex items-center justify-center"
+        className="admin-auth flex items-center justify-center"
         role="status"
       >
         Checking administrator access…
@@ -134,7 +135,7 @@ export default function AdminRouteGuard() {
     )
   if (error)
     return (
-      <div className="min-h-screen bg-brand-surface flex items-center justify-center p-6">
+      <div className="admin-auth flex items-center justify-center p-6">
         <div className="bg-white rounded-xl p-6 max-w-lg">
           <h1 className="text-xl font-semibold text-brand-primary mb-3">
             Could not verify administrator access
