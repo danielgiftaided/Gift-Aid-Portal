@@ -426,71 +426,11 @@
   border-color: #bcd8ce;
   color: #0c745d;
 }
-.analytics-claim-summary {
-  display: grid;
-  gap: 10px;
-}
-.analytics-claim-summary button {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 16px;
-  width: 100%;
-  padding: 14px;
-  border: 1px solid #e0e6e5;
-  border-radius: 8px;
-  background: #fafbf9;
-  text-align: left;
-}
-.analytics-claim-summary button:not(:disabled):hover {
-  border-color: #90b9ab;
-  background: #f1f6f2;
-}
-.analytics-claim-summary button:disabled {
-  cursor: default;
-}
-.analytics-claim-summary-label > span {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  color: #304675;
-  font-size: 13px;
-  font-weight: 600;
-}
-.analytics-claim-summary-label i {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.analytics-claim-summary-label > small {
-  display: block;
-  margin-top: 6px;
-  color: #536577;
-  font-size: 12px;
-  line-height: 1.5;
-}
-.analytics-claim-summary-value {
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  flex-shrink: 0;
-}
-.analytics-claim-summary-value strong {
-  display: block;
-  color: #24384a;
-  font-size: 23px;
-  font-weight: 650;
-}
-.analytics-claim-summary-value small {
-  font-size: 12px;
-  font-weight: 400;
-  color: #536577;
-}
-.analytics-claim-summary-value > span {
-  display: block;
-  margin-top: 3px;
-  font-size: 12px;
-  color: #536577;
+.analytics-claim-trend-legend {
+  flex-wrap: wrap;
+  justify-content: flex-start;
+  gap: 12px 18px;
+  margin-bottom: 8px;
 }
 .analytics-footnote {
   font-size: 12px !important;
