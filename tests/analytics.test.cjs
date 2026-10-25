@@ -79,37 +79,59 @@ test('report distinguishes recorded claims from HMRC accepted and portal-approve
     3,
   )
 })
-test('simple claim summary counts each HMRC status once and preserves recorded value', () => {
-  const statuses = ['accepted', 'sent', 'polling', 'not_submitted', 'ready_to_send',
-    'validation_failed', 'rejected', 'error', null, 'future_status']
-  const result = a.buildAnalytics(statuses.map((hmrc_status, i) => claim({
-    id: String(i), hmrc_status, amount_claimed: i === 0 ? '100.25' : 10,
-    status: 'approved',
-  })), [], charities, all)
-  const [accepted, awaiting, attention] = result.claimSummary
-  assert.equal(accepted.count, 1)
-  assert.equal(accepted.value, 100.25)
-  assert.equal(awaiting.count, 2)
-  assert.equal(awaiting.value, 20)
-  assert.equal(attention.count, 7)
-  assert.equal(attention.value, 70)
-  assert.equal(result.claimSummary.reduce((sum, group) => sum + group.count, 0), statuses.length)
-  assert.equal(result.claimSummary.reduce((sum, group) => sum + group.value, 0), result.recorded)
-  assert.equal(result.pipeline.find((stage) => stage.key === 'validation_failed').count, 1)
-  assert.equal(a.claimSummaryGroup('future_status'), 'needs_attention')
-})
-test('claim summary respects charity/year filters and handles empty selections', () => {
+test('monthly claim trend separates current HMRC acceptance from display approval and fills missing months', () => {
   const result = a.buildAnalytics([
-    claim({ hmrc_status: 'sent', amount_claimed: 40 }),
+    claim({ id: 'accepted', hmrc_status: 'accepted', amount_claimed: '100.25' }),
+    claim({ id: 'sent', hmrc_status: 'sent', amount_claimed: '19.75', submission_date: '05/05/2025' }),
+    claim({ id: 'adjustment', hmrc_status: 'accepted', amount_claimed: -5 }),
+    claim({ id: 'rejected', hmrc_status: 'rejected', amount_claimed: 10, submission_date: '2025-07-03T12:00:00Z' }),
+  ], [], charities, all)
+  assert.equal(JSON.stringify(result.monthlyClaims), JSON.stringify([
+    { month: '2025-05', recorded: 115, accepted: 95.25, claims: 3 },
+    { month: '2025-06', recorded: 0, accepted: 0, claims: 0 },
+    { month: '2025-07', recorded: 10, accepted: 0, claims: 1 },
+  ]))
+  assert.equal(result.monthlyClaims.reduce((sum, m) => sum + m.recorded, 0), result.recorded)
+  assert.equal(result.monthlyClaims.reduce((sum, m) => sum + m.accepted, 0), result.accepted)
+  assert.equal(result.undatedClaims, 0)
+})
+test('claim trend filters by saved tax year and charity, then groups by actual submission date', () => {
+  const result = a.buildAnalytics([
+    claim({ hmrc_status: 'accepted', submission_date: '2026-05-01' }),
     claim({ id: 'other-year', hmrc_status: 'accepted', tax_year: '2024/25' }),
     claim({ id: 'other-charity', hmrc_status: 'rejected', charity_id: 'b' }),
   ], [], charities, { charityId: 'a', taxYear: '2025/26' })
-  assert.equal(result.claimSummary.find((group) => group.key === 'awaiting_hmrc').count, 1)
-  assert.equal(result.claimSummary.find((group) => group.key === 'awaiting_hmrc').value, 40)
-  assert.equal(result.claimSummary.find((group) => group.key === 'accepted').count, 0)
-  assert.equal(result.claimSummary.find((group) => group.key === 'needs_attention').count, 0)
+  assert.equal(result.monthlyClaims.length, 1)
+  assert.equal(result.monthlyClaims[0].month, '2026-05')
+  assert.equal(result.monthlyClaims[0].recorded, 25)
+  assert.equal(result.monthlyClaims[0].accepted, 25)
+  assert.equal(result.monthlyClaims[0].claims, 1)
+})
+test('claim trend fills December-to-February gaps and reports excluded undated claims', () => {
+  const result = a.buildAnalytics([
+    claim({ submission_date: '2025-12-20', hmrc_status: 'accepted' }),
+    claim({ id: 'feb', submission_date: '2026-02-01' }),
+    claim({ id: 'null', submission_date: null }),
+    claim({ id: 'invalid', submission_date: '2025-02-30' }),
+    claim({ id: 'unknown', submission_date: 'unknown' }),
+  ], [], charities, all)
+  assert.equal(result.monthlyClaims.map(m => m.month).join(','), '2025-12,2026-01,2026-02')
+  assert.equal(result.monthlyClaims[1].recorded, 0)
+  assert.equal(result.monthlyClaims[1].accepted, 0)
+  assert.equal(result.undatedClaims, 3)
+  assert.equal(result.recorded, 125)
+  assert.equal(result.monthlyClaims.reduce((sum, m) => sum + m.recorded, 0), 50)
+})
+test('empty, undated-only and single-month trends never invent a date or extra history', () => {
   const empty = a.buildAnalytics([], [], [], all)
-  assert.ok(empty.claimSummary.every((group) => group.count === 0 && group.value === 0))
+  assert.equal(empty.monthlyClaims.length, 0)
+  assert.equal(empty.undatedClaims, 0)
+  const undated = a.buildAnalytics([claim({ submission_date: null })], [], [], all)
+  assert.equal(undated.monthlyClaims.length, 0)
+  assert.equal(undated.undatedClaims, 1)
+  const single = a.buildAnalytics([claim()], [], [], all)
+  assert.equal(single.monthlyClaims.length, 1)
+  assert.equal(single.monthlyClaims[0].month, '2025-05')
 })
 test('quality buckets are exclusive and recoverability excludes opt-outs and other-provider records', () => {
   const records = [

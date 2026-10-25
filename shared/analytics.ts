@@ -56,16 +56,6 @@ export const HMRC_STAGES = [
   'error',
   'unknown',
 ] as const
-export const CLAIM_SUMMARY = [
-  { key: 'accepted', label: 'Accepted', description: 'Accepted by HMRC', color: '#0c745d' },
-  { key: 'awaiting_hmrc', label: 'Awaiting HMRC', description: 'Sent and waiting for a response', color: '#304675' },
-  { key: 'needs_attention', label: 'Needs attention', description: 'Unsent claims or issues to check', color: '#a36c23' },
-] as const
-export function claimSummaryGroup(status?: string | null): typeof CLAIM_SUMMARY[number]['key'] {
-  if (status === 'accepted') return 'accepted'
-  if (status === 'sent' || status === 'polling') return 'awaiting_hmrc'
-  return 'needs_attention'
-}
 export function hmrcStage(status?: string | null): string {
   return status && (HMRC_STAGES as readonly string[]).includes(status)
     ? status
@@ -228,14 +218,37 @@ export function buildAnalytics(
       ),
     }
   })
-  const claimSummary = CLAIM_SUMMARY.map((group) => {
-    const rows = filteredSubmissions.filter((s) => claimSummaryGroup(s.hmrc_status) === group.key)
-    return {
-      ...group,
-      count: rows.length,
-      value: money(rows.reduce((sum, s) => sum + numberValue(s.amount_claimed), 0)),
+  const claimMonthMap = new Map<
+    string,
+    { month: string; recorded: number; accepted: number; claims: number }
+  >()
+  let undatedClaims = 0
+  for (const submission of filteredSubmissions) {
+    const date = donationDate(submission.submission_date)
+    if (!date) {
+      undatedClaims++
+      continue
     }
-  })
+    const month = date.slice(0, 7)
+    const item = claimMonthMap.get(month) || { month, recorded: 0, accepted: 0, claims: 0 }
+    item.recorded = money(item.recorded + numberValue(submission.amount_claimed))
+    if (submission.hmrc_status === 'accepted')
+      item.accepted = money(item.accepted + numberValue(submission.amount_claimed))
+    item.claims++
+    claimMonthMap.set(month, item)
+  }
+  // Empty months remain visible between the first and last dated claim.
+  const claimMonths = [...claimMonthMap.keys()].sort()
+  if (claimMonths.length) {
+    let cursor = claimMonths[0]
+    const end = claimMonths[claimMonths.length - 1]
+    while (cursor <= end) {
+      if (!claimMonthMap.has(cursor))
+        claimMonthMap.set(cursor, { month: cursor, recorded: 0, accepted: 0, claims: 0 })
+      const [year, month] = cursor.split('-').map(Number)
+      cursor = `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}`
+    }
+  }
   const ranking = charities
     .filter((c) => filters.charityId === 'all' || c.id === filters.charityId)
     .map((c) => {
@@ -287,7 +300,8 @@ export function buildAnalytics(
       a.month.localeCompare(b.month),
     ),
     pipeline,
-    claimSummary,
+    monthlyClaims: [...claimMonthMap.values()].sort((a, b) => a.month.localeCompare(b.month)),
+    undatedClaims,
     ranking,
     distribution,
     recorded,
