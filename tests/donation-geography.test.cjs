@@ -13,9 +13,9 @@ function load(path, deps = {}) {
 const consent = load('shared/giftAidRecords.ts')
 const analytics = load('shared/analytics.ts', { './giftAidRecords': consent })
 const postcodes = load('shared/postcodeAreas.ts')
-const geo = load('shared/donationGeography.ts', { './analytics': analytics, './postcodeAreas': postcodes })
+const geo = load('shared/donationGeography.ts', { './analytics': analytics, './postcodeAreas': postcodes, './giftAidRecords': consent })
 const record = (overrides = {}) => ({ id: 'row', charity_id: 'a', amount: 10, postcode: 'M1 1AE',
-  donation_date: '2025-05-01', tax_year: '2025/26', record_status: 'valid', gift_aid_opt_in: 'Yes', ...overrides })
+  donation_date: '2025-05-01', tax_year: '2025/26', record_status: 'valid', gift_aid_opt_in: 'Yes', gift_aid_submitted: true, ...overrides })
 
 test('postcode mapping normalises spacing/case and supports all four UK countries and London districts', () => {
   for (const [postcode, area, district] of [
@@ -47,7 +47,7 @@ test('raw postcodes and derived portfolio fields produce the same geography with
     const a = local.areas.find((r) => r.code === area), b = portfolio.areas.find((r) => r.code === area)
     assert.equal(a.count, b.count); assert.equal(a.value, b.value)
   }
-  assert.equal(local.areas.find((r) => r.code === 'M').value, 30.25)
+  assert.equal(local.areas.find((r) => r.code === 'M').value, 7.56)
   assert.equal(local.areas.reduce((sum, r) => sum + r.count, 0), 3)
 })
 test('map coverage accounts separately for missing, invalid and unsupported postcodes', () => {
@@ -71,14 +71,14 @@ test('geography uses the report charity/tax-year filters and donation dates cons
 test('regional and district drill-down keeps counts, averages and monthly values consistent', () => {
   const data = geo.buildDonationGeography([
     record({ amount: '15.15' }), record({ postcode: 'M2 2BB', amount: 20, donation_date: '2025-06-10' }),
-    record({ amount: -2, donation_date: null }),
+    record({ amount: 2, donation_date: null }),
   ])
   const rows = data.areas.find((a) => a.code === 'M').rows
   const detail = geo.geographicDetail(rows), district = geo.geographicDetail(rows, 'M1')
-  assert.equal(detail.count, 3); assert.equal(detail.value, 33.15); assert.equal(detail.average, 11.05)
+  assert.equal(detail.count, 3); assert.equal(detail.value, 9.29); assert.equal(detail.average, 3.1)
   assert.equal(detail.districts.length, 2); assert.equal(detail.monthly.length, 2); assert.equal(detail.undatedCount, 1)
-  assert.equal(district.count, 2); assert.equal(district.value, 13.15)
-  assert.equal(district.monthly[0].value, 15.15)
+  assert.equal(district.count, 2); assert.equal(district.value, 4.29)
+  assert.equal(district.monthly[0].value, 3.79)
   assert.equal(geo.geographicDetail(rows, 'M99').count, 0)
 })
 test('derived geography cannot attach a district to a contradictory area', () => {
@@ -94,4 +94,56 @@ test('bundled map geometry covers every supported postcode area including Northe
     assert.ok(area.bounds.every(Number.isFinite))
     assert.ok(area.bounds[2] > area.bounds[0] && area.bounds[3] > area.bounds[1])
   }
+})
+
+test('only valid opted-in donations explicitly marked submitted contribute to the Gift Aid map', () => {
+  const included = record({ amount: 100 })
+  const excluded = [
+    record({ gift_aid_submitted: false }),
+    record({ gift_aid_submitted: null }),
+    record({ gift_aid_submitted: undefined }),
+    record({ gift_aid_opt_in: 'No' }),
+    record({ gift_aid_opt_in: null }),
+    record({ record_status: 'opt_out' }),
+    record({ record_status: 'incomplete' }),
+    record({ record_status: 'unknown' }),
+    record({ amount: 0 }), record({ amount: -20 }), record({ amount: null }),
+    record({ amount: 'not-a-number' }), record({ amount: Infinity }),
+  ]
+  const data = geo.buildDonationGeography([included, ...excluded])
+  assert.equal(data.totalCount, 1)
+  assert.equal(data.mappedCount, 1)
+  assert.equal(data.excludedCount, excluded.length)
+  assert.equal(data.areas.find((a) => a.code === 'M').count, 1)
+  assert.equal(data.areas.find((a) => a.code === 'M').value, 25)
+  const detail = geo.geographicDetail([included, ...excluded])
+  assert.equal(detail.count, 1)
+  assert.equal(detail.value, 25)
+  assert.equal(detail.monthly[0].value, 25)
+  assert.equal(detail.districts[0].value, 25)
+})
+test('Gift Aid is aggregated at 25 percent before rounding money values', () => {
+  const records = Array.from({ length: 4 }, (_, i) => record({ id: String(i), amount: '0.01' }))
+  const area = geo.buildDonationGeography(records).areas.find((a) => a.code === 'M')
+  assert.equal(area.value, 0.01)
+  const detail = geo.geographicDetail(area.rows)
+  assert.equal(detail.value, 0.01)
+  assert.equal(detail.districts[0].value, 0.01)
+  assert.equal(detail.monthly[0].value, 0.01)
+})
+test('postcode coverage and empty states count only donations with applied Gift Aid', () => {
+  const data = geo.buildDonationGeography([
+    record({ postcode: null, amount: 100 }),
+    record({ postcode: 'bad', gift_aid_submitted: false }),
+    record({ postcode: 'GY1 1AA', record_status: 'incomplete' }),
+  ])
+  assert.equal(data.totalCount, 1)
+  assert.equal(data.missingCount, 1)
+  assert.equal(data.invalidCount, 0)
+  assert.equal(data.outsideCount, 0)
+  assert.equal(data.excludedCount, 2)
+  const empty = geo.buildDonationGeography([record({ gift_aid_submitted: false })])
+  assert.equal(empty.totalCount, 0)
+  assert.equal(empty.excludedCount, 1)
+  assert.ok(empty.areas.every((a) => a.count === 0 && a.value === 0))
 })

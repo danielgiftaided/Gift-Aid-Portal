@@ -252,7 +252,7 @@ export default function AnalyticsWorkspace({
   const [trend, setTrend] = useState<'area' | 'bar'>('area')
   const [donationArea, setDonationArea] = useState<string | null>(null)
   const [donationDistrict, setDonationDistrict] = useState<string | null>(null)
-  const [mapMetric, setMapMetric] = useState<MapMetric>('count')
+  const [mapMetric, setMapMetric] = useState<MapMetric>('value')
   const [group, setGroup] = useState('all')
   const [claimStatus, setClaimStatus] = useState('all')
   const [search, setSearch] = useState('')
@@ -324,8 +324,10 @@ export default function AnalyticsWorkspace({
             'HMRC accepted value GBP': model.accepted,
             'Donation map area': donationArea || 'All UK areas',
             'Donation map district': donationDistrict || 'All districts',
-            'Mapped donation records': geography.mappedCount,
-            'Unmapped donation records': geography.unmappedCount,
+            'Gift Aided donations included in map': geography.totalCount,
+            'Other donation records excluded from map': geography.excludedCount,
+            'Mapped Gift Aided donations': geography.mappedCount,
+            'Unmapped Gift Aided donations': geography.unmappedCount,
             'Missing postcode records': geography.missingCount,
             'Invalid postcode records': geography.invalidCount,
             'Outside supported UK areas': geography.outsideCount,
@@ -378,17 +380,17 @@ export default function AnalyticsWorkspace({
         })),
       ],
       [
-        'Donation regions',
+        'Gift Aid regions',
         geographicRows.map((r) => ({
           'Postcode area': r.code, Area: r.name, District: donationDistrict || 'All districts',
-          'Donation records': r.count, 'Donation value GBP': r.value, 'Average donation GBP': r.average,
+          'Gift Aided donations': r.count, 'Gift Aid amount GBP': r.value, 'Average Gift Aid GBP': r.average,
         })),
       ],
       [
-        'Donation districts',
+        'Gift Aid districts',
         geographicRows.flatMap((r) => r.districts.map((d) => ({
           'Postcode area': r.code, Area: r.name, District: d.code,
-          'Donation records': d.count, 'Donation value GBP': d.value,
+          'Gift Aided donations': d.count, 'Gift Aid amount GBP': d.value,
         }))),
       ],
       [
@@ -710,8 +712,8 @@ export default function AnalyticsWorkspace({
                       </div>
                     </Panel>
                     <Panel
-                      title="Where donations come from"
-                      caption="A UK heat map of uploaded donations by postcode area. Select a region to explore its donations."
+                      title="Where Gift Aid comes from"
+                      caption="Gift Aid amounts from donations marked as submitted, grouped by donor postcode area. Select a region to explore."
                       wide
                     >
                       <DonationMap data={geography} selectedArea={donationArea} district={donationDistrict} metric={mapMetric}
@@ -1303,8 +1305,8 @@ export default function AnalyticsWorkspace({
                 </table>
                 {view === 'overview' && (
                   <table className="analytics-data-table">
-                    <caption>Donation origins by postcode area{donationDistrict ? ` · ${donationDistrict}` : ''}</caption>
-                    <thead><tr><th>Postcode area</th><th>Area</th><th>Donation records</th><th>Donation value</th></tr></thead>
+                    <caption>Gift Aid by postcode area{donationDistrict ? ` · ${donationDistrict}` : ''}</caption>
+                    <thead><tr><th>Postcode area</th><th>Area</th><th>Gift Aided donations</th><th>Gift Aid amount</th></tr></thead>
                     <tbody>
                       {geographicRows.map((r) => (
                         <tr key={r.code}><td>{r.code}</td><td>{r.name}</td><td>{r.count}</td><td>{gbp(r.value)}</td></tr>
