@@ -13,8 +13,6 @@ import {
   Cell,
   PieChart,
   Pie,
-  LineChart,
-  Line,
 } from 'recharts'
 import * as XLSX from 'xlsx'
 import {
@@ -30,6 +28,8 @@ import {
 } from '../../../shared/analytics'
 import { CurrencyInsightTooltip, InsightTooltip } from '../InsightTooltip'
 import './analytics.css'
+import DonationMap, { type MapMetric } from './DonationMap'
+import { buildDonationGeography, geographicDetail } from '../../../shared/donationGeography'
 import { supabase } from '../../lib/supabase'
 
 export const gbp = (value: number) =>
@@ -250,7 +250,9 @@ export default function AnalyticsWorkspace({
   const [charityId, setCharityId] = useState('all')
   const [metric, setMetric] = useState<'value' | 'count'>('value')
   const [trend, setTrend] = useState<'area' | 'bar'>('area')
-  const [submissionMetric, setSubmissionMetric] = useState<'submissions' | 'donationRecords'>('submissions')
+  const [donationArea, setDonationArea] = useState<string | null>(null)
+  const [donationDistrict, setDonationDistrict] = useState<string | null>(null)
+  const [mapMetric, setMapMetric] = useState<MapMetric>('count')
   const [group, setGroup] = useState('all')
   const [claimStatus, setClaimStatus] = useState('all')
   const [search, setSearch] = useState('')
@@ -261,6 +263,11 @@ export default function AnalyticsWorkspace({
       buildAnalytics(submissions, records, charities, { taxYear, charityId }),
     [submissions, records, charities, taxYear, charityId],
   )
+  const geography = useMemo(() => buildDonationGeography(model.records), [model.records])
+  const geographicRows = useMemo(() => geography.areas
+    .filter((a) => donationArea ? a.code === donationArea : a.count > 0)
+    .map((a) => ({ code: a.code, name: a.name, ...geographicDetail(a.rows, donationDistrict) })),
+    [geography, donationArea, donationDistrict])
   const composition = model.quality.filter((g) => g.count > 0)
   const filteredClaims = model.submissions
     .filter(
@@ -284,6 +291,8 @@ export default function AnalyticsWorkspace({
     setCharityId('all')
     setGroup('all')
     setClaimStatus('all')
+    setDonationArea(null)
+    setDonationDistrict(null)
     setSearch('')
     setPage(1)
   }
@@ -313,8 +322,13 @@ export default function AnalyticsWorkspace({
               QUALITY.find((q) => q.key === group)?.label || 'All groups',
             'Recorded claim value GBP': model.recorded,
             'HMRC accepted value GBP': model.accepted,
-            'Undated submissions excluded from activity chart': model.undatedSubmissions,
-            'Dated submissions without record counts': model.submissionsWithoutRecordCount,
+            'Donation map area': donationArea || 'All UK areas',
+            'Donation map district': donationDistrict || 'All districts',
+            'Mapped donation records': geography.mappedCount,
+            'Unmapped donation records': geography.unmappedCount,
+            'Missing postcode records': geography.missingCount,
+            'Invalid postcode records': geography.invalidCount,
+            'Outside supported UK areas': geography.outsideCount,
             'Imported donation value GBP': model.donationValue,
             'Estimated eligible Gift Aid GBP': model.potential,
             'Estimated incomplete opted-in Gift Aid GBP': model.recoverable,
@@ -364,12 +378,18 @@ export default function AnalyticsWorkspace({
         })),
       ],
       [
-        'Submission activity',
-        model.submissionActivity.map((r) => ({
-          'Submission month': r.month,
-          Submissions: r.submissions,
-          'Donation records': r.donationRecords,
+        'Donation regions',
+        geographicRows.map((r) => ({
+          'Postcode area': r.code, Area: r.name, District: donationDistrict || 'All districts',
+          'Donation records': r.count, 'Donation value GBP': r.value, 'Average donation GBP': r.average,
         })),
+      ],
+      [
+        'Donation districts',
+        geographicRows.flatMap((r) => r.districts.map((d) => ({
+          'Postcode area': r.code, Area: r.name, District: d.code,
+          'Donation records': d.count, 'Donation value GBP': d.value,
+        }))),
       ],
       [
         'Monthly donations',
@@ -596,6 +616,7 @@ export default function AnalyticsWorkspace({
                           : 'Recorded value and HMRC-accepted value. Select a year to filter the dashboard.'
                       }
                       action={<span className="analytics-panel-tag">GBP</span>}
+                      wide
                     >
                       <div className="analytics-legend">
                         <span
@@ -689,38 +710,12 @@ export default function AnalyticsWorkspace({
                       </div>
                     </Panel>
                     <Panel
-                      title="Submission activity"
-                      caption="How often submissions are made and how many donation records they contain."
-                      action={<span className="analytics-panel-tag">{submissionMetric === 'submissions' ? 'SUBMISSIONS' : 'DONATION RECORDS'}</span>}
+                      title="Where donations come from"
+                      caption="A UK heat map of uploaded donations by postcode area. Select a region to explore its donations."
+                      wide
                     >
-                      <div className="analytics-toggle analytics-submission-metric" aria-label="Submission activity metric">
-                        <button aria-pressed={submissionMetric === 'submissions'} onClick={() => setSubmissionMetric('submissions')}>Submissions</button>
-                        <button aria-pressed={submissionMetric === 'donationRecords'} onClick={() => setSubmissionMetric('donationRecords')}>Donation records</button>
-                      </div>
-                      {model.submissionActivity.some((r) => submissionMetric === 'submissions' || (r.submissions > 0 && r.donationRecords !== null)) ? (
-                        <div className="analytics-chart" role="img"
-                          aria-label={`Line chart of ${submissionMetric === 'submissions' ? 'submission counts' : 'donation record counts'} by submission month`}>
-                          <ResponsiveContainer width="100%" height={270}>
-                            <LineChart data={model.submissionActivity} accessibilityLayer
-                              margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
-                              {grid}
-                              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={tick}
-                                minTickGap={24} padding={{ left: 12, right: 12 }} />
-                              <YAxis axisLine={false} tickLine={false} tick={tick} width={48} allowDecimals={false} tickFormatter={count} />
-                              <Tooltip content={<InsightTooltip />} />
-                              <Line name={submissionMetric === 'submissions' ? 'Submissions' : 'Donation records'}
-                                dataKey={submissionMetric} type="linear" stroke="#0c745d" connectNulls={false}
-                                strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
-                            </LineChart>
-                          </ResponsiveContainer>
-                        </div>
-                      ) : <Empty message={model.submissionActivity.length ? 'Donation record counts have not been recorded for these submissions.' : 'No dated submissions in this selection.'} />}
-                      <p className="analytics-footnote">
-                        Grouped by submission date; all statuses included.
-                        {model.submissionActivity.length === 1 && ' Only one month of dated submissions is available.'}
-                        {model.undatedSubmissions > 0 && ` ${count(model.undatedSubmissions)} ${model.undatedSubmissions === 1 ? 'submission without a valid date is' : 'submissions without valid dates are'} excluded.`}
-                        {submissionMetric === 'donationRecords' && model.submissionsWithoutRecordCount > 0 && ` ${count(model.submissionsWithoutRecordCount)} ${model.submissionsWithoutRecordCount === 1 ? 'submission has' : 'submissions have'} no donation record count; affected months show a gap.`}
-                      </p>
+                      <DonationMap data={geography} selectedArea={donationArea} district={donationDistrict} metric={mapMetric}
+                        onSelectArea={setDonationArea} onSelectDistrict={setDonationDistrict} onMetric={setMapMetric} />
                     </Panel>
                     {charities.length > 1 ? (
                       <Panel
@@ -1308,11 +1303,11 @@ export default function AnalyticsWorkspace({
                 </table>
                 {view === 'overview' && (
                   <table className="analytics-data-table">
-                    <caption>Submission activity · grouped by submission month</caption>
-                    <thead><tr><th>Submission month</th><th>Submissions</th><th>Donation records</th></tr></thead>
+                    <caption>Donation origins by postcode area{donationDistrict ? ` · ${donationDistrict}` : ''}</caption>
+                    <thead><tr><th>Postcode area</th><th>Area</th><th>Donation records</th><th>Donation value</th></tr></thead>
                     <tbody>
-                      {model.submissionActivity.map((r) => (
-                        <tr key={r.month}><td>{r.month}</td><td>{count(r.submissions)}</td><td>{r.donationRecords === null ? 'Not recorded' : count(r.donationRecords)}</td></tr>
+                      {geographicRows.map((r) => (
+                        <tr key={r.code}><td>{r.code}</td><td>{r.name}</td><td>{r.count}</td><td>{gbp(r.value)}</td></tr>
                       ))}
                     </tbody>
                   </table>

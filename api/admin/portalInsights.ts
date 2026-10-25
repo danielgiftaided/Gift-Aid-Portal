@@ -15,6 +15,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node'
 import { supabaseAdmin } from '../_utils/supabase.js'
 import { requireOperator } from '../_utils/requireOperator.js'
+import { postcodeLocation } from '../../shared/postcodeAreas.js'
 
 function send(res: VercelResponse, status: number, body: object) {
   return res.status(status).json(body)
@@ -38,7 +39,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { data, error } = await supabaseAdmin
         .from('uploaded_records')
         .select(
-          'id, charity_id, submission_id, amount, donation_date, tax_year, record_status, gift_aid_opt_in, gift_aid_submitted',
+          'id, charity_id, submission_id, amount, donation_date, tax_year, record_status, gift_aid_opt_in, gift_aid_submitted, postcode',
         )
         .order('id', { ascending: true })
         .range(from, from + 999)
@@ -47,7 +48,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           `Could not load uploaded record reporting data: ${error.message}`,
         )
       return {
-        records: data || [],
+        records: (data || []).map((row) => ({
+          id: row.id, charity_id: row.charity_id, submission_id: row.submission_id,
+          amount: row.amount, donation_date: row.donation_date, tax_year: row.tax_year,
+          record_status: row.record_status, gift_aid_opt_in: row.gift_aid_opt_in,
+          gift_aid_submitted: row.gift_aid_submitted,
+          ...postcodeLocation(row.postcode),
+        })),
         nextOffset: data?.length === 1000 ? from + 1000 : null,
       }
     }
