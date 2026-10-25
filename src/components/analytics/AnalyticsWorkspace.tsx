@@ -11,6 +11,8 @@ import {
   Tooltip,
   ResponsiveContainer,
   Cell,
+  PieChart,
+  Pie,
 } from 'recharts'
 import * as XLSX from 'xlsx'
 import {
@@ -20,6 +22,7 @@ import {
   qualityGroup,
   recordTaxYear,
   hmrcStage,
+  claimSummaryGroup,
   type AnalyticsSubmission,
   type AnalyticsRecord,
   type AnalyticsCharity,
@@ -46,15 +49,10 @@ const colors = [
   '#d77c66',
 ]
 const tick = { fontSize: 12, fill: '#536577' }
-const stageColor: Record<string, string> = {
-  accepted: '#0c745d',
-  ready_to_send: '#304675',
-  sent: '#a39bbc',
-  polling: '#e8a343',
-  rejected: '#d77c66',
-  error: '#bb5966',
-  unknown: '#99a5b7',
-  not_submitted: '#99a5b7',
+const recordShare = (value: number, total: number) => {
+  if (value > 0 && value / total < 0.001) return '<0.1%'
+  return Intl.NumberFormat('en-GB', { style: 'percent', maximumFractionDigits: 1 })
+    .format(total ? value / total : 0)
 }
 const titles = {
   overview: 'Performance overview',
@@ -261,10 +259,12 @@ export default function AnalyticsWorkspace({
       buildAnalytics(submissions, records, charities, { taxYear, charityId }),
     [submissions, records, charities, taxYear, charityId],
   )
+  const composition = model.quality.filter((g) => g.count > 0)
   const filteredClaims = model.submissions
     .filter(
       (s) =>
-        (claimStatus === 'all' || hmrcStage(s.hmrc_status) === claimStatus) &&
+        (claimStatus === 'all' || hmrcStage(s.hmrc_status) === claimStatus ||
+          `summary:${claimSummaryGroup(s.hmrc_status)}` === claimStatus) &&
         `${s.id} ${s.tax_year} ${charities.find((c) => c.id === s.charity_id)?.name || ''}`
           .toLowerCase()
           .includes(search.toLowerCase()),
@@ -290,6 +290,12 @@ export default function AnalyticsWorkspace({
     setTaxYear(year)
     setPage(1)
   }
+  const inspectRecordGroup = (key: string) => {
+    setGroup(key)
+    setView('quality')
+    setShowTable(true)
+    setPage(1)
+  }
   function exportReport() {
     const wb = XLSX.utils.book_new()
     const sheets: Array<[string, object[]]> = [
@@ -300,7 +306,7 @@ export default function AnalyticsWorkspace({
             'Tax year': taxYear === 'all' ? 'All tax years' : taxYear,
             Charity:
               charities.find((c) => c.id === charityId)?.name || scopeName,
-            'Claim detail status filter': claimStatus,
+            'Claim detail status filter': model.claimSummary.find((g) => `summary:${g.key}` === claimStatus)?.label || claimStatus,
             'Claim detail search': search || 'None',
             'Record detail group':
               QUALITY.find((q) => q.key === group)?.label || 'All groups',
@@ -672,8 +678,8 @@ export default function AnalyticsWorkspace({
                       </div>
                     </Panel>
                     <Panel
-                      title="Submission pipeline"
-                      caption="HMRC processing status, separate from the portal’s display status."
+                      title="Claims at a glance"
+                      caption="See what HMRC has accepted, what is awaiting a response and what needs your attention."
                       action={
                         <span className="analytics-panel-tag">
                           {count(model.submissions.length)} CLAIMS
@@ -681,34 +687,26 @@ export default function AnalyticsWorkspace({
                       }
                     >
                       {model.submissions.length ? (
-                        <div className="analytics-pipeline">
-                          {model.pipeline
-                            .filter((p) => p.count > 0)
-                            .map((p) => (
+                        <div className="analytics-claim-summary">
+                          {model.claimSummary.map((p) => (
                               <button
                                 key={p.key}
+                                disabled={p.count === 0}
                                 onClick={() => {
-                                  setClaimStatus(p.key)
+                                  setClaimStatus(`summary:${p.key}`)
+                                  setSearch('')
                                   setView('claims')
                                   setPage(1)
                                 }}
                               >
-                                <span className="analytics-stage-name">
-                                  <i
-                                    style={{ background: stageColor[p.key] }}
-                                  />
-                                  {p.name}
+                                <span className="analytics-claim-summary-label">
+                                  <span><i style={{ background: p.color }} />{p.label}</span>
+                                  <small>{p.description}</small>
                                 </span>
-                                <div className="analytics-stage-track">
-                                  <span
-                                    style={{
-                                      width: `${(p.count / Math.max(...model.pipeline.map((p) => p.count))) * 100}%`,
-                                      background: stageColor[p.key],
-                                    }}
-                                  />
-                                </div>
-                                <strong>{p.count}</strong>
-                                <small>{gbp(p.value)}</small>
+                                <span className="analytics-claim-summary-value">
+                                  <strong>{count(p.count)} <small>{p.count === 1 ? 'claim' : 'claims'}</small></strong>
+                                  <span>{gbp(p.value)}</span>
+                                </span>
                               </button>
                             ))}
                         </div>
@@ -716,7 +714,7 @@ export default function AnalyticsWorkspace({
                         <Empty message="No submissions recorded." />
                       )}
                       <div className="analytics-footnote">
-                        Select a status to explore its submissions.
+                        Select a group to view its claims. Accepted does not mean paid.
                       </div>
                     </Panel>
                     {charities.length > 1 ? (
@@ -763,40 +761,57 @@ export default function AnalyticsWorkspace({
                         caption="Every uploaded row belongs to one group. Select a group to inspect its details."
                         wide
                       >
-                        <div className="analytics-composition">
-                          {model.quality
-                            .filter((g) => g.count > 0)
-                            .map((g) => (
-                              <button
-                                title={`${g.label}: ${g.count} records`}
-                                key={g.key}
-                                onClick={() => {
-                                  setGroup(g.key)
-                                  setView('quality')
-                                }}
-                                style={{
-                                  width: `${(g.count / model.records.length) * 100}%`,
-                                  background: g.color,
-                                }}
-                                aria-label={`${g.label}: ${g.count} records`}
-                              />
-                            ))}
-                        </div>
-                        <div className="analytics-quality-legend">
-                          {model.quality.map((g) => (
-                            <button
-                              key={g.key}
-                              onClick={() => {
-                                setGroup(g.key)
-                                setView('quality')
-                              }}
+                        {model.records.length ? (
+                          <div className="analytics-composition">
+                            <div
+                              className="analytics-composition-chart"
+                              role="img"
+                              aria-label={`Record composition pie chart. ${composition.map((g) => `${g.label}: ${count(g.count)} records, ${recordShare(g.count, model.records.length)}`).join('. ')}.`}
                             >
-                              <i style={{ background: g.color }} />
-                              {g.label}
-                              <strong>{count(g.count)}</strong>
-                            </button>
-                          ))}
-                        </div>
+                              <ResponsiveContainer width="100%" height={300}>
+                                <PieChart>
+                                  <Pie
+                                    data={composition}
+                                    dataKey="count"
+                                    nameKey="label"
+                                    cx="50%"
+                                    cy="50%"
+                                    outerRadius="88%"
+                                    startAngle={90}
+                                    endAngle={-270}
+                                    stroke="#fff"
+                                    strokeWidth={2}
+                                    isAnimationActive={false}
+                                    onClick={(entry) => inspectRecordGroup(entry.key)}
+                                    style={{ cursor: 'pointer' }}
+                                  >
+                                    {composition.map((g) => <Cell key={g.key} fill={g.color} />)}
+                                  </Pie>
+                                  <Tooltip content={<InsightTooltip />} />
+                                </PieChart>
+                              </ResponsiveContainer>
+                            </div>
+                            <div>
+                              <p className="analytics-composition-total">
+                                <strong>{count(model.records.length)}</strong> uploaded records
+                              </p>
+                              <div className="analytics-quality-legend">
+                                {model.quality.map((g) => (
+                                  <button
+                                    key={g.key}
+                                    disabled={g.count === 0}
+                                    onClick={() => inspectRecordGroup(g.key)}
+                                  >
+                                    <i style={{ background: g.color }} />
+                                    <span>{g.label}</span>
+                                    <strong>{count(g.count)}</strong>
+                                    <small>{recordShare(g.count, model.records.length)}</small>
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+                        ) : <Empty message="No uploaded records in this selection." />}
                       </Panel>
                     )}
                   </div>
@@ -1122,6 +1137,10 @@ export default function AnalyticsWorkspace({
                           }}
                         >
                           <option value="all">All statuses</option>
+                          <optgroup label="Claim summary">
+                            {model.claimSummary.map((g) => <option key={g.key} value={`summary:${g.key}`}>{g.label}</option>)}
+                          </optgroup>
+                          <optgroup label="Detailed HMRC status">
                           {model.pipeline
                             .filter((p) => p.count > 0)
                             .map((p) => (
@@ -1129,6 +1148,7 @@ export default function AnalyticsWorkspace({
                                 {p.name}
                               </option>
                             ))}
+                          </optgroup>
                         </select>
                       </label>
                       <span>{count(filteredClaims.length)} results</span>

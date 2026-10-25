@@ -79,6 +79,38 @@ test('report distinguishes recorded claims from HMRC accepted and portal-approve
     3,
   )
 })
+test('simple claim summary counts each HMRC status once and preserves recorded value', () => {
+  const statuses = ['accepted', 'sent', 'polling', 'not_submitted', 'ready_to_send',
+    'validation_failed', 'rejected', 'error', null, 'future_status']
+  const result = a.buildAnalytics(statuses.map((hmrc_status, i) => claim({
+    id: String(i), hmrc_status, amount_claimed: i === 0 ? '100.25' : 10,
+    status: 'approved',
+  })), [], charities, all)
+  const [accepted, awaiting, attention] = result.claimSummary
+  assert.equal(accepted.count, 1)
+  assert.equal(accepted.value, 100.25)
+  assert.equal(awaiting.count, 2)
+  assert.equal(awaiting.value, 20)
+  assert.equal(attention.count, 7)
+  assert.equal(attention.value, 70)
+  assert.equal(result.claimSummary.reduce((sum, group) => sum + group.count, 0), statuses.length)
+  assert.equal(result.claimSummary.reduce((sum, group) => sum + group.value, 0), result.recorded)
+  assert.equal(result.pipeline.find((stage) => stage.key === 'validation_failed').count, 1)
+  assert.equal(a.claimSummaryGroup('future_status'), 'needs_attention')
+})
+test('claim summary respects charity/year filters and handles empty selections', () => {
+  const result = a.buildAnalytics([
+    claim({ hmrc_status: 'sent', amount_claimed: 40 }),
+    claim({ id: 'other-year', hmrc_status: 'accepted', tax_year: '2024/25' }),
+    claim({ id: 'other-charity', hmrc_status: 'rejected', charity_id: 'b' }),
+  ], [], charities, { charityId: 'a', taxYear: '2025/26' })
+  assert.equal(result.claimSummary.find((group) => group.key === 'awaiting_hmrc').count, 1)
+  assert.equal(result.claimSummary.find((group) => group.key === 'awaiting_hmrc').value, 40)
+  assert.equal(result.claimSummary.find((group) => group.key === 'accepted').count, 0)
+  assert.equal(result.claimSummary.find((group) => group.key === 'needs_attention').count, 0)
+  const empty = a.buildAnalytics([], [], [], all)
+  assert.ok(empty.claimSummary.every((group) => group.count === 0 && group.value === 0))
+})
 test('quality buckets are exclusive and recoverability excludes opt-outs and other-provider records', () => {
   const records = [
     record(),

@@ -4,7 +4,7 @@ The portfolio (`/admin/insights`), admin charity workspace insights and pending-
 
 ## Views
 
-- **Overview:** recorded versus HMRC-accepted claim value, status pipeline and charity contribution rankings (or record composition for an individual charity). Year and charity selections filter the workspace; status selections open the submission register.
+- **Overview:** recorded versus HMRC-accepted claim value, a three-group claim summary and charity contribution rankings (or a record composition pie chart for an individual charity). The summary shows Accepted, Awaiting HMRC, and Needs attention with counts and claim values; selecting a group opens its claims in the submission register. The pie uses record counts, with counts and percentages in a keyboard-accessible legend; selecting a slice or legend group opens its record details. Year and charity selections filter both panels.
 - **Donation patterns:** monthly donation activity, switchable area/column charts and value/count measures, donation-size distribution and donation value by tax year. Missing months appear as zero; undated rows are excluded and counted explicitly.
 - **Data quality:** mutually exclusive record groups and a tax-year heatmap. Select a cell to filter the year and inspect up to 50 matching record rows. Opted-out and historic donations are not presented as recoverable Gift Aid.
 - **Claim operations:** searchable, paginated submissions with HMRC and portal display statuses shown separately. Submission links retain the correct admin/charity return path.
@@ -15,6 +15,7 @@ The portfolio (`/admin/insights`), admin charity workspace insights and pending-
 
 - Recorded claim value sums `submissions.amount_claimed` across all statuses. It can include GASDS and adjustments; it is not calculated by multiplying all donations by 25%.
 - HMRC-accepted value includes only `hmrc_status = accepted`. Portal `status = approved` is an editable display state and is not evidence of HMRC acceptance. Acceptance is not evidence of payment.
+- Claims at a glance groups `accepted` as Accepted; `sent`/`polling` as Awaiting HMRC; and unsent, ready, validation-failed, rejected, error or unknown statuses as Needs attention. Every submission appears in exactly one group. Group links retain tax-year/charity filters and report exports respect the selected group; detailed HMRC status filters remain available in the submission register.
 - Eligible estimate uses 25% of valid, opted-in, Gift Aided records. The incomplete opted-in estimate excludes consent gaps and records marked as claimed by another provider. Eligibility and deadlines must still be checked; neither estimate is a confirmed entitlement.
 - Donation activity uses `uploaded_records` (or staged records for pending charities), not the separate donations table, so rows are not double-counted across sources. It counts imported donation rows, not unique donors. Manually entered claim data not present in uploads contributes to recorded claims but not imported donation charts.
 - Tax year is derived from a valid UK/ISO donation date, with 6 April as the boundary. Otherwise the saved year or `Unknown` is used.
