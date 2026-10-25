@@ -7,9 +7,11 @@ import OnboardingChecklist from '../components/OnboardingChecklist'
 import * as XLSX from "xlsx";
 import JSZip from "jszip";
 import { fetchAllRows } from '../utils/fetchAll'
+import { hmrcStatuses, hmrcStatusLabel } from '../../shared/hmrcStatus'
+import HmrcStatusBadge, { hmrcStatusColor } from '../components/HmrcStatusBadge'
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; charity_id: string | null; authorised_official_name: string | null; agent_nominee_reference: string | null }
-interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string; hmrc_response_message: string | null; hmrc_claim_xml: string | null; hmrc_correlation_id: string | null; adjustment_amount: number | null; adjustment_explanation: string | null;
+interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string | null; hmrc_response_message: string | null; hmrc_claim_xml: string | null; hmrc_correlation_id: string | null; adjustment_amount: number | null; adjustment_explanation: string | null;
   // Recognition package files — stored by sendToEts, pollClaim, sendDataRequest
   hmrc_acknowledgement_xml: string | null
   hmrc_submission_poll_xml: string | null
@@ -283,6 +285,7 @@ export default function AdminCharityDetail() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [savingStatusId, setSavingStatusId] = useState<string | null>(null)
+  const [savingHmrcStatusId, setSavingHmrcStatusId] = useState<string | null>(null)
   const [statusMessage, setStatusMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [buildingId, setBuildingId] = useState<string | null>(null)
   const [sendingId, setSendingId] = useState<string | null>(null)
@@ -867,7 +870,7 @@ export default function AdminCharityDetail() {
   }
 
   async function handleStatusChange(submission: Submission, status: string) {
-    if (savingStatusId || submission.status === status) return
+    if (savingStatusId || savingHmrcStatusId || submission.status === status) return
     setSavingStatusId(submission.id)
     setStatusMessage(null)
     try {
@@ -890,28 +893,30 @@ export default function AdminCharityDetail() {
     } finally { setSavingStatusId(null) }
   }
 
-  function hmrcStatusBadge(status: string) {
-    const styles: Record<string, string> = {
-      not_submitted: 'bg-gray-100 text-gray-500',
-      validation_failed: 'bg-red-100 text-red-700',
-      ready_to_send: 'bg-blue-100 text-blue-700',
-      sent: 'bg-amber-100 text-amber-700',
-      polling: 'bg-amber-100 text-amber-700',
-      accepted: 'bg-green-100 text-green-700',
-      rejected: 'bg-red-100 text-red-700',
-      error: 'bg-red-100 text-red-700',
-    }
-    const labels: Record<string, string> = {
-      not_submitted: 'Not built',
-      validation_failed: 'Validation failed',
-      ready_to_send: 'Ready to send',
-      sent: 'Sent',
-      polling: 'Awaiting response',
-      accepted: 'Accepted',
-      rejected: 'Rejected',
-      error: 'Error',
-    }
-    return <span className={`text-xs font-semibold px-2 py-1 rounded ${styles[status] || 'bg-gray-100 text-gray-500'}`}>{labels[status] || status}</span>
+  async function handleHmrcStatusChange(submission: Submission, hmrcStatus: string) {
+    if (savingStatusId || savingHmrcStatusId || (submission.hmrc_status ?? 'not_submitted') === hmrcStatus) return
+    setSavingHmrcStatusId(submission.id)
+    setStatusMessage(null)
+    try {
+      const { data: { session } } = await supabase.auth.getSession()
+      if (!session) throw new Error('Please sign in again')
+      const response = await fetch('/api/admin/updateHmrcStatus', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session.access_token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ submissionId: submission.id, charityId: id, hmrcStatus,
+          expectedHmrcStatus: submission.hmrc_status ?? null, expectedStatus: submission.status }),
+      })
+      const result = await response.json()
+      if (!response.ok || !result.ok) {
+        if (response.status === 409) await loadData()
+        throw new Error(result.error || 'Unable to save HMRC status')
+      }
+      setSubmissions(current => current.map(row => row.id === submission.id
+        ? { ...row, status: result.submission.status, hmrc_status: result.submission.hmrc_status } : row))
+      setStatusMessage({ ok: true, text: `HMRC status saved as ${hmrcStatusLabel(result.submission.hmrc_status)}. The charity portal updates automatically.` })
+    } catch (error: any) {
+      setStatusMessage({ ok: false, text: error.message || 'Unable to save HMRC status' })
+    } finally { setSavingHmrcStatusId(null) }
   }
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1167,6 +1172,7 @@ export default function AdminCharityDetail() {
                 + New GASDS Claim
               </button>
             </div>
+            <p className="px-6 py-3 text-xs text-gray-500">HMRC status changes save automatically and update the charity portal. Use Build HMRC Claim to mark a claim ready to send.</p>
             {statusMessage && (
               <p role={statusMessage.ok ? 'status' : 'alert'} className={`px-6 py-3 text-sm ${statusMessage.ok ? 'text-green-700 bg-green-50' : 'text-red-700 bg-red-50'}`}>{statusMessage.text}</p>
             )}
@@ -1183,7 +1189,7 @@ export default function AdminCharityDetail() {
             )}
             <div className="overflow-x-auto">
               <table className="min-w-full divide-y divide-gray-50">
-                <thead><tr className="bg-gray-50/50">{['Date','Tax Year','Amount','Donations','Status','HMRC Ref','HMRC Claim','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>)}</tr></thead>
+                <thead><tr className="bg-gray-50/50">{['Date','Tax Year','Amount','Donations','Status','HMRC Ref','HMRC Status','Actions'].map(h => <th key={h} className="px-4 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>)}</tr></thead>
                 <tbody className="divide-y divide-gray-50">
                   {submissions.length === 0 ? (
                     <tr><td colSpan={8} className="px-4 py-8 text-center text-gray-300">No submissions yet</td></tr>
@@ -1209,7 +1215,7 @@ export default function AdminCharityDetail() {
                         <select
                           aria-label={`Status for upload ${s.tax_year} on ${s.submission_date}`}
                           value={s.status}
-                          disabled={savingStatusId !== null}
+                          disabled={savingStatusId !== null || savingHmrcStatusId !== null}
                           onChange={e => void handleStatusChange(s, e.target.value)}
                           className={`text-xs font-semibold rounded px-2 py-1 border border-gray-200 disabled:opacity-50 ${statusColor(s.status)}`}
                         >
@@ -1221,13 +1227,24 @@ export default function AdminCharityDetail() {
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-400 font-mono whitespace-nowrap">{s.hmrc_reference || '—'}</td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                        {hmrcStatusBadge(s.hmrc_status || 'not_submitted')}
+                        <select
+                          aria-label={`HMRC status for upload ${s.tax_year} on ${s.submission_date}`}
+                          value={s.hmrc_status ?? 'not_submitted'}
+                          disabled={savingStatusId !== null || savingHmrcStatusId !== null || buildingId === s.id || sendingId === s.id || checkingId === s.id}
+                          onChange={e => void handleHmrcStatusChange(s, e.target.value)}
+                          className={`text-xs font-semibold rounded px-2 py-1 border border-gray-200 disabled:opacity-50 ${hmrcStatusColor(s.hmrc_status)}`}
+                        >
+                          {hmrcStatuses.map(({ value, label }) => (
+                            <option key={value} value={value} disabled={value === 'ready_to_send'}>{label}</option>
+                          ))}
+                        </select>
+                        {savingHmrcStatusId === s.id && <span role="status" className="ml-2 text-xs text-gray-500">Saving…</span>}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-3">
                           <button
                             onClick={() => handleBuildClaim(s.id)}
-                            disabled={buildingId === s.id}
+                            disabled={buildingId === s.id || savingHmrcStatusId === s.id}
                             className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40">
                             {buildingId === s.id ? 'Building…' : 'Build HMRC Claim'}
                           </button>
@@ -1248,18 +1265,18 @@ export default function AdminCharityDetail() {
                             + Aggregated
                           </button>
                           {s.hmrc_status === 'ready_to_send' && (
-                            <button onClick={() => handleSendToEts(s.id)} disabled={sendingId === s.id}
+                            <button onClick={() => handleSendToEts(s.id)} disabled={sendingId === s.id || savingHmrcStatusId === s.id}
                               className="text-xs text-amber-600 hover:text-amber-800 font-semibold disabled:opacity-40">
                               {sendingId === s.id ? 'Sending…' : 'Send to ETS'}
                             </button>
                           )}
                           {(s.hmrc_status === 'sent' || s.hmrc_status === 'polling') && (
-                            <button onClick={() => handleCheckStatus(s.id)} disabled={checkingId === s.id}
+                            <button onClick={() => handleCheckStatus(s.id)} disabled={checkingId === s.id || savingHmrcStatusId === s.id}
                               className="text-xs text-amber-600 hover:text-amber-800 font-semibold disabled:opacity-40">
                               {checkingId === s.id ? 'Checking…' : 'Check Status'}
                             </button>
                           )}
-                          <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
+                          <button onClick={() => handleDelete(s.id)} disabled={deletingId === s.id || savingHmrcStatusId === s.id} className="text-xs text-red-500 hover:text-red-700 font-medium disabled:opacity-40">
                             {deletingId === s.id ? 'Deleting…' : 'Delete'}
                           </button>
                         </div>
@@ -1372,7 +1389,7 @@ export default function AdminCharityDetail() {
               <div>
                 <h3 className="font-semibold text-brand-primary">HMRC Claim XML</h3>
                 <p className="text-xs text-gray-400 mt-0.5">
-                  Submission {viewingXmlFor.tax_year} — {hmrcStatusBadge(viewingXmlFor.hmrc_status || 'not_submitted')}
+                  Submission {viewingXmlFor.tax_year} — <HmrcStatusBadge status={viewingXmlFor.hmrc_status} />
                 </p>
               </div>
               <button onClick={() => setViewingXmlFor(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
