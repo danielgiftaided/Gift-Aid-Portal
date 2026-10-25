@@ -47,6 +47,7 @@ export const QUALITY = [
 ] as const
 export const HMRC_STAGES = [
   'not_submitted',
+  'validation_failed',
   'ready_to_send',
   'sent',
   'polling',
@@ -55,6 +56,16 @@ export const HMRC_STAGES = [
   'error',
   'unknown',
 ] as const
+export const CLAIM_SUMMARY = [
+  { key: 'accepted', label: 'Accepted', description: 'Accepted by HMRC', color: '#0c745d' },
+  { key: 'awaiting_hmrc', label: 'Awaiting HMRC', description: 'Sent and waiting for a response', color: '#304675' },
+  { key: 'needs_attention', label: 'Needs attention', description: 'Unsent claims or issues to check', color: '#a36c23' },
+] as const
+export function claimSummaryGroup(status?: string | null): typeof CLAIM_SUMMARY[number]['key'] {
+  if (status === 'accepted') return 'accepted'
+  if (status === 'sent' || status === 'polling') return 'awaiting_hmrc'
+  return 'needs_attention'
+}
 export function hmrcStage(status?: string | null): string {
   return status && (HMRC_STAGES as readonly string[]).includes(status)
     ? status
@@ -217,6 +228,14 @@ export function buildAnalytics(
       ),
     }
   })
+  const claimSummary = CLAIM_SUMMARY.map((group) => {
+    const rows = filteredSubmissions.filter((s) => claimSummaryGroup(s.hmrc_status) === group.key)
+    return {
+      ...group,
+      count: rows.length,
+      value: money(rows.reduce((sum, s) => sum + numberValue(s.amount_claimed), 0)),
+    }
+  })
   const ranking = charities
     .filter((c) => filters.charityId === 'all' || c.id === filters.charityId)
     .map((c) => {
@@ -268,6 +287,7 @@ export function buildAnalytics(
       a.month.localeCompare(b.month),
     ),
     pipeline,
+    claimSummary,
     ranking,
     distribution,
     recorded,

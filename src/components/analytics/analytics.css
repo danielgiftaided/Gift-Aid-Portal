@@ -426,58 +426,71 @@
   border-color: #bcd8ce;
   color: #0c745d;
 }
-.analytics-pipeline {
-  display: flex;
-  flex-direction: column;
-  gap: 22px;
-  margin: 27px 0;
-}
-.analytics-pipeline button {
+.analytics-claim-summary {
   display: grid;
-  grid-template-columns: 96px minmax(20px, 1fr) 20px 70px;
   gap: 10px;
-  align-items: center;
-  border: 0;
-  background: none;
-  text-align: left;
-  font-size: 12px;
 }
-.analytics-stage-name {
-  color: #6a7c8d;
+.analytics-claim-summary button {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid #e0e6e5;
+  border-radius: 8px;
+  background: #fafbf9;
+  text-align: left;
+}
+.analytics-claim-summary button:not(:disabled):hover {
+  border-color: #90b9ab;
+  background: #f1f6f2;
+}
+.analytics-claim-summary button:disabled {
+  cursor: default;
+}
+.analytics-claim-summary-label > span {
   display: flex;
   align-items: center;
-  gap: 6px;
-  text-transform: capitalize;
-  white-space: nowrap;
+  gap: 8px;
+  color: #304675;
+  font-size: 13px;
+  font-weight: 600;
 }
-.analytics-stage-name i {
-  width: 5px;
-  height: 5px;
+.analytics-claim-summary-label i {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
-  display: block;
   flex-shrink: 0;
 }
-.analytics-stage-track {
-  height: 7px;
-  background: #f1f4f8;
-  border-radius: 3px;
-  overflow: hidden;
-}
-.analytics-stage-track span {
+.analytics-claim-summary-label > small {
   display: block;
-  height: 100%;
-  border-radius: 3px;
-}
-.analytics-pipeline strong {
+  margin-top: 6px;
+  color: #536577;
   font-size: 12px;
-  color: #395166;
-  text-align: right;
+  line-height: 1.5;
 }
-.analytics-pipeline small {
-  font-size: 12px;
-  color: #8a97a6;
+.analytics-claim-summary-value {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  flex-shrink: 0;
+}
+.analytics-claim-summary-value strong {
+  display: block;
+  color: #24384a;
+  font-size: 23px;
+  font-weight: 650;
+}
+.analytics-claim-summary-value small {
+  font-size: 12px;
+  font-weight: 400;
+  color: #536577;
+}
+.analytics-claim-summary-value > span {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: #536577;
 }
 .analytics-footnote {
   font-size: 12px !important;
@@ -537,31 +550,39 @@
   color: #9aa5b1;
 }
 .analytics-composition {
-  display: flex;
-  height: 28px;
-  border-radius: 5px;
-  overflow: hidden;
-  margin: 15px 0 24px;
-  background: #eef2f6;
+  display: grid;
+  grid-template-columns: minmax(240px, 0.8fr) minmax(0, 1fr);
+  gap: 28px;
+  align-items: center;
 }
-.analytics-composition button {
-  border: 0;
-  min-width: 4px;
+.analytics-composition-chart { min-width: 0; }
+.analytics-composition-total {
+  margin-bottom: 14px;
+  font-size: 13px;
+  color: #536577;
 }
+.analytics-composition-total strong { color: #24384a; }
 .analytics-quality-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 20px;
+  display: grid;
+  gap: 4px;
 }
 .analytics-quality-legend button {
-  display: flex;
-  gap: 7px;
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto 55px;
+  gap: 10px;
   align-items: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 10px;
   border: 0;
+  border-radius: 6px;
   background: none;
-  color: #78899b;
+  text-align: left;
+  color: #536577;
   font-size: 12px;
 }
+.analytics-quality-legend button:not(:disabled):hover { background: #f1f6f2; }
+.analytics-quality-legend button:disabled { cursor: default; }
 .analytics-quality-legend i,
 .analytics-quality-actions i {
   height: 8px;
@@ -569,9 +590,8 @@
   border-radius: 2px;
   flex-shrink: 0;
 }
-.analytics-quality-legend strong {
-  color: #355064;
-}
+.analytics-quality-legend strong { color: #304675; font-variant-numeric: tabular-nums; }
+.analytics-quality-legend small { text-align: right; color: #536577; font-size: 12px; }
 .analytics-submetrics {
   display: flex;
   gap: 50px;
@@ -866,13 +886,6 @@
   .analytics-kpi {
     padding: 16px 12px;
   }
-  .analytics-pipeline button {
-    grid-template-columns: 90px minmax(20px, 1fr) 16px;
-    gap: 8px;
-  }
-  .analytics-pipeline small {
-    grid-column: 2/4;
-  }
   .analytics-filters {
     gap: 12px;
   }
@@ -893,6 +906,7 @@
   }
 }
 @media (max-width: 850px) {
+  .analytics-composition { grid-template-columns: 1fr; gap: 8px; }
   .analytics-layout {
     display: flex;
     flex-direction: column;
@@ -934,12 +948,6 @@
   }
   .analytics-quality-actions {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-  .analytics-pipeline button {
-    grid-template-columns: 105px 1fr 25px 90px;
-  }
-  .analytics-pipeline small {
-    grid-column: auto;
   }
   .analytics-submetrics {
     gap: 25px;
@@ -1026,12 +1034,6 @@
   .analytics-panel-heading p {
     font-size: 12px;
   }
-  .analytics-pipeline button {
-    grid-template-columns: 100px 1fr 20px;
-  }
-  .analytics-pipeline small {
-    grid-column: 2/4;
-  }
   .analytics-submetrics {
     flex-wrap: wrap;
     gap: 20px;
@@ -1073,6 +1075,7 @@
   }
 }
 @media print {
+  .analytics-composition { grid-template-columns: minmax(200px, 0.8fr) minmax(0, 1fr); }
   .analytics-app {
     background: white;
     color: #222;
@@ -1186,6 +1189,7 @@
 .analytics-methodology summary { cursor: pointer; font-size: 14px; font-weight: 600; color: #304675; padding: 8px 0; }
 @media (max-width: 1100px) { .analytics-next-steps { grid-template-columns: 1fr 1fr; } .analytics-next-steps > div { grid-column: 1 / -1; } }
 @media (max-width: 850px) {
+  .analytics-composition { grid-template-columns: 1fr; gap: 8px; }
   .analytics-sidebar { width: 100%; padding: 8px; flex-wrap: wrap; overflow: visible; }
   .analytics-sidebar > button { flex: 1 1 40%; }
   .analytics-topbar { height: auto; min-height: 76px; flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; }
@@ -1202,4 +1206,5 @@
   .analytics-filters label { width: 100%; }
   .analytics-filters select { max-width: none; min-height: 44px; font-size: 16px; }
 }
-@media print { .analytics-preview-bar, .analytics-next-steps { display: none; } .analytics-methodology > * { display: block; } }
+@media print {
+  .analytics-composition { grid-template-columns: minmax(200px, 0.8fr) minmax(0, 1fr); } .analytics-preview-bar, .analytics-next-steps { display: none; } .analytics-methodology > * { display: block; } }
