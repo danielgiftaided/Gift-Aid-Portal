@@ -426,12 +426,6 @@
   border-color: #bcd8ce;
   color: #0c745d;
 }
-.analytics-submission-metric {
-  display: flex;
-  flex-wrap: wrap;
-  width: fit-content;
-  margin-bottom: 10px;
-}
 .analytics-footnote {
   font-size: 12px !important;
   color: #8d99a7;

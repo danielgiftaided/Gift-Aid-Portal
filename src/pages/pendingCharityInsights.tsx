@@ -29,7 +29,7 @@ export default function PendingCharityInsights() {
           supabase
             .from('pending_uploaded_records')
             .select(
-              'id, record_status, tax_year, amount, donation_date, gift_aid_opt_in, gift_aid_submitted',
+              'id, record_status, tax_year, amount, donation_date, gift_aid_opt_in, gift_aid_submitted, postcode',
             )
             .eq('pending_email', email)
             .order('id', { ascending: true }),

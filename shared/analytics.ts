@@ -20,6 +20,10 @@ export interface AnalyticsRecord {
   record_status: string
   gift_aid_opt_in: string | null
   gift_aid_submitted?: boolean | null
+  postcode?: string | null
+  postcode_area?: string | null
+  postcode_district?: string | null
+  postcode_status?: string
 }
 export interface AnalyticsCharity {
   id: string
@@ -218,40 +222,6 @@ export function buildAnalytics(
       ),
     }
   })
-  const submissionMonthMap = new Map<
-    string,
-    { month: string; submissions: number; donationRecords: number | null }
-  >()
-  let undatedSubmissions = 0
-  let submissionsWithoutRecordCount = 0
-  for (const submission of filteredSubmissions) {
-    const date = donationDate(submission.submission_date)
-    if (!date) {
-      undatedSubmissions++
-      continue
-    }
-    const month = date.slice(0, 7)
-    const item = submissionMonthMap.get(month) || { month, submissions: 0, donationRecords: 0 }
-    const records = submission.number_of_donations
-    if (typeof records !== 'number' || !Number.isInteger(records) || records < 0) {
-      submissionsWithoutRecordCount++
-      item.donationRecords = null
-    } else if (item.donationRecords !== null) item.donationRecords += records
-    item.submissions++
-    submissionMonthMap.set(month, item)
-  }
-  // Empty months remain visible between the first and last dated submission.
-  const submissionMonths = [...submissionMonthMap.keys()].sort()
-  if (submissionMonths.length) {
-    let cursor = submissionMonths[0]
-    const end = submissionMonths[submissionMonths.length - 1]
-    while (cursor <= end) {
-      if (!submissionMonthMap.has(cursor))
-        submissionMonthMap.set(cursor, { month: cursor, submissions: 0, donationRecords: 0 })
-      const [year, month] = cursor.split('-').map(Number)
-      cursor = `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}`
-    }
-  }
   const ranking = charities
     .filter((c) => filters.charityId === 'all' || c.id === filters.charityId)
     .map((c) => {
@@ -303,9 +273,6 @@ export function buildAnalytics(
       a.month.localeCompare(b.month),
     ),
     pipeline,
-    submissionActivity: [...submissionMonthMap.values()].sort((a, b) => a.month.localeCompare(b.month)),
-    undatedSubmissions,
-    submissionsWithoutRecordCount,
     ranking,
     distribution,
     recorded,
