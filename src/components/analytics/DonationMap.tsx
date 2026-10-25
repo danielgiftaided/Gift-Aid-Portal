@@ -35,31 +35,32 @@ export default function DonationMap({ data, selectedArea, district, metric, onSe
   })() : mapData.viewBox
   const selectArea = (code: string | null) => { onSelectArea(code); onSelectDistrict(null); setHovered(null) }
   const ranked = area
-    ? areaDetail.districts.sort((a, b) => b[metric] - a[metric] || a.code.localeCompare(b.code))
+    ? areaDetail.districts.slice().sort((a, b) => b[metric] - a[metric] || a.code.localeCompare(b.code))
     : data.areas.filter((a) => a.count > 0).sort((a, b) => b[metric] - a[metric] || a.code.localeCompare(b.code))
   const rankMax = Math.max(0, ...ranked.map((r) => r[metric]))
   return <div className="donation-map">
     <div className="donation-map-toolbar">
       <div className="analytics-toggle" aria-label="Map colour measure">
-        <button aria-pressed={metric === 'count'} onClick={() => onMetric('count')}>Donation count</button>
-        <button aria-pressed={metric === 'value'} onClick={() => onMetric('value')}>Donation value</button>
+        <button aria-pressed={metric === 'count'} onClick={() => onMetric('count')}>Gift Aided donations</button>
+        <button aria-pressed={metric === 'value'} onClick={() => onMetric('value')}>Gift Aid amount</button>
       </div>
       <label>Explore a postcode area
         <select value={selectedArea || ''} onChange={(e) => selectArea(e.target.value || null)}>
           <option value="">All UK areas</option>
           {data.areas.slice().sort((a, b) => a.name.localeCompare(b.name)).map((a) =>
-            <option key={a.code} value={a.code}>{a.name} ({a.code}) · {count(a.count)} records</option>)}
+            <option key={a.code} value={a.code}>{a.name} ({a.code}) · {count(a.count)} Gift Aided donations</option>)}
         </select>
       </label>
       {selectedArea && <button className="donation-map-back" onClick={() => selectArea(null)}>← Back to UK</button>}
     </div>
     <p className="donation-map-coverage" role="status">
-      <strong>{count(data.mappedCount)} of {count(data.totalCount)}</strong> donation records mapped.
+      <strong>{count(data.mappedCount)} of {count(data.totalCount)}</strong> Gift Aided donations mapped.
+      {data.excludedCount > 0 && ` ${count(data.excludedCount)} other donation records excluded.`}
       {data.unmappedCount > 0 && ` ${count(data.unmappedCount)} not mapped: ${count(data.missingCount)} without postcodes, ${count(data.invalidCount)} invalid and ${count(data.outsideCount)} outside supported UK areas.`}
     </p>
     <div className="donation-map-layout">
       <div className="donation-map-canvas">
-        <svg viewBox={viewBox} role="group" aria-label="UK donation heat map by postcode area">
+        <svg viewBox={viewBox} role="group" aria-label="UK Gift Aid heat map by postcode area">
           {mapData.areas.map((boundary) => {
             const stats = data.areas.find((a) => a.code === boundary.code)!
             const intensity = maximum > 0 ? Math.max(0, stats[metric]) / maximum : 0
@@ -67,36 +68,36 @@ export default function DonationMap({ data, selectedArea, district, metric, onSe
             return <path key={boundary.code} d={boundary.path} fill={fill} fillRule="evenodd"
               stroke={selectedArea === boundary.code ? '#304675' : '#fff'} strokeWidth={selectedArea === boundary.code ? 2 : 0.65}
               vectorEffect="non-scaling-stroke" role="button" tabIndex={0}
-              aria-label={`${boundary.name} (${boundary.code}): ${count(stats.count)} donation records, ${money(stats.value)}`}
+              aria-label={`${boundary.name} (${boundary.code}): ${count(stats.count)} Gift Aided donations, ${money(stats.value)} Gift Aid`}
               aria-pressed={selectedArea === boundary.code}
               onClick={() => selectArea(boundary.code)}
               onKeyDown={(event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectArea(boundary.code) } }}
               onMouseEnter={() => setHovered(boundary.code)} onMouseLeave={() => setHovered(null)}
               onFocus={() => setHovered(boundary.code)} onBlur={() => setHovered(null)}>
-              <title>{`${boundary.name} (${boundary.code}) · ${count(stats.count)} records · ${money(stats.value)}`}</title>
+              <title>{`${boundary.name} (${boundary.code}) · ${count(stats.count)} Gift Aided donations · ${money(stats.value)} Gift Aid`}</title>
             </path>
           })}
         </svg>
         <div className="donation-map-hover" aria-hidden="true">
-          {highlighted ? <><strong>{highlighted.name} ({highlighted.code})</strong><span>{count(highlighted.count)} records · {money(highlighted.value)}</span></> : <span>{selectedArea ? 'Select a nearby area or return to the UK view.' : 'Select an area on the map to explore its donations.'}</span>}
+          {highlighted ? <><strong>{highlighted.name} ({highlighted.code})</strong><span>{count(highlighted.count)} Gift Aided donations · {money(highlighted.value)} Gift Aid</span></> : <span>{selectedArea ? 'Select a nearby area or return to the UK view.' : 'Select an area on the map to explore its Gift Aid.'}</span>}
         </div>
         <div className="donation-map-scale">
-          <span><i style={{ background: '#e6eae7' }} />No records</span>
+          <span><i style={{ background: '#e6eae7' }} />No Gift Aid donations</span>
           <span>Low</span><div>{palette.map((color) => <i key={color} style={{ background: color }} />)}</div><span>High · {format(maximum)}</span>
         </div>
       </div>
       <section className="donation-map-detail" aria-label="Regional donation insights">
         <div className="donation-map-detail-heading">
-          <span className="analytics-eyebrow">{area ? `POSTCODE AREA ${area.code}` : 'MAPPED UK DONATIONS'}</span>
+          <span className="analytics-eyebrow">{area ? `POSTCODE AREA ${area.code}` : 'MAPPED UK GIFT AID'}</span>
           <h4>{district || area?.name || 'UK overview'}</h4>
           {district && <button onClick={() => onSelectDistrict(null)}>← All {area?.name} districts</button>}
         </div>
         <dl className="donation-map-stats">
-          <div><dt>Donation records</dt><dd>{count(detail.count)}</dd></div>
-          <div><dt>Donation value</dt><dd>{money(detail.value)}</dd></div>
-          <div><dt>Average donation</dt><dd>{detail.average === null ? '—' : money(detail.average)}</dd></div>
+          <div><dt>Gift Aided donations</dt><dd>{count(detail.count)}</dd></div>
+          <div><dt>Gift Aid amount</dt><dd>{money(detail.value)}</dd></div>
+          <div><dt>Average Gift Aid</dt><dd>{detail.average === null ? '—' : money(detail.average)}</dd></div>
         </dl>
-        {detail.count === 0 && <p className="donation-map-empty">No donation records for this area in the current selection.</p>}
+        {detail.count === 0 && <p className="donation-map-empty">No Gift Aided donations for this area in the current selection.</p>}
         <h5>{area ? 'Postcode districts' : 'Leading postcode areas'}</h5>
         <div className="donation-map-ranking">
           {ranked.slice(0, 8).map((r) => <button key={r.code}
@@ -111,21 +112,21 @@ export default function DonationMap({ data, selectedArea, district, metric, onSe
           </select></label>}
         </div>
         {detail.monthly.length > 0 && <div className="donation-map-trend">
-          <h5>{metric === 'value' ? 'Donation value by month' : 'Donation records by month'}</h5>
+          <h5>{metric === 'value' ? 'Gift Aid amount by month' : 'Gift Aided donations by month'}</h5>
           <ResponsiveContainer width="100%" height={170}>
             <BarChart data={detail.monthly} margin={{ top: 8, right: 8, left: 0, bottom: 0 }} accessibilityLayer>
               <XAxis dataKey="month" tick={{ fontSize: 10, fill: '#536577' }} minTickGap={24} axisLine={false} tickLine={false} />
               <YAxis width={48} tick={{ fontSize: 10, fill: '#536577' }} allowDecimals={metric === 'value'} axisLine={false} tickLine={false}
                 tickFormatter={(n) => metric === 'value' ? `£${Number(n).toLocaleString('en-GB', { notation: 'compact' })}` : count(n)} />
               <Tooltip content={metric === 'value' ? <CurrencyInsightTooltip /> : <InsightTooltip />} />
-              <Bar dataKey={metric} name={metric === 'value' ? 'Donation value' : 'Donation records'} fill="#0c745d" maxBarSize={28} isAnimationActive={false} />
+              <Bar dataKey={metric} name={metric === 'value' ? 'Gift Aid amount' : 'Gift Aided donations'} fill="#0c745d" maxBarSize={28} isAnimationActive={false} />
             </BarChart>
           </ResponsiveContainer>
         </div>}
         {detail.undatedCount > 0 && <p className="analytics-footnote">{count(detail.undatedCount)} records without usable donation dates are excluded from the monthly chart.</p>}
       </section>
     </div>
-    <p className="analytics-footnote">Postal areas are not council boundaries. Figures describe uploaded donation records, not unique donors or confirmed Gift Aid claims. Outlines are approximate.</p>
+    <p className="analytics-footnote">Includes valid, opted-in donations marked as Gift Aid submitted. Gift Aid is calculated at 25% of donation value; amounts are not HMRC payment totals. Postal areas are not council boundaries and outlines are approximate.</p>
     <p className="donation-map-credit">Boundaries: <a href="https://github.com/missinglink/uk-postcode-polygons">Wikipedia contributors</a> · <a href="https://creativecommons.org/licenses/by-sa/3.0/">CC BY-SA 3.0</a>; Northern Ireland: <a href="https://www.naturalearthdata.com/about/terms-of-use/">Natural Earth</a>.</p>
   </div>
 }
