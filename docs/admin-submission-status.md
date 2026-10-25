@@ -1,4 +1,23 @@
-# Admin upload status
+# Admin submission statuses
+
+In Admin → Charity → Submissions, use the HMRC Status selector to record
+Not submitted, Validation failed, Sent, Awaiting response, Accepted, Rejected
+or Error. Changes save automatically and update both `hmrc_status` and the
+general `status` in one operation: Accepted → Approved; Sent/Awaiting response
+→ Submitted; Rejected/Error → Rejected; Not submitted/Validation failed
+→ Pending. Ready to send remains controlled by Build HMRC Claim so manual
+changes cannot bypass claim validation.
+
+The HMRC status endpoint requires an authenticated operator, scopes the update
+to the submission and charity, checks both previous statuses for conflicts,
+and records the operator and old/new values in the activity log. It does not
+send a claim, poll HMRC or rewrite claim XML, references or response evidence.
+Subsequent automated HMRC processing may update the statuses again.
+
+The charity dashboard and submission detail now show the HMRC status alongside
+the general status. Both refresh automatically through the existing Realtime,
+five-second polling and focus refresh, including the dashboard's Approved count.
+Existing admin reporting also refreshes its HMRC status metrics automatically.
 
 In Admin → Charity → Submissions, choose Pending, Submitted, Approved or
 Rejected in the Status column. The change saves automatically. A failed save
@@ -26,7 +45,8 @@ changes appear through this fallback rather than immediately.
 
 ## Checks
 
-Run `node --test tests/submission-status.test.cjs` and `npm run build`.
+Run `node --test --test-isolation=none tests/submission-status.test.cjs tests/hmrc-status.test.cjs`
+and `npm run build`.
 For deployment verification, open the charity portal and its admin charity
 page in separate sessions; change a status and check the dashboard badge,
 Approved count, submission detail badge and insights status-based totals.

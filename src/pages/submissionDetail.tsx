@@ -4,8 +4,9 @@ import { supabase } from '../lib/supabase'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { fetchAllRows } from '../utils/fetchAll'
 import { useSubmissionStatuses } from '../hooks/useSubmissionStatuses'
+import HmrcStatusBadge from '../components/HmrcStatusBadge'
 
-interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; notes: string | null }
+interface Submission { id: string; submission_date: string; status: string; hmrc_status: string | null; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; notes: string | null }
 interface Donation { id: string; title: string | null; first_name: string; last_name: string; address: string; postcode: string; donation_date: string; amount: number }
 
 function Logo() {
@@ -43,7 +44,7 @@ export default function SubmissionDetail() {
   const [submission, setSubmission] = useState<Submission | null>(null)
   useSubmissionStatuses('id', id, rows => {
     const row = rows.find(row => row.id === id)
-    if (row) setSubmission(current => current?.id === row.id ? { ...current, status: row.status } : current)
+    if (row) setSubmission(current => current?.id === row.id ? { ...current, status: row.status, hmrc_status: row.hmrc_status } : current)
   })
   const [donations, setDonations] = useState<Donation[]>([])
   const [loading, setLoading] = useState(true)
@@ -120,6 +121,7 @@ export default function SubmissionDetail() {
                     <dt className="text-gray-400">Tax year</dt><dd className="font-medium text-gray-600">{submission.tax_year}</dd>
                     <dt className="text-gray-400">Donations</dt><dd className="font-medium text-gray-600">{submission.number_of_donations}</dd>
                     <dt className="text-gray-400">Gift Aid claimed</dt><dd className="font-bold text-brand-accent">£{parseFloat(String(submission.amount_claimed || 0)).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</dd>
+                    <dt className="text-gray-400">HMRC status</dt><dd><HmrcStatusBadge status={submission.hmrc_status} /></dd>
                     {submission.hmrc_reference && (<><dt className="text-gray-400">HMRC reference</dt><dd className="font-mono font-medium text-gray-600">{submission.hmrc_reference}</dd></>)}
                   </dl>
                 </div>

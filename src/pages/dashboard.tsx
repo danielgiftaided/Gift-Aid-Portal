@@ -3,11 +3,13 @@ import { supabase } from '../lib/supabase'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { fetchAllRows } from '../utils/fetchAll'
 import { useSubmissionStatuses } from '../hooks/useSubmissionStatuses'
+import HmrcStatusBadge from '../components/HmrcStatusBadge'
 
 interface Submission {
   id: string
   submission_date: string
   status: string
+  hmrc_status: string | null
   hmrc_reference: string | null
   amount_claimed: number
   number_of_donations: number
@@ -42,8 +44,8 @@ export default function Dashboard() {
   const [submissions, setSubmissions] = useState<Submission[]>([])
   const [charityId, setCharityId] = useState<string>()
   useSubmissionStatuses('charity_id', charityId, rows => {
-    const statuses = new Map(rows.map(row => [row.id, row.status]))
-    setSubmissions(current => current.map(row => ({ ...row, status: statuses.get(row.id) ?? row.status })))
+    const statuses = new Map(rows.map(row => [row.id, row]))
+    setSubmissions(current => current.map(row => ({ ...row, ...statuses.get(row.id) })))
   })
   const [loading, setLoading] = useState(true)
   const [page, setPage] = useState(0)
@@ -68,7 +70,7 @@ export default function Dashboard() {
         const data = await fetchAllRows<Submission>(() =>
           supabase
             .from('submissions')
-            .select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year')
+            .select('id, submission_date, status, hmrc_status, hmrc_reference, amount_claimed, number_of_donations, tax_year')
             .eq('charity_id', meJson.charityId)
             .order('submission_date', { ascending: false })
         )
@@ -165,7 +167,7 @@ export default function Dashboard() {
                   <table className="min-w-full divide-y divide-gray-50">
                     <thead>
                       <tr className="bg-gray-50/50">
-                        {['Submission Date', 'Tax Year', 'Gift Aid Claimed', 'Donations', 'Status', 'HMRC Reference'].map(h => (
+                        {['Submission Date', 'Tax Year', 'Gift Aid Claimed', 'Donations', 'Status', 'HMRC Status', 'HMRC Reference'].map(h => (
                           <th key={h} className="px-6 py-3 text-left text-xs font-medium text-gray-400 uppercase tracking-wide">{h}</th>
                         ))}
                       </tr>
@@ -190,6 +192,7 @@ export default function Dashboard() {
                               {s.status.charAt(0).toUpperCase() + s.status.slice(1)}
                             </span>
                           </td>
+                          <td className="px-6 py-4 whitespace-nowrap"><HmrcStatusBadge status={s.hmrc_status} /></td>
                           <td className="px-6 py-4 text-sm text-gray-400 font-mono whitespace-nowrap">{s.hmrc_reference || '—'}</td>
                         </tr>
                       ))}

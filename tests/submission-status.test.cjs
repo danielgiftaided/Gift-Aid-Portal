@@ -69,15 +69,16 @@ test('conflict and database errors do not report success or log a successful cha
 })
 test('portal subscribes with tenant filter, refreshes on update, polls, and cleans up', async () => {
   let effect, listener, tick, removed = false, cleared = false, focus
+  let sourceRow = { id: submissionId, status: 'submitted', hmrc_status: 'sent' }
   const seen = [], filters = []
-  const query = { select: () => query, eq: (field, value) => { filters.push([field, value]); return query }, order: () => query }
+  const query = { select: fields => { assert.equal(fields, 'id, status, hmrc_status'); return query }, eq: (field, value) => { filters.push([field, value]); return query }, order: () => query }
   const channel = { on: (_event, config, callback) => {
     assert.equal(config.filter, `charity_id=eq.${charityId}`); listener = callback; return channel
   }, subscribe: callback => { callback('SUBSCRIBED'); return channel } }
   const hook = load('src/hooks/useSubmissionStatuses.ts', {
     react: { useRef: current => ({ current }), useEffect: fn => { effect = fn } },
     '../lib/supabase': { supabase: { from: () => query, channel: () => channel, removeChannel: async () => { removed = true } } },
-    '../utils/fetchAll': { fetchAllRows: async factory => { factory(); return [{ id: submissionId, status: 'approved' }] } },
+    '../utils/fetchAll': { fetchAllRows: async factory => { factory(); return [{ ...sourceRow }] } },
   }, {
     document: { visibilityState: 'visible' },
     window: { setInterval: fn => { tick = fn; return 1 }, clearInterval: () => { cleared = true },
@@ -87,8 +88,15 @@ test('portal subscribes with tenant filter, refreshes on update, polls, and clea
   const cleanup = effect()
   await new Promise(resolve => setImmediate(resolve))
   const initial = seen.length
+  assert.equal(seen.at(-1)[0].hmrc_status, 'sent')
+  sourceRow = { id: submissionId, status: 'approved', hmrc_status: 'accepted' }
   listener(); await new Promise(resolve => setImmediate(resolve)); assert.ok(seen.length > initial)
+  assert.equal(seen.at(-1)[0].hmrc_status, 'accepted')
+  assert.equal(seen.at(-1)[0].status, 'approved')
+  sourceRow = { id: submissionId, status: 'rejected', hmrc_status: 'error' }
   tick(); focus(); await new Promise(resolve => setImmediate(resolve))
+  assert.equal(seen.at(-1)[0].hmrc_status, 'error')
+  assert.equal(seen.at(-1)[0].status, 'rejected')
   assert.ok(filters.every(([field, value]) => field === 'charity_id' && value === charityId))
   const count = seen.length
   listener(); cleanup(); await new Promise(resolve => setImmediate(resolve))
