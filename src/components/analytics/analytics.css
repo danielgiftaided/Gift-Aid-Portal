@@ -426,11 +426,11 @@
   border-color: #bcd8ce;
   color: #0c745d;
 }
-.analytics-claim-trend-legend {
+.analytics-submission-metric {
+  display: flex;
   flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 12px 18px;
-  margin-bottom: 8px;
+  width: fit-content;
+  margin-bottom: 10px;
 }
 .analytics-footnote {
   font-size: 12px !important;
