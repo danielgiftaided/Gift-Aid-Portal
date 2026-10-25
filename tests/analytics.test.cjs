@@ -79,59 +79,75 @@ test('report distinguishes recorded claims from HMRC accepted and portal-approve
     3,
   )
 })
-test('monthly claim trend separates current HMRC acceptance from display approval and fills missing months', () => {
+test('submission activity counts submissions and donation records independently of monetary value and status', () => {
   const result = a.buildAnalytics([
-    claim({ id: 'accepted', hmrc_status: 'accepted', amount_claimed: '100.25' }),
-    claim({ id: 'sent', hmrc_status: 'sent', amount_claimed: '19.75', submission_date: '05/05/2025' }),
-    claim({ id: 'adjustment', hmrc_status: 'accepted', amount_claimed: -5 }),
-    claim({ id: 'rejected', hmrc_status: 'rejected', amount_claimed: 10, submission_date: '2025-07-03T12:00:00Z' }),
+    claim({ id: 'accepted', hmrc_status: 'accepted', amount_claimed: 1000, number_of_donations: 40 }),
+    claim({ id: 'sent', hmrc_status: 'sent', amount_claimed: 0, number_of_donations: 15, submission_date: '05/05/2025' }),
+    claim({ id: 'gasds', hmrc_status: 'accepted', amount_claimed: -5, number_of_donations: 0 }),
+    claim({ id: 'rejected', hmrc_status: 'rejected', number_of_donations: 7, submission_date: '2025-07-03T12:00:00Z' }),
   ], [], charities, all)
-  assert.equal(JSON.stringify(result.monthlyClaims), JSON.stringify([
-    { month: '2025-05', recorded: 115, accepted: 95.25, claims: 3 },
-    { month: '2025-06', recorded: 0, accepted: 0, claims: 0 },
-    { month: '2025-07', recorded: 10, accepted: 0, claims: 1 },
+  assert.equal(JSON.stringify(result.submissionActivity), JSON.stringify([
+    { month: '2025-05', submissions: 3, donationRecords: 55 },
+    { month: '2025-06', submissions: 0, donationRecords: 0 },
+    { month: '2025-07', submissions: 1, donationRecords: 7 },
   ]))
-  assert.equal(result.monthlyClaims.reduce((sum, m) => sum + m.recorded, 0), result.recorded)
-  assert.equal(result.monthlyClaims.reduce((sum, m) => sum + m.accepted, 0), result.accepted)
-  assert.equal(result.undatedClaims, 0)
+  assert.equal(result.submissionActivity.reduce((sum, m) => sum + m.submissions, 0), 4)
+  assert.equal(result.undatedSubmissions, 0)
+  assert.equal(result.submissionsWithoutRecordCount, 0)
 })
-test('claim trend filters by saved tax year and charity, then groups by actual submission date', () => {
+test('submission activity filters by saved tax year and charity, then groups by actual submission date', () => {
   const result = a.buildAnalytics([
-    claim({ hmrc_status: 'accepted', submission_date: '2026-05-01' }),
-    claim({ id: 'other-year', hmrc_status: 'accepted', tax_year: '2024/25' }),
-    claim({ id: 'other-charity', hmrc_status: 'rejected', charity_id: 'b' }),
+    claim({ submission_date: '2026-05-01', number_of_donations: 12 }),
+    claim({ id: 'other-year', tax_year: '2024/25' }),
+    claim({ id: 'other-charity', charity_id: 'b' }),
   ], [], charities, { charityId: 'a', taxYear: '2025/26' })
-  assert.equal(result.monthlyClaims.length, 1)
-  assert.equal(result.monthlyClaims[0].month, '2026-05')
-  assert.equal(result.monthlyClaims[0].recorded, 25)
-  assert.equal(result.monthlyClaims[0].accepted, 25)
-  assert.equal(result.monthlyClaims[0].claims, 1)
+  assert.equal(result.submissionActivity.length, 1)
+  assert.equal(result.submissionActivity[0].month, '2026-05')
+  assert.equal(result.submissionActivity[0].submissions, 1)
+  assert.equal(result.submissionActivity[0].donationRecords, 12)
 })
-test('claim trend fills December-to-February gaps and reports excluded undated claims', () => {
+test('submission activity fills year-boundary gaps and flags invalid submission dates', () => {
   const result = a.buildAnalytics([
-    claim({ submission_date: '2025-12-20', hmrc_status: 'accepted' }),
+    claim({ submission_date: '2025-12-20' }),
     claim({ id: 'feb', submission_date: '2026-02-01' }),
     claim({ id: 'null', submission_date: null }),
     claim({ id: 'invalid', submission_date: '2025-02-30' }),
     claim({ id: 'unknown', submission_date: 'unknown' }),
   ], [], charities, all)
-  assert.equal(result.monthlyClaims.map(m => m.month).join(','), '2025-12,2026-01,2026-02')
-  assert.equal(result.monthlyClaims[1].recorded, 0)
-  assert.equal(result.monthlyClaims[1].accepted, 0)
-  assert.equal(result.undatedClaims, 3)
-  assert.equal(result.recorded, 125)
-  assert.equal(result.monthlyClaims.reduce((sum, m) => sum + m.recorded, 0), 50)
+  assert.equal(result.submissionActivity.map(m => m.month).join(','), '2025-12,2026-01,2026-02')
+  assert.equal(result.submissionActivity[1].submissions, 0)
+  assert.equal(result.submissionActivity[1].donationRecords, 0)
+  assert.equal(result.undatedSubmissions, 3)
+  assert.equal(result.submissions.length, 5)
+  assert.equal(result.submissionActivity.reduce((sum, m) => sum + m.submissions, 0), 2)
 })
-test('empty, undated-only and single-month trends never invent a date or extra history', () => {
+test('empty, undated-only and single-month activity never invents dates or extra history', () => {
   const empty = a.buildAnalytics([], [], [], all)
-  assert.equal(empty.monthlyClaims.length, 0)
-  assert.equal(empty.undatedClaims, 0)
+  assert.equal(empty.submissionActivity.length, 0)
+  assert.equal(empty.undatedSubmissions, 0)
   const undated = a.buildAnalytics([claim({ submission_date: null })], [], [], all)
-  assert.equal(undated.monthlyClaims.length, 0)
-  assert.equal(undated.undatedClaims, 1)
+  assert.equal(undated.submissionActivity.length, 0)
+  assert.equal(undated.undatedSubmissions, 1)
   const single = a.buildAnalytics([claim()], [], [], all)
-  assert.equal(single.monthlyClaims.length, 1)
-  assert.equal(single.monthlyClaims[0].month, '2025-05')
+  assert.equal(single.submissionActivity.length, 1)
+  assert.equal(single.submissionActivity[0].month, '2025-05')
+})
+test('unknown or invalid record counts stay unknown, while zero-record submissions remain valid', () => {
+  const result = a.buildAnalytics([
+    claim({ number_of_donations: 3 }),
+    claim({ id: 'missing', number_of_donations: null }),
+    claim({ id: 'zero', submission_date: '2025-07-01', number_of_donations: 0 }),
+    claim({ id: 'negative', submission_date: '2025-08-01', number_of_donations: -1 }),
+    claim({ id: 'fraction', submission_date: '2025-09-01', number_of_donations: 1.5 }),
+    claim({ id: 'nonfinite', submission_date: '2025-10-01', number_of_donations: NaN }),
+  ], [], charities, all)
+  assert.equal(result.submissionsWithoutRecordCount, 4)
+  assert.equal(result.submissionActivity[0].submissions, 2)
+  assert.equal(result.submissionActivity[0].donationRecords, null)
+  assert.equal(result.submissionActivity[1].submissions, 0)
+  assert.equal(result.submissionActivity[1].donationRecords, 0)
+  assert.equal(result.submissionActivity[2].submissions, 1)
+  assert.equal(result.submissionActivity[2].donationRecords, 0)
 })
 test('quality buckets are exclusive and recoverability excludes opt-outs and other-provider records', () => {
   const records = [

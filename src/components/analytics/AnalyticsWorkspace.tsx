@@ -250,6 +250,7 @@ export default function AnalyticsWorkspace({
   const [charityId, setCharityId] = useState('all')
   const [metric, setMetric] = useState<'value' | 'count'>('value')
   const [trend, setTrend] = useState<'area' | 'bar'>('area')
+  const [submissionMetric, setSubmissionMetric] = useState<'submissions' | 'donationRecords'>('submissions')
   const [group, setGroup] = useState('all')
   const [claimStatus, setClaimStatus] = useState('all')
   const [search, setSearch] = useState('')
@@ -312,7 +313,8 @@ export default function AnalyticsWorkspace({
               QUALITY.find((q) => q.key === group)?.label || 'All groups',
             'Recorded claim value GBP': model.recorded,
             'HMRC accepted value GBP': model.accepted,
-            'Undated claims excluded from monthly trend': model.undatedClaims,
+            'Undated submissions excluded from activity chart': model.undatedSubmissions,
+            'Dated submissions without record counts': model.submissionsWithoutRecordCount,
             'Imported donation value GBP': model.donationValue,
             'Estimated eligible Gift Aid GBP': model.potential,
             'Estimated incomplete opted-in Gift Aid GBP': model.recoverable,
@@ -362,12 +364,11 @@ export default function AnalyticsWorkspace({
         })),
       ],
       [
-        'Monthly claims',
-        model.monthlyClaims.map((r) => ({
+        'Submission activity',
+        model.submissionActivity.map((r) => ({
           'Submission month': r.month,
-          'Recorded claim GBP': r.recorded,
-          'Currently HMRC accepted GBP': r.accepted,
-          Claims: r.claims,
+          Submissions: r.submissions,
+          'Donation records': r.donationRecords,
         })),
       ],
       [
@@ -688,39 +689,37 @@ export default function AnalyticsWorkspace({
                       </div>
                     </Panel>
                     <Panel
-                      title="Monthly Gift Aid claims"
-                      caption="Recorded claim value and the value currently accepted by HMRC."
-                      action={<span className="analytics-panel-tag">GBP</span>}
+                      title="Submission activity"
+                      caption="How often submissions are made and how many donation records they contain."
+                      action={<span className="analytics-panel-tag">{submissionMetric === 'submissions' ? 'SUBMISSIONS' : 'DONATION RECORDS'}</span>}
                     >
-                      {model.monthlyClaims.length ? (
-                        <>
-                          <div className="analytics-legend analytics-claim-trend-legend">
-                            <span style={{ '--legend': '#0c745d' } as React.CSSProperties}>Recorded claims</span>
-                            <span style={{ '--legend': '#304675' } as React.CSSProperties}>HMRC accepted</span>
-                          </div>
-                          <div className="analytics-chart" role="img"
-                            aria-label="Line chart of monthly recorded and currently HMRC-accepted claim values, grouped by submission month">
-                            <ResponsiveContainer width="100%" height={270}>
-                              <LineChart data={model.monthlyClaims} accessibilityLayer
-                                margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
-                                {grid}
-                                <XAxis dataKey="month" axisLine={false} tickLine={false} tick={tick}
-                                  minTickGap={24} padding={{ left: 12, right: 12 }} />
-                                <YAxis axisLine={false} tickLine={false} tick={tick} width={64} tickFormatter={compact} />
-                                <Tooltip content={<CurrencyInsightTooltip />} />
-                                <Line name="Recorded claims" dataKey="recorded" type="linear" stroke="#0c745d"
-                                  strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
-                                <Line name="HMRC accepted" dataKey="accepted" type="linear" stroke="#304675"
-                                  strokeWidth={2.5} strokeDasharray="5 4" dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
-                              </LineChart>
-                            </ResponsiveContainer>
-                          </div>
-                        </>
-                      ) : <Empty message="No dated claims in this selection." />}
+                      <div className="analytics-toggle analytics-submission-metric" aria-label="Submission activity metric">
+                        <button aria-pressed={submissionMetric === 'submissions'} onClick={() => setSubmissionMetric('submissions')}>Submissions</button>
+                        <button aria-pressed={submissionMetric === 'donationRecords'} onClick={() => setSubmissionMetric('donationRecords')}>Donation records</button>
+                      </div>
+                      {model.submissionActivity.some((r) => submissionMetric === 'submissions' || (r.submissions > 0 && r.donationRecords !== null)) ? (
+                        <div className="analytics-chart" role="img"
+                          aria-label={`Line chart of ${submissionMetric === 'submissions' ? 'submission counts' : 'donation record counts'} by submission month`}>
+                          <ResponsiveContainer width="100%" height={270}>
+                            <LineChart data={model.submissionActivity} accessibilityLayer
+                              margin={{ top: 16, right: 16, left: 0, bottom: 8 }}>
+                              {grid}
+                              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={tick}
+                                minTickGap={24} padding={{ left: 12, right: 12 }} />
+                              <YAxis axisLine={false} tickLine={false} tick={tick} width={48} allowDecimals={false} tickFormatter={count} />
+                              <Tooltip content={<InsightTooltip />} />
+                              <Line name={submissionMetric === 'submissions' ? 'Submissions' : 'Donation records'}
+                                dataKey={submissionMetric} type="linear" stroke="#0c745d" connectNulls={false}
+                                strokeWidth={2.5} dot={{ r: 3 }} activeDot={{ r: 5 }} isAnimationActive={false} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      ) : <Empty message={model.submissionActivity.length ? 'Donation record counts have not been recorded for these submissions.' : 'No dated submissions in this selection.'} />}
                       <p className="analytics-footnote">
-                        Grouped by submission month. Accepted does not mean paid.
-                        {model.monthlyClaims.length === 1 && ' Only one month of dated claims is available.'}
-                        {model.undatedClaims > 0 && ` ${count(model.undatedClaims)} ${model.undatedClaims === 1 ? 'claim without a valid submission date is' : 'claims without valid submission dates are'} excluded.`}
+                        Grouped by submission date; all statuses included.
+                        {model.submissionActivity.length === 1 && ' Only one month of dated submissions is available.'}
+                        {model.undatedSubmissions > 0 && ` ${count(model.undatedSubmissions)} ${model.undatedSubmissions === 1 ? 'submission without a valid date is' : 'submissions without valid dates are'} excluded.`}
+                        {submissionMetric === 'donationRecords' && model.submissionsWithoutRecordCount > 0 && ` ${count(model.submissionsWithoutRecordCount)} ${model.submissionsWithoutRecordCount === 1 ? 'submission has' : 'submissions have'} no donation record count; affected months show a gap.`}
                       </p>
                     </Panel>
                     {charities.length > 1 ? (
@@ -1309,11 +1308,11 @@ export default function AnalyticsWorkspace({
                 </table>
                 {view === 'overview' && (
                   <table className="analytics-data-table">
-                    <caption>Monthly Gift Aid claims · grouped by submission month</caption>
-                    <thead><tr><th>Submission month</th><th>Claims</th><th>Recorded value</th><th>Currently HMRC accepted</th></tr></thead>
+                    <caption>Submission activity · grouped by submission month</caption>
+                    <thead><tr><th>Submission month</th><th>Submissions</th><th>Donation records</th></tr></thead>
                     <tbody>
-                      {model.monthlyClaims.map((r) => (
-                        <tr key={r.month}><td>{r.month}</td><td>{count(r.claims)}</td><td>{gbp(r.recorded)}</td><td>{gbp(r.accepted)}</td></tr>
+                      {model.submissionActivity.map((r) => (
+                        <tr key={r.month}><td>{r.month}</td><td>{count(r.submissions)}</td><td>{r.donationRecords === null ? 'Not recorded' : count(r.donationRecords)}</td></tr>
                       ))}
                     </tbody>
                   </table>

@@ -218,33 +218,36 @@ export function buildAnalytics(
       ),
     }
   })
-  const claimMonthMap = new Map<
+  const submissionMonthMap = new Map<
     string,
-    { month: string; recorded: number; accepted: number; claims: number }
+    { month: string; submissions: number; donationRecords: number | null }
   >()
-  let undatedClaims = 0
+  let undatedSubmissions = 0
+  let submissionsWithoutRecordCount = 0
   for (const submission of filteredSubmissions) {
     const date = donationDate(submission.submission_date)
     if (!date) {
-      undatedClaims++
+      undatedSubmissions++
       continue
     }
     const month = date.slice(0, 7)
-    const item = claimMonthMap.get(month) || { month, recorded: 0, accepted: 0, claims: 0 }
-    item.recorded = money(item.recorded + numberValue(submission.amount_claimed))
-    if (submission.hmrc_status === 'accepted')
-      item.accepted = money(item.accepted + numberValue(submission.amount_claimed))
-    item.claims++
-    claimMonthMap.set(month, item)
+    const item = submissionMonthMap.get(month) || { month, submissions: 0, donationRecords: 0 }
+    const records = submission.number_of_donations
+    if (typeof records !== 'number' || !Number.isInteger(records) || records < 0) {
+      submissionsWithoutRecordCount++
+      item.donationRecords = null
+    } else if (item.donationRecords !== null) item.donationRecords += records
+    item.submissions++
+    submissionMonthMap.set(month, item)
   }
-  // Empty months remain visible between the first and last dated claim.
-  const claimMonths = [...claimMonthMap.keys()].sort()
-  if (claimMonths.length) {
-    let cursor = claimMonths[0]
-    const end = claimMonths[claimMonths.length - 1]
+  // Empty months remain visible between the first and last dated submission.
+  const submissionMonths = [...submissionMonthMap.keys()].sort()
+  if (submissionMonths.length) {
+    let cursor = submissionMonths[0]
+    const end = submissionMonths[submissionMonths.length - 1]
     while (cursor <= end) {
-      if (!claimMonthMap.has(cursor))
-        claimMonthMap.set(cursor, { month: cursor, recorded: 0, accepted: 0, claims: 0 })
+      if (!submissionMonthMap.has(cursor))
+        submissionMonthMap.set(cursor, { month: cursor, submissions: 0, donationRecords: 0 })
       const [year, month] = cursor.split('-').map(Number)
       cursor = `${month === 12 ? year + 1 : year}-${String(month === 12 ? 1 : month + 1).padStart(2, '0')}`
     }
@@ -300,8 +303,9 @@ export function buildAnalytics(
       a.month.localeCompare(b.month),
     ),
     pipeline,
-    monthlyClaims: [...claimMonthMap.values()].sort((a, b) => a.month.localeCompare(b.month)),
-    undatedClaims,
+    submissionActivity: [...submissionMonthMap.values()].sort((a, b) => a.month.localeCompare(b.month)),
+    undatedSubmissions,
+    submissionsWithoutRecordCount,
     ranking,
     distribution,
     recorded,
