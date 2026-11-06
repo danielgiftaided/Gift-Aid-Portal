@@ -37,7 +37,7 @@ test('recognition claim preserves Mary sponsorship, BFPO identity and distinct a
   const gads = [...Array.from(doc.getElementsByTagName('GAD'))]
   assert.equal(gads[0].getElementsByTagName('Sponsored')[0].textContent, 'yes')
   assert.equal(gads[1].getElementsByTagName('Sponsored').length, 0)
-  assert.equal(gads[1].getElementsByTagName('House')[0].textContent, '59')
+  assert.equal(gads[1].getElementsByTagName('House')[0].textContent, '59 BFPO 8')
   assert.equal(gads[1].getElementsByTagName('Postcode')[0].textContent, 'BF1 2AB')
   assert.equal(gads[1].getElementsByTagName('Overseas').length, 0)
   assert.equal(gads[1].getElementsByTagName('Ttl')[0].textContent, 'Capt')
