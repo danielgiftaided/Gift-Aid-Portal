@@ -11,7 +11,7 @@ import { hmrcStatuses, hmrcStatusLabel } from '../../shared/hmrcStatus'
 import HmrcStatusBadge, { hmrcStatusColor } from '../components/HmrcStatusBadge'
 
 interface Charity { id: string; name: string; contact_email: string; charity_number: string | null; charity_id: string | null; authorised_official_name: string | null; agent_nominee_reference: string | null }
-interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string | null; hmrc_response_message: string | null; hmrc_claim_xml: string | null; hmrc_correlation_id: string | null; adjustment_amount: number | null; adjustment_explanation: string | null;
+interface Submission { id: string; submission_date: string; status: string; hmrc_reference: string | null; amount_claimed: number; number_of_donations: number; tax_year: string; hmrc_status: string | null; hmrc_environment: 'test' | 'live' | null; hmrc_response_message: string | null; hmrc_claim_xml: string | null; hmrc_correlation_id: string | null; adjustment_amount: number | null; adjustment_explanation: string | null;
   // Recognition package files — stored by sendToEts, pollClaim, sendDataRequest
   hmrc_acknowledgement_xml: string | null
   hmrc_submission_poll_xml: string | null
@@ -334,7 +334,7 @@ export default function AdminCharityDetail() {
       setAgentRefInput(charityData?.agent_nominee_reference || '')
       setAuthOfficialInput(charityData?.authorised_official_name || '')
       const subData = await fetchAllRows<Submission>(() =>
-        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_response_message, hmrc_claim_xml, hmrc_correlation_id, adjustment_amount, adjustment_explanation, hmrc_acknowledgement_xml, hmrc_submission_poll_xml, hmrc_submission_response_xml, hmrc_delete_request_xml, hmrc_delete_response_xml, hmrc_data_request_xml, hmrc_data_response_xml').eq('charity_id', id).order('submission_date', { ascending: false })
+        supabase.from('submissions').select('id, submission_date, status, hmrc_reference, amount_claimed, number_of_donations, tax_year, hmrc_status, hmrc_environment, hmrc_response_message, hmrc_claim_xml, hmrc_correlation_id, adjustment_amount, adjustment_explanation, hmrc_acknowledgement_xml, hmrc_submission_poll_xml, hmrc_submission_response_xml, hmrc_delete_request_xml, hmrc_delete_response_xml, hmrc_data_request_xml, hmrc_data_response_xml').eq('charity_id', id).order('submission_date', { ascending: false })
       )
       setSubmissions(subData)
 
@@ -703,7 +703,7 @@ export default function AdminCharityDetail() {
     setDeletingId(null)
   }
 
-  const handleBuildClaim = async (submissionId: string) => {
+  const handleBuildClaim = async (submissionId: string, environment: 'test' | 'live' = 'test') => {
     setBuildingId(submissionId)
     setBuildResult(null)
     try {
@@ -713,7 +713,7 @@ export default function AdminCharityDetail() {
       const resp = await fetch('/api/admin/submitClaim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
-        body: JSON.stringify({ submission_id: submissionId }),
+        body: JSON.stringify({ submission_id: submissionId, environment }),
       })
       const json = await resp.json()
 
@@ -730,15 +730,16 @@ export default function AdminCharityDetail() {
     }
   }
 
-  const handleSendToEts = async (submissionId: string) => {
-    if (!window.confirm('This will actually submit the claim to HMRC\'s External Test Service over the network. Continue?')) return
+  const handleSendToHmrc = async (submissionId: string, environment: 'test' | 'live') => {
+    const targetLabel = environment === 'live' ? 'HMRC LIVE' : "HMRC's External Test Service"
+    if (!window.confirm(`This will actually submit the claim to ${targetLabel} over the network. Continue?`)) return
     setSendingId(submissionId)
     setBuildResult(null)
     try {
       const { data: { session } } = await supabase.auth.getSession()
       if (!session) { setPageError('Your session has expired — please refresh and log in again.'); return }
 
-      const resp = await fetch('/api/admin/sendToEts', {
+      const resp = await fetch('/api/admin/sendToHmrc', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session.access_token}` },
         body: JSON.stringify({ submission_id: submissionId }),
@@ -746,7 +747,7 @@ export default function AdminCharityDetail() {
       const json = await resp.json()
 
       if (!resp.ok) {
-        setBuildResult({ submissionId, ok: false, message: json.error || 'Failed to send to ETS', errors: (json.errors || []).map((e: any) => `[${e.number}] ${e.text}`) })
+        setBuildResult({ submissionId, ok: false, message: json.error || 'Failed to send to HMRC', errors: (json.errors || []).map((e: any) => `[${e.number}] ${e.text}`) })
       } else {
         setBuildResult({ submissionId, ok: true, message: json.message })
       }
@@ -1243,10 +1244,20 @@ export default function AdminCharityDetail() {
                       <td className="px-4 py-3 whitespace-nowrap" onClick={e => e.stopPropagation()}>
                         <div className="flex items-center gap-3">
                           <button
-                            onClick={() => handleBuildClaim(s.id)}
+                            onClick={() => handleBuildClaim(s.id, 'test')}
                             disabled={buildingId === s.id || savingHmrcStatusId === s.id}
                             className="text-xs text-brand-accent hover:text-brand-primary font-medium disabled:opacity-40">
-                            {buildingId === s.id ? 'Building…' : 'Build HMRC Claim'}
+                            {buildingId === s.id ? 'Building…' : 'Build Test Claim'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm('Build this as a LIVE HMRC claim? This does not submit it yet, but it prepares production XML with GatewayTest removed.')) {
+                                handleBuildClaim(s.id, 'live')
+                              }
+                            }}
+                            disabled={buildingId === s.id || savingHmrcStatusId === s.id}
+                            className="text-xs text-green-700 hover:text-green-900 font-semibold disabled:opacity-40">
+                            Build Live Claim
                           </button>
                           {s.hmrc_claim_xml && (
                             <button onClick={() => setViewingXmlFor(s)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">
@@ -1265,9 +1276,9 @@ export default function AdminCharityDetail() {
                             + Aggregated
                           </button>
                           {s.hmrc_status === 'ready_to_send' && (
-                            <button onClick={() => handleSendToEts(s.id)} disabled={sendingId === s.id || savingHmrcStatusId === s.id}
-                              className="text-xs text-amber-600 hover:text-amber-800 font-semibold disabled:opacity-40">
-                              {sendingId === s.id ? 'Sending…' : 'Send to ETS'}
+                            <button onClick={() => handleSendToHmrc(s.id, s.hmrc_environment === 'live' ? 'live' : 'test')} disabled={sendingId === s.id || savingHmrcStatusId === s.id}
+                              className={`text-xs font-semibold disabled:opacity-40 ${s.hmrc_environment === 'live' ? 'text-green-700 hover:text-green-900' : 'text-amber-600 hover:text-amber-800'}`}>
+                              {sendingId === s.id ? 'Sending…' : (s.hmrc_environment === 'live' ? 'Submit to HMRC' : 'Send to ETS')}
                             </button>
                           )}
                           {(s.hmrc_status === 'sent' || s.hmrc_status === 'polling') && (
