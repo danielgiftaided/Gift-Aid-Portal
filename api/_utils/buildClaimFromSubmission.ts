@@ -199,11 +199,14 @@ function mapDonor(row: DonationRow, warnings: string[]): { donor: GiftAidDonor |
   let rawPostcode = row.postcode?.trim().toUpperCase() ?? ''
   let donorAddress = row.address?.trim() ?? ''
   if (/^BFPO\s*8$/.test(rawPostcode)) {
-    // MOD/GOV.UK: BFPO 8 (Naples) uses BF1 2AB.
-    // https://www.gov.uk/bfpo/find-a-bfpo-number
+    // HMRC recognition feedback (November 2026): Captain William Black's
+    // House element must retain the BFPO designator as "59 BFPO 8", while
+    // the postcode is normalised to the UK-format BFPO postcode BF1 2AB.
     rawPostcode = 'BF1 2AB'
-    donorAddress = donorAddress.replace(/\s+BFPO\s*8$/i, '').trim()
-    warnings.push(`Donation ${row.id}: BFPO 8 normalised to its UK-format postcode BF1 2AB. Review the donor address before submitting.`)
+    if (!/\bBFPO\s*8$/i.test(donorAddress)) {
+      donorAddress = `${donorAddress} BFPO 8`.trim()
+    }
+    warnings.push(`Donation ${row.id}: BFPO 8 normalised to postcode BF1 2AB and retained in the House element as required by HMRC recognition feedback.`)
   } else if (rawPostcode.startsWith('BFPO')) {
     errors.push(`Donation ${row.id}: enter the UK-format BFPO postcode from the MOD BFPO directory rather than a legacy BFPO number.`)
   }

@@ -77,6 +77,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const body = (req as any).body ?? {}
     const parsedBody = typeof body === 'string' ? JSON.parse(body) : body
     const submissionId = String(parsedBody.submission_id || '').trim()
+    const requestedEnvironment = String(parsedBody.environment || 'test').trim().toLowerCase()
+    if (!['test', 'live'].includes(requestedEnvironment)) {
+      return send(res, 400, { ok: false, error: 'environment must be either test or live' })
+    }
+    const isLive = requestedEnvironment === 'live'
+
+    if (isLive && process.env.HMRC_LIVE_ENABLED !== 'true') {
+      return send(res, 409, {
+        ok: false,
+        error: 'Live HMRC submission is not enabled. Set HMRC_LIVE_ENABLED=true only after HMRC confirms the production credentials, Vendor ID/product details and any remaining go-live steps.',
+      })
+    }
 
     if (!submissionId) {
       return send(res, 400, { ok: false, error: 'submission_id is required' })
@@ -185,7 +197,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       productVersion: process.env.HMRC_PRODUCT_VERSION || '1.0',
       senderId: process.env.HMRC_SENDER_ID || '',
       senderPassword: process.env.HMRC_SENDER_PASSWORD || '',
-      isLive: false, // always test-mode (GatewayTest=1) until this is explicitly revisited
+      isLive, // live => omit GatewayTest; test => GatewayTest=1
       // Gift Aided's OWN details as the agent — confirmed required by the
       // real schema's AgtOrNom structure. Must be set before any real
       // submission; empty strings here will fail schema validation
@@ -199,6 +211,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 500, {
         ok: false,
         error: 'HMRC_AGENT_POSTCODE and/or HMRC_AGENT_PHONE are not configured. The real R68 schema requires Gift Aided\'s own postcode and phone number on every claim (the AgtOrNom structure) — set these in Vercel environment variables before building any claim.',
+      })
+    }
+
+    if (isLive && (!credentials.senderId || !credentials.senderPassword || !credentials.vendorId || !credentials.productName || !credentials.productVersion)) {
+      return send(res, 500, {
+        ok: false,
+        error: 'Live HMRC credentials/product routing are incomplete. Configure HMRC_SENDER_ID, HMRC_SENDER_PASSWORD, HMRC_VENDOR_ID, HMRC_PRODUCT_NAME and HMRC_PRODUCT_VERSION before building a live claim.',
       })
     }
 
@@ -229,6 +248,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       .update({
         hmrc_status: 'ready_to_send',
         status: deriveStatus('ready_to_send'),
+        hmrc_environment: requestedEnvironment,
         hmrc_claim_xml: finalXml,
         // Evidence belongs to this exact claim. A rebuilt claim needs a new
         // handshake; do not export responses captured for an earlier body.
@@ -258,7 +278,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return send(res, 200, {
       ok: true,
       status: 'ready_to_send',
-      message: 'Claim XML built and IRmark verified. Not yet sent to HMRC — live transport is not enabled.',
+      message: isLive ? 'Live claim XML built and IRmark verified. Ready for controlled submission to HMRC.' : 'Test claim XML built and IRmark verified. Ready for ETS submission.',
       warnings: mapping.warnings,
       donationCount: mapping.claim.donations.length,
     })
