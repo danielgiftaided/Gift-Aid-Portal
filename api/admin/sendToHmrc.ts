@@ -1,6 +1,6 @@
 /**
- * Sends an already-built claim (produced by submitClaim.ts) to HMRC's
- * External Test Service, and handles the first step of the asynchronous
+ * Sends an already-built claim (produced by submitClaim.ts) to either HMRC's
+ * External Test Service or live Transaction Engine, and handles the first step of the asynchronous
  * handshake — the SUBMISSION_REQUEST and resulting
  * SUBMISSION_ACKNOWLEDGEMENT.
  *
@@ -68,7 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const environment = submission.hmrc_environment === 'live' ? 'live' : 'test'
     if (environment === 'live' && process.env.HMRC_LIVE_ENABLED !== 'true') {
-      return send(res, 409, { ok: false, error: 'Live HMRC transport is disabled. Set HMRC_LIVE_ENABLED=true only after HMRC confirms production go-live details.' })
+      return send(res, 409, { ok: false, error: 'Live HMRC transport is disabled by the production safety flag. Set HMRC_LIVE_ENABLED=true only when Gift Aided's live Agent credentials are configured.' })
     }
     const targetEndpoint = environment === 'live' ? LIVE_SUBMISSION_ENDPOINT : ETS_SUBMISSION_ENDPOINT
 
@@ -130,7 +130,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     await logActivity({
       userId: operator.id,
       userEmail: operator.email,
-      action: 'claim_sent_to_ets',
+      action: environment === 'live' ? 'claim_sent_to_hmrc_live' : 'claim_sent_to_ets',
       targetType: 'submission',
       targetId: submissionId,
       success: false,
