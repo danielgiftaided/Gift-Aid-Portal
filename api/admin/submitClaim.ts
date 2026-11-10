@@ -1,31 +1,23 @@
 /**
- * Orchestrates building (and, once live transport is enabled, sending) an
- * HMRC Charities Online claim for a single submission.
+ * Builds an HMRC Charities Online claim for a single submission.
  *
  * Pipeline: fetch data -> map to claim shape -> build XML -> compute IRmark
- * -> splice IRmark in -> [STUBBED] send to HMRC -> store result.
+ * -> splice IRmark in -> store the exact claim ready for an operator to send.
  *
- * Operator-only — this is deliberately not exposed to charity users. Direct
- * HMRC submission is consequential enough that a human at Gift Aided should
- * be the one triggering it, at least until this has a real track record.
+ * HMRC confirmed in November 2026 that Gift Aided may begin live filing
+ * immediately. Production routing is:
+ *   Vendor ID: 9330
+ *   Product: GiftAided
+ *   Version: 1.0
  *
- * LIVE TRANSPORT IS DELIBERATELY DISABLED until:
- *   1. The Local Test Service has validated this XML structure against the
- *      real schema and business rules (this codebase's structure is built
- *      from the documentation, not yet checked against the authoritative
- *      LTS tool).
- *   2. External Test Service credentials are available to test the actual
- *      network transport before anything touches live data.
+ * Live filing still requires Gift Aided's separate Charities for Agents
+ * production credentials and the explicit HMRC_LIVE_ENABLED=true server-side
+ * feature flag. Charity Government Gateway credentials are never collected;
+ * HMRC identifies the charity/authorisation through CHARID/HMRCref and the
+ * per-charity Agent/Nominee reference held against the charity.
  *
- * Credentials model (confirmed): every submission uses Gift Aided's own
- * single Government Gateway login, set via HMRC_SENDER_ID / 
- * HMRC_SENDER_PASSWORD below — not anything collected from charities
- * themselves. HMRC matches the submission to the right charity via the
- * HMRCref/CHARID and Agent/Nominee reference already in the XML.
- *
- * Until both of the above are true, this endpoint builds the XML, verifies
- * the IRmark, and stores everything for review with
- * hmrc_status='ready_to_send' — it does not transmit anything anywhere.
+ * Operator-only: building and sending live claims remains a deliberate human
+ * action to reduce duplicate or accidental submissions.
  */
 
 import type { VercelRequest, VercelResponse } from '@vercel/node'
@@ -49,23 +41,6 @@ function spliceIrmark(xml: string, irmarkBase64: string): string {
   )
 }
 
-/**
- * STUBBED transport function. Deliberately throws rather than attempting a
- * real network call — see file header for exactly what needs to be true
- * before this should do anything else.
- *
- * When ready to enable: this is where an HTTP POST to either the External
- * Test Service or the live Transaction Engine URL belongs, along with
- * handling the GovTalk poll-based response flow (an initial acknowledgement
- * with a correlation ID, followed by polling for the final accepted/
- * rejected outcome) — do not assume a single synchronous request/response.
- */
-async function sendToHmrc(_finalXml: string): Promise<never> {
-  throw new Error(
-    'Live HMRC transport is not yet enabled. See the file header in api/admin/submitClaim.ts for what needs confirming first (SDST credentials question, LTS validation, ETS access).'
-  )
-}
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   try {
     if (req.method !== 'POST') {
@@ -86,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isLive && process.env.HMRC_LIVE_ENABLED !== 'true') {
       return send(res, 409, {
         ok: false,
-        error: 'Live HMRC submission is not enabled. Set HMRC_LIVE_ENABLED=true only after HMRC confirms the production credentials, Vendor ID/product details and any remaining go-live steps.',
+        error: 'Live HMRC submission is disabled by the production safety flag. Set HMRC_LIVE_ENABLED=true only when Gift Aided's live Agent credentials are configured.',
       })
     }
 
@@ -187,13 +162,11 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // ── Step 2: build the XML with a placeholder IRmark ─────
-    // Credentials are Gift Aided's own single Government Gateway login —
-    // confirmed not to be per-charity. These env vars must be set once
-    // real credentials exist; empty strings are fine for now since IRmark
-    // generation doesn't depend on them.
+    // Credentials are Gift Aided's own Agent credentials, not per-charity.
+    // HMRC confirmed Vendor ID 9330 and left the product name/version to us.
     const credentials: SubmissionCredentials = {
       vendorId: process.env.HMRC_VENDOR_ID || '9330',
-      productName: process.env.HMRC_PRODUCT_NAME || 'Gift Aided Portal',
+      productName: process.env.HMRC_PRODUCT_NAME || 'GiftAided',
       productVersion: process.env.HMRC_PRODUCT_VERSION || '1.0',
       senderId: process.env.HMRC_SENDER_ID || '',
       senderPassword: process.env.HMRC_SENDER_PASSWORD || '',
@@ -241,8 +214,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return send(res, 500, { ok: false, error: `IRmark generation failed: ${e.message}` })
     }
 
-    // ── Step 4: store the built claim, ready for review ─────
-    // Live transport is intentionally not attempted — see sendToHmrc().
+    // ── Step 4: store the built claim, ready for review/send ─────
     await supabaseAdmin
       .from('submissions')
       .update({
@@ -278,7 +250,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return send(res, 200, {
       ok: true,
       status: 'ready_to_send',
-      message: isLive ? 'Live claim XML built and IRmark verified. Ready for controlled submission to HMRC.' : 'Test claim XML built and IRmark verified. Ready for ETS submission.',
+      message: isLive ? 'Live claim XML built and IRmark verified. Ready for submission to HMRC.' : 'Test claim XML built and IRmark verified. Ready for ETS submission.',
       warnings: mapping.warnings,
       donationCount: mapping.claim.donations.length,
     })
