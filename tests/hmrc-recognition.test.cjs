@@ -130,6 +130,16 @@ test('GASDS form saves and clears an independent adjustment and refuses invalid 
     else assert.ok(errors.some(Boolean))
   }
 })
+test('submitClaim separates live Agent credentials from ETS credentials', () => {
+  const source = fs.readFileSync('api/admin/submitClaim.ts', 'utf8')
+  assert.match(source, /HMRC_LIVE_SENDER_ID/)
+  assert.match(source, /HMRC_LIVE_SENDER_PASSWORD/)
+  assert.match(source, /HMRC_TEST_SENDER_ID/)
+  assert.match(source, /HMRC_TEST_SENDER_PASSWORD/)
+  assert.match(source, /process\.env\.HMRC_SENDER_ID/)
+  assert.match(source, /process\.env\.HMRC_SENDER_PASSWORD/)
+})
+
 test('DATA_REQUEST uses the matching test/live submission endpoint and reports HMRC errors as failures', async () => {
   for (const environment of ['test', 'live']) {
     for (const qualifier of ['response', 'error']) {
