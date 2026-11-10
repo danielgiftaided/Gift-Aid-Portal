@@ -19,7 +19,7 @@ const submission = { id: 'submission', charity_id: 'charity', tax_year: '2015/16
 const mary = { id: 'mary', title: 'Mrs', first_name: 'Mary', last_name: 'Smith', address: '100', postcode: 'AB23 4CD', donation_date: '07/04/15', amount: 500, sponsored: true }
 const william = { id: 'william', title: 'Captain', first_name: 'William', last_name: 'Black', address: '59 BFPO 8', postcode: 'BFPO 8', donation_date: '20/04/15', amount: 20 }
 const gasds = { claim_year: 2014, amount: 1000, connected_charities: true, connected_charity_details: [{ charityName: 'Thanks for the Money', hmrcRef: 'AB98765', year: 2014, amount: 1000 }], community_buildings: true, community_building_details: [{ buildingName: 'The Village Shed', address: 'The Village Green, Givingsville', postcode: 'AA11 1AA', year: 2014, amount: 101 }, { buildingName: 'The Village Shack', address: 'The Park, Givingsville', postcode: 'AA2 2AA', year: 2014, amount: 999.99 }], adjustment: 25, adjustment_explanation: 'GASDS correction to previous claim' }
-const credentials = { vendorId: '9330', productName: 'Gift Aided Portal', productVersion: '1.0', senderId: 'test-sender', senderPassword: 'test-password', isLive: false, agentOrgName: 'Gift Aided', agentPostcode: 'WC2H 9JQ', agentPhone: '01234567890' }
+const credentials = { vendorId: '9330', productName: 'GiftAided', productVersion: '1.0', senderId: 'test-sender', senderPassword: 'test-password', isLive: false, agentOrgName: 'Gift Aided', agentPostcode: 'WC2H 9JQ', agentPhone: '01234567890' }
 const otherDonors = [
   { id: 'jim', title: null, first_name: 'Jim', last_name: 'Harris', address: '19 The Promenade, Benidorm, Spain', postcode: 'X', donation_date: '15/04/15', amount: 10 },
   { id: 'bill', title: null, first_name: 'Bill', last_name: 'Hill-Jones', address: '1', postcode: 'BA23 9CD', donation_date: '17/04/15', amount: 2.50 },
@@ -45,6 +45,16 @@ test('recognition claim preserves Mary sponsorship, BFPO identity and distinct a
   assert.equal(doc.getElementsByTagName('Adj')[0].textContent, '25.00')
   assert.match(doc.getElementsByTagName('OtherInfo')[0].textContent, /GASDS correction/)
 })
+test('HMRC-confirmed ChannelRouting uses Vendor ID 9330 and GiftAided 1.0', () => {
+  const xml = claimXml()
+  assert.match(xml, /<URI>9330<\/URI>/)
+  assert.match(xml, /<Product>GiftAided<\/Product>/)
+  assert.match(xml, /<Version>1\.0<\/Version>/)
+  assert.match(xml, /<GatewayTest>1<\/GatewayTest>/)
+  const liveXml = builder.buildR68Submission(mapper.buildClaimFromSubmission(charity, submission, [mary, william], null, []).claim, { ...credentials, isLive: true })
+  assert.doesNotMatch(liveXml, /<GatewayTest>/)
+})
+
 test('overseas donors remain overseas; unknown BFPO numbers require a verified postcode', () => {
   assert.match(claimXml([{ ...mary, sponsored: false, postcode: 'X' }]), /<Overseas>yes<\/Overseas>/)
   const result = mapper.buildClaimFromSubmission(charity, submission, [{ ...william, postcode: 'BFPO 999' }])
@@ -120,20 +130,23 @@ test('GASDS form saves and clears an independent adjustment and refuses invalid 
     else assert.ok(errors.some(Boolean))
   }
 })
-test('DATA_REQUEST uses the submission endpoint and reports HMRC errors as failures', async () => {
-  for (const qualifier of ['response', 'error']) {
-    const calls = [], updates = []
-    const q = { select() { return q }, eq() { return q }, single: async () => ({ data: { hmrc_correlation_id: 'ABC', hmrc_response_endpoint: 'https://example.test/poll', hmrc_claim_xml: claimXml() } }), update(value) { updates.push(value); return q }, then(resolve) { resolve({ error: null }) } }
-    const handler = load('api/admin/sendDataRequest.ts', { '../_utils/supabase.js': { supabaseAdmin: { from: () => q } }, '../_utils/requireOperator.js': { requireOperator: async () => ({ id: 'operator' }) }, '../_utils/transactionEngine.js': { ...protocol, postToTransactionEngine: async (xml, url) => { calls.push({ xml, url }); return `<Qualifier>${qualifier}</Qualifier>` } } }).default
-    const res = { status(code) { this.code = code; return this }, json(body) { this.body = body; return this } }
-    await handler({ method: 'POST', body: { submission_id: 'submission' } }, res)
-    assert.equal(calls[0].url, protocol.ETS_SUBMISSION_ENDPOINT)
-    assert.match(calls[0].xml, /<CorrelationID\/>/)
-    assert.equal(res.code, qualifier === 'response' ? 200 : 502)
-    assert.equal(res.body.ok, qualifier === 'response')
-    assert.equal(updates.length, 1, 'Capture failed response for diagnosis too')
+test('DATA_REQUEST uses the matching test/live submission endpoint and reports HMRC errors as failures', async () => {
+  for (const environment of ['test', 'live']) {
+    for (const qualifier of ['response', 'error']) {
+      const calls = [], updates = []
+      const q = { select() { return q }, eq() { return q }, single: async () => ({ data: { hmrc_correlation_id: 'ABC', hmrc_response_endpoint: 'https://example.test/poll', hmrc_claim_xml: claimXml(), hmrc_environment: environment } }), update(value) { updates.push(value); return q }, then(resolve) { resolve({ error: null }) } }
+      const handler = load('api/admin/sendDataRequest.ts', { '../_utils/supabase.js': { supabaseAdmin: { from: () => q } }, '../_utils/requireOperator.js': { requireOperator: async () => ({ id: 'operator' }) }, '../_utils/transactionEngine.js': { ...protocol, postToTransactionEngine: async (xml, url) => { calls.push({ xml, url }); return `<Qualifier>${qualifier}</Qualifier>` } } }, { process: { env: { HMRC_LIVE_ENABLED: 'true' } } }).default
+      const res = { status(code) { this.code = code; return this }, json(body) { this.body = body; return this } }
+      await handler({ method: 'POST', body: { submission_id: 'submission' } }, res)
+      assert.equal(calls[0].url, environment === 'live' ? protocol.LIVE_SUBMISSION_ENDPOINT : protocol.ETS_SUBMISSION_ENDPOINT)
+      assert.match(calls[0].xml, /<CorrelationID\/>/)
+      assert.equal(res.code, qualifier === 'response' ? 200 : 502)
+      assert.equal(res.body.ok, qualifier === 'response')
+      assert.equal(updates.length, 1, 'Capture failed response for diagnosis too')
+    }
   }
 })
+
 test('final poll cleans up via the submission endpoint rather than polling endpoint', async () => {
   const calls = []
   const q = { select() { return q }, eq() { return q }, single: async () => ({ data: { hmrc_status: 'sent', hmrc_correlation_id: 'ABC', hmrc_response_endpoint: 'https://example.test/poll' } }), update() { return q }, then(resolve) { resolve({ error: null }) } }
