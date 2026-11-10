@@ -25,6 +25,7 @@ import {
   parseGovTalkResponse,
   buildDataRequestMessage,
   ETS_SUBMISSION_ENDPOINT,
+  LIVE_SUBMISSION_ENDPOINT,
 } from '../_utils/transactionEngine.js'
 
 const CLAIM_CLASS = 'HMRC-CHAR-CLM'
@@ -51,7 +52,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const { data: submission, error: subErr } = await supabaseAdmin
       .from('submissions')
-      .select('id, hmrc_correlation_id, hmrc_response_endpoint, hmrc_status, hmrc_claim_xml')
+      .select('id, hmrc_correlation_id, hmrc_response_endpoint, hmrc_status, hmrc_claim_xml, hmrc_environment')
       .eq('id', submissionId)
       .single()
 
@@ -62,15 +63,22 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (!submission.hmrc_correlation_id) {
       return send(res, 400, {
         ok: false,
-        error: 'This submission has no HMRC CorrelationID — it needs to have been sent to ETS and acknowledged first.',
+        error: 'This submission has no HMRC CorrelationID — it needs to have been submitted and acknowledged first.',
       })
     }
 
     const dataRequestXml = buildDataRequestMessage(CLAIM_CLASS, submission.hmrc_claim_xml || '')
 
-    // Only SUBMISSION_POLL goes to ResponseEndPoint. List requests go to
-    // the Transaction Engine submission endpoint (protocol v2.0 section 3.9).
-    const targetUrl = ETS_SUBMISSION_ENDPOINT
+    // Only SUBMISSION_POLL goes to ResponseEndPoint. List requests go back to
+    // the submission endpoint for the same environment as the original claim.
+    const environment = submission.hmrc_environment === 'live' ? 'live' : 'test'
+    if (environment === 'live' && process.env.HMRC_LIVE_ENABLED !== 'true') {
+      return send(res, 409, {
+        ok: false,
+        error: 'Live HMRC transport is disabled by the production safety flag.',
+      })
+    }
+    const targetUrl = environment === 'live' ? LIVE_SUBMISSION_ENDPOINT : ETS_SUBMISSION_ENDPOINT
 
     let responseXml: string
     try {
@@ -100,7 +108,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       error: succeeded ? undefined : 'HMRC returned an unsuccessful DATA_RESPONSE. Review the captured response before exporting.',
       errors: parsed.businessErrors,
       qualifier: parsed.qualifier,
-      message: `DATA_REQUEST sent and DATA_RESPONSE received (qualifier: ${parsed.qualifier}). Both stored against this submission for inclusion in the HMRC recognition package.`,
+      message: `DATA_REQUEST sent to HMRC ${environment === 'live' ? 'live' : 'ETS'} and DATA_RESPONSE received (qualifier: ${parsed.qualifier}). Both messages were stored against this submission.`,
       dataRequestXml,
       dataResponseXml: responseXml,
     })
