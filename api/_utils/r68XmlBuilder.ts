@@ -19,12 +19,9 @@
  * Agent/Nominee reference in <AgtOrNom>. This means credentials never need
  * to be collected from or shared by charities themselves.
  *
- * Worth confirming with SDST if not already done: whether each individual
- * charity needs to separately authorise Gift Aided as their agent through
- * HMRC's standard agent-authorisation process before a submission using
- * Gift Aided's Gateway login plus that charity's reference will actually
- * be accepted — this is a different step from collecting the Agent/Nominee
- * reference number itself.
+ * HMRC confirmed in November 2026 that the per-charity Agent/Nominee
+ * reference issued through the charity's authorisation is the value to send
+ * in <AgtOrNom><RefNo>.
  *
  * IMPORTANT: this builder produces the XML with a placeholder empty
  * <IRmark> element. The real IRmark must be computed (see irmark.ts) from
@@ -106,22 +103,10 @@ export interface GasdsClaimInput {
 }
 
 export interface SubmissionCredentials {
-  // FIX (HMRC recognition feedback — Issue 2: Vendor ID):
-  // The vendorId string is placed directly into the <URI> element inside
-  // <Channel>/<ChannelRouting>. HMRC flagged the supplied value as incorrect.
-  //
-  // HMRC's exact expected format for this field must be confirmed with SDST
-  // before resubmitting — ask them: "What is the exact string you expect in
-  // the <URI> element of <ChannelRouting> for Vendor ID 9330?"
-  //
-  // Common formats seen in HMRC submissions:
-  //   "9330"                    — bare numeric (current default)
-  //   "09330"                   — zero-padded to 5 digits
-  //   "https://giftaided.com"   — registered product URL
-  //
-  // Set the HMRC_VENDOR_ID environment variable in Vercel to whatever format
-  // HMRC confirm. Do NOT hardcode it here — the env var is the single source
-  // of truth so it can be corrected without a code deploy.
+  // HMRC confirmed in November 2026 that Gift Aided's Vendor ID must be sent
+  // as the bare four-digit value 9330, e.g. <URI>9330</URI>. The product name
+  // and version are at Gift Aided's discretion; production defaults are
+  // GiftAided / 1.0 and remain configurable through server environment vars.
   vendorId: string
   productName: string
   productVersion: string
