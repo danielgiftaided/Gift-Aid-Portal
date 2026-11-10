@@ -11,8 +11,8 @@
  *   Version: 1.0
  *
  * Live filing still requires Gift Aided's separate Charities for Agents
- * production credentials and the explicit HMRC_LIVE_ENABLED=true server-side
- * feature flag. Charity Government Gateway credentials are never collected;
+ * production credentials (HMRC_LIVE_SENDER_ID / HMRC_LIVE_SENDER_PASSWORD)
+ * and the explicit HMRC_LIVE_ENABLED=true server-side feature flag. Charity Government Gateway credentials are never collected;
  * HMRC identifies the charity/authorisation through CHARID/HMRCref and the
  * per-charity Agent/Nominee reference held against the charity.
  *
@@ -168,8 +168,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       vendorId: process.env.HMRC_VENDOR_ID || '9330',
       productName: process.env.HMRC_PRODUCT_NAME || 'GiftAided',
       productVersion: process.env.HMRC_PRODUCT_VERSION || '1.0',
-      senderId: process.env.HMRC_SENDER_ID || '',
-      senderPassword: process.env.HMRC_SENDER_PASSWORD || '',
+      // HMRC confirmed live Agent credentials are separate from ETS.
+      // Keep legacy HMRC_SENDER_* as a test-only fallback for existing ETS deployments.
+      senderId: isLive
+        ? (process.env.HMRC_LIVE_SENDER_ID || '')
+        : (process.env.HMRC_TEST_SENDER_ID || process.env.HMRC_SENDER_ID || ''),
+      senderPassword: isLive
+        ? (process.env.HMRC_LIVE_SENDER_PASSWORD || '')
+        : (process.env.HMRC_TEST_SENDER_PASSWORD || process.env.HMRC_SENDER_PASSWORD || ''),
       isLive, // live => omit GatewayTest; test => GatewayTest=1
       // Gift Aided's OWN details as the agent — confirmed required by the
       // real schema's AgtOrNom structure. Must be set before any real
@@ -190,7 +196,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isLive && (!credentials.senderId || !credentials.senderPassword || !credentials.vendorId || !credentials.productName || !credentials.productVersion)) {
       return send(res, 500, {
         ok: false,
-        error: 'Live HMRC credentials/product routing are incomplete. Configure HMRC_SENDER_ID, HMRC_SENDER_PASSWORD, HMRC_VENDOR_ID, HMRC_PRODUCT_NAME and HMRC_PRODUCT_VERSION before building a live claim.',
+        error: 'Live HMRC credentials/product routing are incomplete. Configure HMRC_LIVE_SENDER_ID, HMRC_LIVE_SENDER_PASSWORD, HMRC_VENDOR_ID, HMRC_PRODUCT_NAME and HMRC_PRODUCT_VERSION before building a live claim.',
       })
     }
 
