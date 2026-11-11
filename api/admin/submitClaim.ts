@@ -61,7 +61,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (isLive && process.env.HMRC_LIVE_ENABLED !== 'true') {
       return send(res, 409, {
         ok: false,
-        error: 'Live HMRC submission is disabled by the production safety flag. Set HMRC_LIVE_ENABLED=true only when Gift Aided's live Agent credentials are configured.',
+        error: "Live HMRC submission is disabled by the production safety flag. Set HMRC_LIVE_ENABLED=true only when Gift Aided's live Agent credentials are configured.",
       })
     }
 
