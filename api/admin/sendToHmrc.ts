@@ -68,7 +68,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const environment = submission.hmrc_environment === 'live' ? 'live' : 'test'
     if (environment === 'live' && process.env.HMRC_LIVE_ENABLED !== 'true') {
-      return send(res, 409, { ok: false, error: 'Live HMRC transport is disabled by the production safety flag. Set HMRC_LIVE_ENABLED=true only when Gift Aided's live Agent credentials are configured.' })
+      return send(res, 409, { ok: false, error: "Live HMRC transport is disabled by the production safety flag. Set HMRC_LIVE_ENABLED=true only when Gift Aided's live Agent credentials are configured." })
     }
     const targetEndpoint = environment === 'live' ? LIVE_SUBMISSION_ENDPOINT : ETS_SUBMISSION_ENDPOINT
 
